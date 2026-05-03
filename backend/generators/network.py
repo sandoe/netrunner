@@ -406,20 +406,69 @@ def gen_persist_script(name: str, commands: list[str]) -> list[str]:
 
 def gen_backup_commands(paths: dict) -> list[str]:
     def q(s): return shlex.quote(s)
+    ip_addr   = paths["ip_addr"]
+    ip_route  = paths["ip_route"]
+    ip6_route = paths["ip6_route"]
+    ipv4_fwd  = paths["ipv4_forward"]
+    ipv6_fwd  = paths["ipv6_forward"]
+    iptables  = paths["iptables"]
+    nft       = paths["nft"]
+    resolv    = paths["resolv"]
+    hosts     = paths["hosts"]
+    dnsmasq   = paths["dnsmasq"]
+    wg_dir    = paths["wireguard"]
+    backup_dir = paths["dir"]
+
     return [
         "# ── Backup current network state ────────────────────────────",
-        f"rm -rf {q(paths['dir'])}",
-        f"mkdir -p {q(paths['wireguard'])}",
-        f"sh -lc {q(f'ip address save > {paths[\"ip_addr\"]} 2>/dev/null || :')}",
-        f"sh -lc {q(f'ip route save > {paths[\"ip_route\"]} 2>/dev/null || :')}",
-        f"sh -lc {q(f'ip -6 route save > {paths[\"ip6_route\"]} 2>/dev/null || :')}",
-        f"sh -lc {q(f'sysctl -n net.ipv4.ip_forward > {paths[\"ipv4_forward\"]} 2>/dev/null || echo 0 > {paths[\"ipv4_forward\"]}')}",
-        f"sh -lc {q(f'sysctl -n net.ipv6.conf.all.forwarding > {paths[\"ipv6_forward\"]} 2>/dev/null || echo 0 > {paths[\"ipv6_forward\"]}')}",
-        f"sh -lc {q(f'iptables-save > {paths[\"iptables\"]} 2>/dev/null || :')}",
-        f"sh -lc {q(f'nft list ruleset > {paths[\"nft\"]} 2>/dev/null || :')}",
-        f"cp /etc/resolv.conf {q(paths['resolv'])} 2>/dev/null || true",
-        f"cp /etc/hosts {q(paths['hosts'])} 2>/dev/null || true",
-        f"cp /etc/dnsmasq.d/netrunner-dhcp.conf {q(paths['dnsmasq'])} 2>/dev/null || true",
-        f"cp -r /etc/wireguard/. {q(paths['wireguard'])}/ 2>/dev/null || true",
-        f"echo 'Backup created: {paths['dir']}'",
+        f"rm -rf {q(backup_dir)}",
+        f"mkdir -p {q(wg_dir)}",
+        f"sh -lc {q('ip address save > ' + ip_addr + ' 2>/dev/null || :')}",
+        f"sh -lc {q('ip route save > ' + ip_route + ' 2>/dev/null || :')}",
+        f"sh -lc {q('ip -6 route save > ' + ip6_route + ' 2>/dev/null || :')}",
+        f"sh -lc {q('sysctl -n net.ipv4.ip_forward > ' + ipv4_fwd + ' 2>/dev/null || echo 0 > ' + ipv4_fwd)}",
+        f"sh -lc {q('sysctl -n net.ipv6.conf.all.forwarding > ' + ipv6_fwd + ' 2>/dev/null || echo 0 > ' + ipv6_fwd)}",
+        f"sh -lc {q('iptables-save > ' + iptables + ' 2>/dev/null || :')}",
+        f"sh -lc {q('nft list ruleset > ' + nft + ' 2>/dev/null || :')}",
+        f"cp /etc/resolv.conf {q(resolv)} 2>/dev/null || true",
+        f"cp /etc/hosts {q(hosts)} 2>/dev/null || true",
+        f"cp /etc/dnsmasq.d/netrunner-dhcp.conf {q(dnsmasq)} 2>/dev/null || true",
+        f"cp -r /etc/wireguard/. {q(wg_dir)}/ 2>/dev/null || true",
+        "echo 'Backup created: " + backup_dir + "'",
+    ]
+
+
+def gen_restore_commands(paths: dict) -> list[str]:
+    def q(s): return shlex.quote(s)
+    ip_addr   = paths["ip_addr"]
+    ip_route  = paths["ip_route"]
+    ip6_route = paths["ip6_route"]
+    ipv4_fwd  = paths["ipv4_forward"]
+    ipv6_fwd  = paths["ipv6_forward"]
+    iptables  = paths["iptables"]
+    nft       = paths["nft"]
+    resolv    = paths["resolv"]
+    hosts     = paths["hosts"]
+    dnsmasq   = paths["dnsmasq"]
+    wg_dir    = paths["wireguard"]
+
+    return [
+        "# ── Restore network state from backup ───────────────────────",
+        f"test -d {q(paths['dir'])} || (echo 'Backup not found' && false)",
+        "ip route flush table main 2>/dev/null || true",
+        "ip -6 route flush table main 2>/dev/null || true",
+        "nft flush ruleset 2>/dev/null || true",
+        "iptables -F 2>/dev/null || true; iptables -t nat -F 2>/dev/null || true",
+        f"if [ -s {q(ip_addr)} ]; then ip address restore < {q(ip_addr)} 2>/dev/null || :; fi",
+        f"if [ -s {q(ip_route)} ]; then ip route restore < {q(ip_route)} 2>/dev/null || :; fi",
+        f"if [ -s {q(ip6_route)} ]; then ip -6 route restore < {q(ip6_route)} 2>/dev/null || :; fi",
+        f"if [ -s {q(ipv4_fwd)} ]; then sysctl -w net.ipv4.ip_forward=$(cat {q(ipv4_fwd)}) 2>/dev/null || :; fi",
+        f"if [ -s {q(ipv6_fwd)} ]; then sysctl -w net.ipv6.conf.all.forwarding=$(cat {q(ipv6_fwd)}) 2>/dev/null || :; fi",
+        f"if [ -s {q(iptables)} ]; then iptables-restore < {q(iptables)} 2>/dev/null || :; fi",
+        f"if [ -s {q(nft)} ]; then nft -f {q(nft)} 2>/dev/null || :; fi",
+        f"if [ -f {q(resolv)} ]; then cp {q(resolv)} /etc/resolv.conf; fi",
+        f"if [ -f {q(hosts)} ]; then cp {q(hosts)} /etc/hosts; fi",
+        f"if [ -f {q(dnsmasq)} ]; then mkdir -p /etc/dnsmasq.d && cp {q(dnsmasq)} /etc/dnsmasq.d/netrunner-dhcp.conf; fi",
+        f"if [ -d {q(wg_dir)} ]; then mkdir -p /etc/wireguard && cp -r {q(wg_dir)}/. /etc/wireguard/; fi",
+        "echo 'Rollback complete'",
     ]

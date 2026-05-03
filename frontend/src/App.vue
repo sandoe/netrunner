@@ -13,9 +13,13 @@
       <div v-if="store.loading" class="sidebar-info">loading…</div>
       <div v-if="store.error" class="sidebar-error">{{ store.error }}</div>
 
+      <div class="sidebar-search">
+        <input v-model="searchQuery" placeholder="Search nodes…" class="search-input" />
+      </div>
+
       <div class="node-list">
         <div
-          v-for="node in store.nodeList"
+          v-for="node in filteredNodes"
           :key="node.id"
           class="node-item"
           :class="{ active: store.selectedId === node.id }"
@@ -25,10 +29,13 @@
           <div class="node-meta">
             <div class="node-name">{{ node.name }}</div>
             <div class="node-host">{{ node.host }}:{{ node.port }}</div>
+            <div class="node-tags" v-if="node.tags && node.tags.length">
+              <span v-for="tag in node.tags.slice(0, 3)" :key="tag" class="tag-chip">{{ tag }}</span>
+            </div>
           </div>
           <span class="node-transport" :class="node.transport">{{ node.transport }}</span>
         </div>
-        <div v-if="!store.loading && store.nodeList.length === 0" class="sidebar-empty">
+        <div v-if="!store.loading && filteredNodes.length === 0" class="sidebar-empty">
           No nodes yet.<br>Click + to add one.
         </div>
       </div>
@@ -78,9 +85,10 @@
 
         <!-- Tab content -->
         <div class="tab-content">
-          <DiagPanel  v-if="activeTab === 'diag'"     :node-id="store.selected.id" />
-          <ExecPanel  v-if="activeTab === 'exec'"     :node-id="store.selected.id" />
-          <Terminal   v-if="activeTab === 'terminal'" :node="store.selected" />
+          <DiagPanel    v-if="activeTab === 'diag'"     :node-id="store.selected.id" />
+          <ConfigPanel  v-if="activeTab === 'config'"   :node-id="store.selected.id" />
+          <ExecPanel    v-if="activeTab === 'exec'"     :node-id="store.selected.id" />
+          <Terminal     v-if="activeTab === 'terminal'" :node="store.selected" />
         </div>
       </template>
     </main>
@@ -97,22 +105,35 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, watch } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { useNodesStore } from '@/stores/nodes'
 import { api } from '@/api/client'
 import DiagPanel from './components/DiagPanel.vue'
 import ExecPanel from './components/ExecPanel.vue'
+import ConfigPanel from './components/ConfigPanel.vue'
 import Terminal  from './components/Terminal.vue'
 import NodeForm  from './components/NodeForm.vue'
 import type { NrNode } from '@/types'
 
 const store       = useNodesStore()
-const activeTab   = ref<'diag' | 'exec' | 'terminal'>('diag')
+const activeTab   = ref<'diag' | 'config' | 'exec' | 'terminal'>('diag')
 const showAddForm = ref(false)
 const showEdit    = ref(false)
+const searchQuery = ref('')
+
+const filteredNodes = computed(() => {
+  const q = searchQuery.value.toLowerCase().trim()
+  if (!q) return store.nodeList
+  return store.nodeList.filter(n =>
+    n.name.toLowerCase().includes(q) ||
+    n.host.toLowerCase().includes(q) ||
+    (n.tags ?? []).some(t => t.toLowerCase().includes(q))
+  )
+})
 
 const tabs = [
   { id: 'diag',     label: '🔎 Diagnostics' },
+  { id: 'config',   label: '🛠 Config' },
   { id: 'exec',     label: '⚙️ Execute' },
   { id: 'terminal', label: '⚡ Terminal' },
 ] as const
@@ -214,7 +235,12 @@ body {
 .node-meta { flex: 1; min-width: 0; }
 .node-name { font-size: 13px; font-weight: 500; color: #e6edf3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .node-host { font-size: 11px; color: #6e7681; }
-.node-transport { font-size: 10px; padding: 2px 5px; border-radius: 3px; font-weight: 500; }
+.node-transport { font-size: 10px; padding: 2px 5px; border-radius: 3px; font-weight: 500; flex-shrink: 0; }
+.sidebar-search { padding: 6px 8px; border-bottom: 1px solid #21262d; }
+.search-input { width: 100%; padding: 5px 8px; font-size: 12px; background: #1c2128; border: 1px solid #30363d; border-radius: 4px; color: #c9d1d9; outline: none; box-sizing: border-box; }
+.search-input:focus { border-color: #58a6ff; }
+.node-tags { display: flex; flex-wrap: wrap; gap: 3px; margin-top: 3px; }
+.tag-chip { font-size: 9px; padding: 1px 5px; border-radius: 3px; background: #21262d; color: #6e7681; border: 1px solid #30363d; }
 .node-transport.ssh    { background: #1c3a5c; color: #79c0ff; }
 .node-transport.telnet { background: #2d1b00; color: #d29922; }
 

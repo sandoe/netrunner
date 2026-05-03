@@ -514,18 +514,8 @@ def api_node_rollback(nid: str):
         raise HTTPException(404, "No backup available for this node")
     paths = meta["paths"]
 
-    def q(s): return shlex.quote(s)
-    restore_cmds = [
-        f"test -d {q(paths['dir'])} || (echo 'Backup not found' && false)",
-        "ip route flush table main 2>/dev/null || true",
-        "nft flush ruleset 2>/dev/null || true",
-        "iptables -F 2>/dev/null || true; iptables -t nat -F 2>/dev/null || true",
-        f"if [ -s {q(paths['iptables'])} ]; then iptables-restore < {q(paths['iptables'])} 2>/dev/null || true; fi",
-        f"if [ -f {q(paths['resolv'])} ]; then cp {q(paths['resolv'])} /etc/resolv.conf; fi",
-        f"if [ -s {q(paths['ip_addr'])} ]; then ip address restore < {q(paths['ip_addr'])} 2>/dev/null || true; fi",
-        f"if [ -s {q(paths['ip_route'])} ]; then ip route restore < {q(paths['ip_route'])} 2>/dev/null || true; fi",
-        "echo 'Rollback complete'",
-    ]
+    from ..generators.network import gen_restore_commands
+    restore_cmds = gen_restore_commands(paths)
     node = _get_node_with_creds(nid, nodes)
     results, err = session_manager.run(nid, node, restore_cmds)
     if err:

@@ -17,7 +17,7 @@
       <div v-else>
         <div class="output-header">
           <span>{{ activeType }}</span>
-          <button class="copy-btn" @click="copyOutput">copy</button>
+          <button class="copy-btn" :class="{ ok: copied }" @click="copyOutput">{{ copied ? '✓ copied' : 'copy' }}</button>
         </div>
         <div v-if="loadingType === activeType" class="loader">loading…</div>
         <div v-else-if="outputError" class="output-error">{{ outputError }}</div>
@@ -39,6 +39,7 @@ const activeType  = ref<ReadType | null>(null)
 const loadingType = ref<string | null>(null)
 const output      = ref('')
 const outputError = ref('')
+const copied      = ref(false)
 
 async function readType(type: ReadType) {
   activeType.value  = type
@@ -56,7 +57,10 @@ async function readType(type: ReadType) {
 }
 
 function copyOutput() {
-  navigator.clipboard.writeText(output.value).catch(() => {})
+  navigator.clipboard.writeText(output.value).then(() => {
+    copied.value = true
+    setTimeout(() => { copied.value = false }, 1500)
+  }).catch(() => {})
 }
 </script>
 
@@ -101,9 +105,10 @@ function copyOutput() {
 .copy-btn {
   font-size: 11px; padding: 2px 8px;
   background: #21262d; border: 1px solid #30363d;
-  border-radius: 4px; color: #c9d1d9; cursor: pointer;
+  border-radius: 4px; color: #c9d1d9; cursor: pointer; transition: background .15s, color .15s;
 }
 .copy-btn:hover { background: #30363d; }
+.copy-btn.ok { background: #1f3a1f; border-color: #3fb950; color: #3fb950; }
 .loader { padding: 24px; color: #6e7681; font-size: 13px; }
 .output-error {
   margin: 12px; padding: 10px 14px;

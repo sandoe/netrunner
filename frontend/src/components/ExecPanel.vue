@@ -3,11 +3,12 @@
     <div class="exec-input-area">
       <textarea
         v-model="script"
-        placeholder="# Enter shell commands here, one per line
+        placeholder="# Shell commands, one per line (Ctrl+Enter to run)
 ip addr show
 ping -c 3 8.8.8.8"
         rows="6"
         spellcheck="false"
+        @keydown.ctrl.enter.prevent="run"
       />
       <div class="exec-actions">
         <button @click="run" :disabled="running || !script.trim()" class="btn-run">
