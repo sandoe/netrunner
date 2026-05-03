@@ -1,0 +1,27 @@
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+.env
+
+# Vault key — never commit
+data/.vault_key
+
+# Data (node data, captures, exports — user-specific)
+data/nodes.json
+data/vault.json
+data/configs/
+data/captures/
+data/exports/
+
+# Frontend build artifacts
+frontend/node_modules/
+frontend/dist/
+
+# macOS
+.DS_Store
+
+# IDE
+.vscode/
+.idea/
