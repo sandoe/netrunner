@@ -4,7 +4,7 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException
 
 from ..generators.network import (
-    gen_ip, gen_routes, gen_forwarding, gen_dhcp, gen_dns, gen_dhcp_server,
+    gen_ip, gen_interface, gen_routes, gen_forwarding, gen_dhcp, gen_dns, gen_dhcp_server,
     gen_nat, gen_reset_node, gen_vlan_router, gen_vlan_switch, gen_wireguard,
     gen_persist_script,
 )
@@ -33,6 +33,8 @@ def api_preview(body: dict):
         # ── Network ────────────────────────────────────────────────
         if t == "ip":
             cmds = gen_ip(cfg.get("interface", "eth0"), cfg.get("addresses", []), cfg.get("action", "add"))
+        elif t == "interface":
+            cmds = gen_interface(cfg)
         elif t == "routes":
             cmds = gen_routes(cfg.get("routes", []), cfg.get("action", "add"))
         elif t == "forwarding":

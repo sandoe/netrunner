@@ -11,7 +11,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from .routers import configs, nodes, preview, terminal
+from .routers import ai, configs, gns3, links, nodes, preview, terminal, settings
+from .routers.settings import load_settings
 
 FRONTEND_DIST = Path(__file__).parent.parent / "frontend" / "dist"
 DATA_DIR = Path("data")
@@ -19,8 +20,15 @@ DATA_DIR = Path("data")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Ensure directories exist
     for d in ("configs", "captures", "exports"):
         (DATA_DIR / d).mkdir(parents=True, exist_ok=True)
+    
+    # Load settings into env
+    s = load_settings()
+    if s.get("openai_api_key"):
+        os.environ["OPENAI_API_KEY"] = s["openai_api_key"]
+
     yield
     from .core.session import session_manager
     session_manager.close_all()
@@ -36,6 +44,10 @@ app.add_middleware(
 )
 
 app.include_router(nodes.router,    prefix="/api")
+app.include_router(links.router,    prefix="/api")
+app.include_router(gns3.router,     prefix="/api")
+app.include_router(ai.router,       prefix="/api")
+app.include_router(settings.router, prefix="/api")
 app.include_router(configs.router,  prefix="/api")
 app.include_router(preview.router,  prefix="/api")
 app.include_router(terminal.router)

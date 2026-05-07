@@ -1,20 +1,48 @@
 <template>
   <div class="app">
+    <div class="scanline"></div>
     <!-- Sidebar -->
     <aside class="sidebar">
       <div class="sidebar-header">
         <div class="logo">
-          <span class="logo-icon">⚡</span>
-          <span class="logo-text">netrunner</span>
+          <span class="logo-title">NETRUNNER</span>
+          <span class="logo-sub">OS v1.0.0</span>
         </div>
-        <button class="btn-add" @click="showAddForm = true" title="Add node">+</button>
+        <div class="header-tools">
+          <button class="btn-icon" @click="showSettings = true" title="Settings">⚙️</button>
+          <button class="btn-add" @click="showAddForm = true" title="Add node">+</button>
+        </div>
       </div>
 
-      <div v-if="store.loading" class="sidebar-info">loading…</div>
+      <div class="sidebar-stats">
+        <div class="sidebar-stat">
+          <div class="stat-label">NODES</div>
+          <div class="stat-value">{{ store.nodeList.length }}</div>
+        </div>
+        <div class="sidebar-stat">
+          <div class="stat-label">LIVE</div>
+          <div class="stat-value" :class="{ 'text-green': store.connectedCount > 0 }">{{ store.connectedCount }}</div>
+        </div>
+      </div>
+
+      <div class="sidebar-nav">
+        <button 
+          class="btn-nav" 
+          :class="{ active: viewMode === 'node' }" 
+          @click="viewMode = 'node'"
+        >NODES</button>
+        <button 
+          class="btn-nav" 
+          :class="{ active: viewMode === 'topology' }" 
+          @click="viewMode = 'topology'"
+        >TOPOLOGY</button>
+      </div>
+
+      <div v-if="store.loading" class="sidebar-info">SCANNING NEURAL LINK...</div>
       <div v-if="store.error" class="sidebar-error">{{ store.error }}</div>
 
       <div class="sidebar-search">
-        <input v-model="searchQuery" placeholder="Search nodes…" class="search-input" />
+        <input v-model="searchQuery" placeholder="FILTER NODES..." class="search-input" />
       </div>
 
       <div class="node-list">
@@ -25,7 +53,13 @@
           :class="{ active: store.selectedId === node.id }"
           @click="store.select(node.id)"
         >
-          <span class="node-icon">{{ deviceIcon(node.device_type) }}</span>
+          <div 
+            class="node-dot" 
+            :class="{ 
+              connected: store.isConnected(node.id),
+              'manually-off': !store.isConnected(node.id) && store.manuallyDisconnected.has(node.id)
+            }"
+          ></div>
           <div class="node-meta">
             <div class="node-name">{{ node.name }}</div>
             <div class="node-host">{{ node.host }}:{{ node.port }}</div>
@@ -36,17 +70,19 @@
           <span class="node-transport" :class="node.transport">{{ node.transport }}</span>
         </div>
         <div v-if="!store.loading && filteredNodes.length === 0" class="sidebar-empty">
-          No nodes yet.<br>Click + to add one.
+          NO NODES DETECTED.
         </div>
       </div>
     </aside>
 
     <!-- Main content -->
     <main class="main">
-      <div v-if="!store.selected" class="welcome">
+      <TopologyView v-if="viewMode === 'topology'" />
+      
+      <div v-else-if="!store.selected" class="welcome">
         <div class="welcome-inner">
-          <div class="welcome-logo">⚡ netrunner</div>
-          <p>Select a node from the sidebar, or add a new one to get started.</p>
+          <div class="welcome-logo">NETRUNNER</div>
+          <div class="welcome-sub">AWAITING NEURAL CONNECTION...</div>
         </div>
       </div>
 
@@ -54,7 +90,7 @@
         <!-- Node header bar -->
         <div class="node-header">
           <div class="node-title">
-            <span class="node-icon-lg">{{ deviceIcon(store.selected.device_type) }}</span>
+            <div class="node-dot-lg" :class="{ connected: store.isConnected(store.selected.id) }"></div>
             <div>
               <div class="node-title-name">{{ store.selected.name }}</div>
               <div class="node-title-sub">
@@ -64,11 +100,12 @@
             </div>
           </div>
           <div class="header-actions">
-            <button @click="detectType" class="btn-action" title="Auto-detect device type">🔍 detect</button>
-            <button @click="doBackup"   class="btn-action">💾 backup</button>
-            <button @click="doRollback" class="btn-action">↩ rollback</button>
-            <button @click="showEdit = true" class="btn-action">✏️ edit</button>
-            <button @click="deleteNode" class="btn-action btn-danger">✕</button>
+            <button v-if="!store.isConnected(store.selected.id)" @click="doConnect" class="btn-action" :disabled="connBusy">CONNECT</button>
+            <button v-else @click="doDisconnect" class="btn-action" :disabled="connBusy">DISCONNECT</button>
+            <button @click="detectType" class="btn-action">DETECT</button>
+            <button @click="doBackup"   class="btn-action">BACKUP</button>
+            <button @click="doRollback" class="btn-action">ROLLBACK</button>
+            <button @click="deleteNode" class="btn-action btn-danger">NUKE CONFIG</button>
           </div>
         </div>
 
@@ -85,9 +122,11 @@
 
         <!-- Tab content -->
         <div class="tab-content">
+          <OverviewPanel v-if="activeTab === 'overview'" :node-id="store.selected.id" />
           <DiagPanel    v-if="activeTab === 'diag'"     :node-id="store.selected.id" />
           <ConfigPanel  v-if="activeTab === 'config'"   :node-id="store.selected.id" />
           <ExecPanel    v-if="activeTab === 'exec'"     :node-id="store.selected.id" />
+          <CapturePanel v-if="activeTab === 'capture'"  :node-id="store.selected.id" />
           <Terminal     v-if="activeTab === 'terminal'" :node="store.selected" />
         </div>
       </template>
@@ -96,30 +135,43 @@
     <!-- Modals -->
     <NodeForm v-if="showAddForm" @close="showAddForm = false" />
     <NodeForm v-if="showEdit"    :node="store.selected" @close="showEdit = false" />
+    <SettingsModal v-if="showSettings" @close="showSettings = false" />
 
     <!-- Flash messages -->
     <div class="flash-stack">
       <div v-for="msg in flashes" :key="msg.id" class="flash" :class="msg.type">{{ msg.text }}</div>
     </div>
+
+    <!-- AI Sidebar -->
+    <AiChatSidebar />
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useNodesStore } from '@/stores/nodes'
 import { api } from '@/api/client'
 import DiagPanel from './components/DiagPanel.vue'
 import ExecPanel from './components/ExecPanel.vue'
 import ConfigPanel from './components/ConfigPanel.vue'
+import CapturePanel from './components/CapturePanel.vue'
+import OverviewPanel from './components/OverviewPanel.vue'
 import Terminal  from './components/Terminal.vue'
 import NodeForm  from './components/NodeForm.vue'
+import TopologyView from './components/TopologyView.vue'
+import AiChatSidebar from './components/AiChatSidebar.vue'
+import SettingsModal from './components/SettingsModal.vue'
 import type { NrNode } from '@/types'
 
 const store       = useNodesStore()
-const activeTab   = ref<'diag' | 'config' | 'exec' | 'terminal'>('diag')
+const viewMode    = ref<'node' | 'topology'>('node')
+const activeTab   = ref<'overview' | 'diag' | 'config' | 'exec' | 'capture' | 'terminal'>('overview')
 const showAddForm = ref(false)
 const showEdit    = ref(false)
+const showSettings = ref(false)
 const searchQuery = ref('')
+const connBusy    = ref(false)
+const exporting   = ref(false)
 
 const filteredNodes = computed(() => {
   const q = searchQuery.value.toLowerCase().trim()
@@ -132,10 +184,12 @@ const filteredNodes = computed(() => {
 })
 
 const tabs = [
-  { id: 'diag',     label: '🔎 Diagnostics' },
-  { id: 'config',   label: '🛠 Config' },
-  { id: 'exec',     label: '⚙️ Execute' },
-  { id: 'terminal', label: '⚡ Terminal' },
+  { id: 'overview', label: 'OVERVIEW' },
+  { id: 'diag',     label: 'DIAGNOSTICS' },
+  { id: 'config',   label: 'CONFIG' },
+  { id: 'exec',     label: 'EXECUTE' },
+  { id: 'capture',  label: 'CAPTURE' },
+  { id: 'terminal', label: 'TERMINAL' },
 ] as const
 
 interface Flash { id: number; text: string; type: 'ok' | 'err' }
@@ -148,8 +202,34 @@ function flash(text: string, type: 'ok' | 'err' = 'ok') {
   setTimeout(() => { flashes.value = flashes.value.filter(f => f.id !== id) }, 3500)
 }
 
-function deviceIcon(type: NrNode['device_type']) {
-  return { linux: '🐧', rpi: '🍓', gns3: '🌐', unknown: '❓' }[type] ?? '❓'
+async function doConnect() {
+  if (!store.selected) return
+  connBusy.value = true
+  try {
+    await api.connectNode(store.selected.id)
+    store.manuallyDisconnected.delete(store.selected.id)
+    await store.refreshConnections()
+    flash(`Connected to ${store.selected.name}`)
+  } catch (e) {
+    flash(String(e), 'err')
+  } finally {
+    connBusy.value = false
+  }
+}
+
+async function doDisconnect() {
+  if (!store.selected) return
+  connBusy.value = true
+  try {
+    await api.disconnectNode(store.selected.id)
+    store.manuallyDisconnected.add(store.selected.id)
+    await store.refreshConnections()
+    flash(`Disconnected ${store.selected.name}`)
+  } catch (e) {
+    flash(String(e), 'err')
+  } finally {
+    connBusy.value = false
+  }
 }
 
 async function detectType() {
@@ -169,6 +249,24 @@ async function doBackup() {
     flash('Backup created')
   } catch (e) {
     flash(String(e), 'err')
+  }
+}
+
+async function doExport() {
+  if (!store.selected) return
+  exporting.value = true
+  try {
+    const res = await api.exportNode(store.selected.id, {})
+    const errs = Object.keys(res.diagnostic_errors || {}).length
+    flash(errs ? `Export ready (${errs} diag errors)` : 'Export ready')
+    const a = document.createElement('a')
+    a.href = api.exportDownloadUrl(res.name)
+    a.download = res.name
+    document.body.appendChild(a); a.click(); a.remove()
+  } catch (e) {
+    flash(String(e), 'err')
+  } finally {
+    exporting.value = false
   }
 }
 
@@ -194,85 +292,117 @@ async function deleteNode() {
   }
 }
 
-watch(() => store.selectedId, () => { activeTab.value = 'diag' })
+watch(() => store.selectedId, () => {
+  activeTab.value = 'overview'
+  store.refreshConnections()
+})
 
-onMounted(() => store.refresh())
+let connTimer: ReturnType<typeof setInterval> | null = null
+onMounted(() => {
+  store.refresh()
+  connTimer = setInterval(() => store.refreshConnections(), 4000)
+})
+onUnmounted(() => { if (connTimer) clearInterval(connTimer) })
 </script>
 
-<style>
-*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-html, body, #app { height: 100%; }
-body {
-  background: #0d1117;
-  color: #c9d1d9;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  font-size: 14px;
-  -webkit-font-smoothing: antialiased;
-}
-::-webkit-scrollbar { width: 6px; height: 6px; }
-::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: #30363d; border-radius: 3px; }
-::-webkit-scrollbar-thumb:hover { background: #484f58; }
-</style>
-
 <style scoped>
-.app { display: flex; height: 100vh; overflow: hidden; }
+.app { display: flex; height: 100vh; overflow: hidden; position: relative; z-index: 1; }
 
-.sidebar { width: 240px; min-width: 240px; background: #010409; border-right: 1px solid #21262d; display: flex; flex-direction: column; }
-.sidebar-header { display: flex; align-items: center; justify-content: space-between; padding: 12px 12px 8px; border-bottom: 1px solid #21262d; }
-.logo { display: flex; align-items: center; gap: 6px; }
-.logo-icon { font-size: 18px; }
-.logo-text { font-size: 15px; font-weight: 700; color: #58a6ff; letter-spacing: -.02em; }
-.btn-add { width: 26px; height: 26px; border-radius: 6px; background: #1f6feb; border: none; color: #fff; font-size: 18px; line-height: 1; cursor: pointer; display: flex; align-items: center; justify-content: center; }
-.btn-add:hover { background: #388bfd; }
-.sidebar-info, .sidebar-empty { padding: 16px 12px; color: #6e7681; font-size: 12px; }
-.sidebar-error { padding: 8px 12px; background: #1a0a0a; color: #f85149; font-size: 12px; }
-.node-list { flex: 1; overflow-y: auto; padding: 4px 0; }
-.node-item { display: flex; align-items: center; gap: 8px; padding: 8px 12px; cursor: pointer; border-left: 3px solid transparent; }
-.node-item:hover { background: #0d1117; }
-.node-item.active { background: #1c2128; border-left-color: #58a6ff; }
-.node-icon { font-size: 18px; }
+/* Sidebar */
+.sidebar { width: 270px; min-width: 270px; background: var(--bg2); border-right: 1px solid var(--border); display: flex; flex-direction: column; position: relative; }
+.sidebar::after { content: ''; position: absolute; top: 0; right: 0; width: 1px; height: 100%; background: linear-gradient(to bottom, transparent, var(--cyan), transparent); opacity: .4; }
+
+.sidebar-header { padding: 22px 20px 18px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; }
+.header-tools { display: flex; align-items: center; gap: 10px; }
+.logo { line-height: 1; }
+.logo-title { font-family: var(--font-hd); font-size: 15px; font-weight: 900; letter-spacing: 3px; color: var(--green); text-shadow: 0 0 12px rgba(0,255,157,.6); }
+.logo-sub { display: block; font-family: var(--font-co); font-size: 9px; letter-spacing: 2px; color: var(--text); margin-top: 5px; text-transform: uppercase; }
+
+.btn-icon { background: none; border: none; font-size: 16px; cursor: pointer; opacity: 0.6; transition: opacity 0.2s; padding: 0; display: flex; align-items: center; justify-content: center; }
+.btn-icon:hover { opacity: 1; filter: drop-shadow(0 0 5px var(--cyan)); }
+
+.btn-add { width: 28px; height: 28px; border-radius: 50%; background: none; border: 1px solid var(--cyan); color: var(--cyan); font-size: 18px; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all .2s; }
+.btn-add:hover { background: var(--cyan); color: var(--bg); box-shadow: var(--shadow-c); }
+
+.sidebar-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; padding: 14px 20px; border-bottom: 1px solid var(--border); }
+.sidebar-stat { background: linear-gradient(180deg, rgba(0,229,255,.08), rgba(16,24,40,.5)); border: 1px solid var(--border); border-radius: var(--r); padding: 10px; }
+.stat-label { font-family: var(--font-hd); font-size: 8px; letter-spacing: 1.5px; color: var(--text); text-transform: uppercase; }
+.stat-value { margin-top: 4px; font-family: var(--font-co); font-size: 16px; color: var(--textwh); }
+.text-green { color: var(--green); text-shadow: 0 0 8px var(--green); }
+
+.sidebar-nav { display: grid; grid-template-columns: 1fr 1fr; gap: 1px; background: var(--border); padding: 1px; border-bottom: 1px solid var(--border); }
+.btn-nav { background: var(--bg2); border: none; color: var(--text); padding: 10px; font-family: var(--font-hd); font-size: 9px; letter-spacing: 1.5px; cursor: pointer; transition: all .2s; }
+.btn-nav:hover { color: var(--textwh); background: var(--bg3); }
+.btn-nav.active { color: var(--cyan); background: var(--bg3); box-shadow: inset 0 0 10px rgba(0, 229, 255, 0.05); }
+
+.sidebar-search { padding: 12px 14px; }
+.search-input { width: 100%; padding: 10px 12px; background: var(--bg3); border: 1px solid var(--border); border-radius: var(--r); color: var(--textwh); font-family: var(--font-co); font-size: 11px; outline: none; }
+.search-input:focus { border-color: var(--cyan); box-shadow: 0 0 8px rgba(0,229,255,.2); }
+
+.node-list { flex: 1; overflow-y: auto; padding: 4px 10px; }
+.node-item { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: var(--r); cursor: pointer; border: 1px solid transparent; margin-bottom: 4px; transition: all .18s; position: relative; }
+.node-item:hover { background: var(--bg3); border-color: var(--border); }
+.node-item.active { background: rgba(0,255,157,.06); border-color: rgba(0,255,157,.3); }
+.node-item.active::before { content: ''; position: absolute; left: 0; top: 20%; height: 60%; width: 2px; background: var(--green); box-shadow: 0 0 8px var(--green); }
+
+.node-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--border2); flex-shrink: 0; }
+.node-dot.connected { background: var(--green); box-shadow: 0 0 8px var(--green); animation: pulse-green 2s infinite; }
+.node-dot.manually-off { background: var(--pink); box-shadow: 0 0 8px var(--pink); }
+
+@keyframes pulse-green { 0% { opacity: 1; } 50% { opacity: .5; } 100% { opacity: 1; } }
+
 .node-meta { flex: 1; min-width: 0; }
-.node-name { font-size: 13px; font-weight: 500; color: #e6edf3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.node-host { font-size: 11px; color: #6e7681; }
-.node-transport { font-size: 10px; padding: 2px 5px; border-radius: 3px; font-weight: 500; flex-shrink: 0; }
-.sidebar-search { padding: 6px 8px; border-bottom: 1px solid #21262d; }
-.search-input { width: 100%; padding: 5px 8px; font-size: 12px; background: #1c2128; border: 1px solid #30363d; border-radius: 4px; color: #c9d1d9; outline: none; box-sizing: border-box; }
-.search-input:focus { border-color: #58a6ff; }
-.node-tags { display: flex; flex-wrap: wrap; gap: 3px; margin-top: 3px; }
-.tag-chip { font-size: 9px; padding: 1px 5px; border-radius: 3px; background: #21262d; color: #6e7681; border: 1px solid #30363d; }
-.node-transport.ssh    { background: #1c3a5c; color: #79c0ff; }
-.node-transport.telnet { background: #2d1b00; color: #d29922; }
+.node-name { font-family: var(--font-co); font-size: 12px; color: var(--textwh); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.node-host { font-family: var(--font-co); font-size: 10px; color: var(--text); }
+.node-transport { font-family: var(--font-hd); font-size: 8px; letter-spacing: 1px; padding: 2px 6px; border-radius: 4px; background: var(--bg4); border: 1px solid var(--border); text-transform: uppercase; }
+.node-transport.ssh { color: var(--cyan); border-color: var(--cyan-d); }
+.node-transport.telnet { color: var(--yellow); border-color: var(--orange); }
 
-.main { flex: 1; display: flex; flex-direction: column; overflow: hidden; min-width: 0; }
+.sidebar-info, .sidebar-empty { padding: 20px; text-align: center; font-family: var(--font-hd); font-size: 10px; color: var(--text); letter-spacing: 1px; }
+
+/* Main */
+.main { flex: 1; display: flex; flex-direction: column; overflow: hidden; background: var(--bg); position: relative; }
+
 .welcome { flex: 1; display: flex; align-items: center; justify-content: center; }
-.welcome-inner { text-align: center; color: #6e7681; }
-.welcome-logo { font-size: 28px; font-weight: 700; color: #58a6ff; margin-bottom: 12px; }
+.welcome-logo { font-family: var(--font-hd); font-size: 42px; font-weight: 900; letter-spacing: 8px; color: var(--green); text-shadow: 0 0 20px var(--green); margin-bottom: 10px; }
+.welcome-sub { font-family: var(--font-co); font-size: 11px; letter-spacing: 3px; color: var(--text); }
 
-.node-header { display: flex; align-items: center; justify-content: space-between; padding: 10px 16px; border-bottom: 1px solid #21262d; background: #010409; }
-.node-title { display: flex; align-items: center; gap: 10px; }
-.node-icon-lg { font-size: 24px; }
-.node-title-name { font-size: 16px; font-weight: 600; color: #e6edf3; }
-.node-title-sub { font-size: 12px; color: #8b949e; margin-top: 1px; }
-.device-badge { display: inline-block; padding: 1px 6px; border-radius: 8px; font-size: 10px; margin-left: 6px; font-weight: 500; }
-.device-badge.linux   { background: #1f3a1f; color: #3fb950; }
-.device-badge.rpi     { background: #3a1f2e; color: #e85480; }
-.device-badge.gns3    { background: #1f2a3a; color: #58a6ff; }
-.device-badge.unknown { background: #1f1f1f; color: #6e7681; }
-.header-actions { display: flex; gap: 6px; }
-.btn-action { padding: 5px 10px; font-size: 12px; border-radius: 6px; background: #21262d; border: 1px solid #30363d; color: #c9d1d9; cursor: pointer; }
-.btn-action:hover { background: #30363d; }
-.btn-danger { border-color: #491c1c; color: #f85149; }
-.btn-danger:hover { background: #1a0000; }
+.node-header { padding: 16px 24px; background: var(--bg2); border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; }
+.node-title { display: flex; align-items: center; gap: 14px; }
+.node-dot-lg { width: 12px; height: 12px; border-radius: 50%; background: var(--border2); }
+.node-dot-lg.connected { background: var(--green); box-shadow: 0 0 12px var(--green); }
+.node-title-name { font-family: var(--font-hd); font-size: 18px; font-weight: 700; color: var(--textwh); letter-spacing: 1px; }
+.node-title-sub { font-family: var(--font-co); font-size: 11px; color: var(--text); margin-top: 4px; }
+.device-badge { margin-left: 8px; padding: 2px 8px; border-radius: 4px; font-size: 9px; text-transform: uppercase; font-family: var(--font-hd); border: 1px solid var(--border); }
+.device-badge.linux { color: var(--green); border-color: var(--green); }
+.device-badge.rpi { color: var(--pink); border-color: var(--pink); }
+.device-badge.gns3 { color: var(--cyan); border-color: var(--cyan); }
 
-.tab-bar { display: flex; border-bottom: 1px solid #21262d; background: #010409; padding: 0 12px; }
-.tab { padding: 8px 14px; font-size: 13px; background: none; border: none; border-bottom: 2px solid transparent; color: #8b949e; cursor: pointer; }
-.tab:hover { color: #c9d1d9; }
-.tab.active { color: #e6edf3; border-bottom-color: #58a6ff; }
-.tab-content { flex: 1; overflow: hidden; display: flex; flex-direction: column; }
+.header-actions { display: flex; gap: 8px; }
+.btn-action { background: var(--bg3); border: 1px solid var(--border); color: var(--textwh); padding: 6px 12px; border-radius: var(--r); font-family: var(--font-hd); font-size: 9px; letter-spacing: 1px; cursor: pointer; transition: all .2s; }
+.btn-action:hover:not(:disabled) { border-color: var(--cyan); color: var(--cyan); box-shadow: var(--shadow-c); }
+.btn-action:disabled { opacity: .4; cursor: not-allowed; }
 
-.flash-stack { position: fixed; bottom: 16px; right: 16px; display: flex; flex-direction: column; gap: 8px; z-index: 200; }
-.flash { padding: 10px 16px; border-radius: 8px; font-size: 13px; box-shadow: 0 4px 12px rgba(0,0,0,.4); }
-.flash.ok  { background: #1f3a1f; border: 1px solid #3fb950; color: #3fb950; }
-.flash.err { background: #1a0a0a; border: 1px solid #f85149; color: #f85149; }
+.btn-danger { border-color: var(--pink); color: var(--pink); }
+.btn-danger:hover:not(:disabled) { 
+  background: rgba(255, 45, 110, 0.2); 
+  border-color: #ff0055; 
+  color: #ff0055; 
+  box-shadow: 0 0 15px #ff0055, inset 0 0 10px rgba(255, 0, 85, 0.3);
+  text-shadow: 0 0 5px #ff0055;
+}
+
+.tab-bar { background: var(--bg2); border-bottom: 1px solid var(--border); display: flex; padding: 0 14px; }
+.tab { background: none; border: none; padding: 12px 18px; font-family: var(--font-hd); font-size: 10px; letter-spacing: 2px; color: var(--text); cursor: pointer; position: relative; transition: color .2s; }
+.tab:hover { color: var(--textwh); }
+.tab.active { color: var(--cyan); }
+.tab.active::after { content: ''; position: absolute; bottom: -1px; left: 0; width: 100%; height: 2px; background: var(--cyan); box-shadow: 0 0 8px var(--cyan); }
+
+.tab-content { flex: 1; overflow: hidden; position: relative; }
+
+.flash-stack { position: fixed; bottom: 24px; right: 24px; display: flex; flex-direction: column; gap: 10px; z-index: 1000; }
+.flash { padding: 14px 20px; border-radius: var(--r); font-family: var(--font-co); font-size: 12px; border: 1px solid var(--border); min-width: 240px; box-shadow: 0 8px 32px rgba(0,0,0,.5); backdrop-filter: blur(8px); animation: slide-in .3s ease-out; }
+@keyframes slide-in { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+.flash.ok { background: rgba(0,255,157,.1); border-color: var(--green); color: var(--green); }
+.flash.err { background: rgba(255,45,110,.1); border-color: var(--pink); color: var(--pink); }
 </style>

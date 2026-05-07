@@ -19,25 +19,39 @@
         <div class="editor-header">
           <span class="type-name">{{ activeType }}</span>
           <div class="header-actions">
+            <label class="persist-toggle" :title="'Wrap commands in /etc/local.d/<name>.start so they run on every boot'">
+              <input type="checkbox" v-model="persistMode" />
+              <span>persist on boot</span>
+            </label>
+            <button class="btn-clear-form" @click="resetForm" title="Reset form to defaults">🗑 clear form</button>
             <button class="btn-preview" @click="getPreview" :disabled="loading">👁 preview</button>
-            <button class="btn-apply" @click="applyConfig" :disabled="loading || !previewCommands.length">🚀 apply</button>
+            <button class="btn-apply" @click="applyConfig" :disabled="loading || !previewCommands.length">
+              {{ persistMode ? '💾 install' : '🚀 apply' }}
+            </button>
           </div>
         </div>
 
         <div class="editor-body">
-          <!-- Specialized IP Form -->
-          <div v-if="activeType === 'ip'" class="specialized-form">
+          <!-- Specialized Interface Form -->
+          <div v-if="activeType === 'interface'" class="specialized-form">
             <div class="form-row">
               <label>Interface
-                <input v-model="ipForm.interface" placeholder="eth0" />
+                <input v-model="interfaceForm.interface" placeholder="eth0" />
               </label>
-              <label>IP Address / CIDR
-                <input v-model="ipForm.address" placeholder="10.0.0.1/24" />
+              <label class="check-label">
+                <input type="checkbox" v-model="interfaceForm.dhcp" /> Enable DHCP
               </label>
-              <label>Action
-                <select v-model="ipForm.action">
-                  <option value="add">Add</option>
-                  <option value="del">Delete</option>
+            </div>
+            <div class="section-label-sub">Static Addresses</div>
+            <div v-for="(addr, idx) in interfaceForm.addresses" :key="idx" class="form-row">
+              <input v-model="interfaceForm.addresses[idx]" placeholder="10.0.0.1/24" />
+              <button class="btn-remove" @click="interfaceForm.addresses.splice(idx, 1)">✕</button>
+            </div>
+            <div class="form-actions">
+              <button class="btn-add-sub" @click="interfaceForm.addresses.push('')">+ Add Static IP</button>
+              <label v-if="interfaceForm.addresses.length > 0">Action
+                <select v-model="interfaceForm.action">
+                  <option value="add">Add Only</option>
                   <option value="flush">Flush & Add</option>
                 </select>
               </label>
@@ -65,19 +79,6 @@
               <button class="btn-add-sub" @click="routeForm.routes.push({ dst: '', via: '', dev: '', metric: 0 })">+ Add Route</button>
               <label class="check-label">
                 <input type="checkbox" v-model="routeForm.isDelete" /> Delete instead of Add
-              </label>
-            </div>
-          </div>
-
-          <!-- DHCP Form -->
-          <div v-if="activeType === 'dhcp'" class="specialized-form">
-            <div class="form-row">
-              <label>Interface <input v-model="dhcpForm.interface" /></label>
-              <label>Action
-                <select v-model="dhcpForm.action">
-                  <option value="renew">Renew / Start</option>
-                  <option value="release">Release / Stop</option>
-                </select>
               </label>
             </div>
           </div>
@@ -300,6 +301,226 @@
             <label class="check-label"><input type="checkbox" v-model="fileWriteForm.backup" /> Create .bak before writing</label>
           </div>
 
+          <!-- iptables Form -->
+          <div v-if="activeType === 'iptables'" class="specialized-form">
+            <div class="section-label-sub">Default Policies</div>
+            <div class="form-row">
+              <label>INPUT
+                <select v-model="iptablesForm.defaults.INPUT">
+                  <option value="ACCEPT">ACCEPT</option>
+                  <option value="DROP">DROP</option>
+                </select>
+              </label>
+              <label>FORWARD
+                <select v-model="iptablesForm.defaults.FORWARD">
+                  <option value="ACCEPT">ACCEPT</option>
+                  <option value="DROP">DROP</option>
+                </select>
+              </label>
+              <label>OUTPUT
+                <select v-model="iptablesForm.defaults.OUTPUT">
+                  <option value="ACCEPT">ACCEPT</option>
+                  <option value="DROP">DROP</option>
+                </select>
+              </label>
+            </div>
+            <div class="section-label-sub">Rules</div>
+            <div v-for="(r, i) in iptablesForm.rules" :key="i" class="fw-rule">
+              <div class="form-row">
+                <label>Table
+                  <select v-model="r.table">
+                    <option value="filter">filter</option>
+                    <option value="nat">nat</option>
+                    <option value="mangle">mangle</option>
+                  </select>
+                </label>
+                <label>Chain <input v-model="r.chain" placeholder="INPUT" /></label>
+                <label>Action
+                  <select v-model="r.action">
+                    <option value="ACCEPT">ACCEPT</option>
+                    <option value="DROP">DROP</option>
+                    <option value="REJECT">REJECT</option>
+                    <option value="LOG">LOG</option>
+                    <option value="DNAT">DNAT</option>
+                    <option value="SNAT">SNAT</option>
+                    <option value="MASQUERADE">MASQUERADE</option>
+                  </select>
+                </label>
+                <button class="btn-remove" @click="iptablesForm.rules.splice(i, 1)">✕</button>
+              </div>
+              <div class="form-row">
+                <label>Proto
+                  <select v-model="r.protocol">
+                    <option value="">(any)</option>
+                    <option value="tcp">tcp</option>
+                    <option value="udp">udp</option>
+                    <option value="icmp">icmp</option>
+                  </select>
+                </label>
+                <label>In iface <input v-model="r.iif" placeholder="eth0" /></label>
+                <label>Out iface <input v-model="r.oif" placeholder="eth1" /></label>
+                <label>Source <input v-model="r.saddr" placeholder="10.0.0.0/24" /></label>
+                <label>Dest <input v-model="r.daddr" /></label>
+              </div>
+              <div class="form-row">
+                <label>Sport <input v-model="r.sport" /></label>
+                <label>Dport <input v-model="r.dport" placeholder="22" /></label>
+                <label>ct_state <input v-model="r.ct_state" placeholder="ESTABLISHED,RELATED" /></label>
+                <label v-if="r.action === 'DNAT' || r.action === 'SNAT'">NAT addr <input v-model="r.nat_addr" placeholder="10.0.0.10:80" /></label>
+                <label v-if="r.action === 'LOG'">Log prefix <input v-model="r.log_prefix" /></label>
+              </div>
+            </div>
+            <button class="btn-add-sub" @click="iptablesForm.rules.push({ table: 'filter', chain: 'INPUT', protocol: '', iif: '', oif: '', saddr: '', daddr: '', sport: '', dport: '', ct_state: '', action: 'ACCEPT', nat_addr: '', log_prefix: '' })">+ Add Rule</button>
+          </div>
+
+          <!-- nftables Form -->
+          <div v-if="activeType === 'nftables'" class="specialized-form">
+            <div class="form-row">
+              <label>Family
+                <select v-model="nftablesForm.family">
+                  <option value="ip">ip</option>
+                  <option value="ip6">ip6</option>
+                  <option value="inet">inet</option>
+                  <option value="arp">arp</option>
+                  <option value="bridge">bridge</option>
+                </select>
+              </label>
+              <label>Table name <input v-model="nftablesForm.table_name" /></label>
+              <label>Chain name <input v-model="nftablesForm.chain_name" /></label>
+            </div>
+            <div class="form-row">
+              <label>Chain type
+                <select v-model="nftablesForm.chain_type">
+                  <option value="filter">filter</option>
+                  <option value="nat">nat</option>
+                  <option value="route">route</option>
+                </select>
+              </label>
+              <label>Hook
+                <select v-model="nftablesForm.hook">
+                  <option value="input">input</option>
+                  <option value="output">output</option>
+                  <option value="forward">forward</option>
+                  <option value="prerouting">prerouting</option>
+                  <option value="postrouting">postrouting</option>
+                </select>
+              </label>
+              <label>Priority <input v-model="nftablesForm.priority" /></label>
+              <label>Policy
+                <select v-model="nftablesForm.policy">
+                  <option value="accept">accept</option>
+                  <option value="drop">drop</option>
+                </select>
+              </label>
+            </div>
+            <div class="section-label-sub">Rules</div>
+            <div v-for="(r, i) in nftablesForm.rules" :key="i" class="fw-rule">
+              <div class="form-row">
+                <label>Action
+                  <select v-model="r.action">
+                    <option value="accept">accept</option>
+                    <option value="drop">drop</option>
+                    <option value="reject">reject</option>
+                    <option value="log">log</option>
+                    <option value="dnat">dnat</option>
+                    <option value="snat">snat</option>
+                    <option value="masquerade">masquerade</option>
+                  </select>
+                </label>
+                <label>Proto
+                  <select v-model="r.protocol">
+                    <option value="">(any)</option>
+                    <option value="tcp">tcp</option>
+                    <option value="udp">udp</option>
+                    <option value="icmp">icmp</option>
+                  </select>
+                </label>
+                <label>In iface <input v-model="r.iif" /></label>
+                <label>Out iface <input v-model="r.oif" /></label>
+                <button class="btn-remove" @click="nftablesForm.rules.splice(i, 1)">✕</button>
+              </div>
+              <div class="form-row">
+                <label>Source <input v-model="r.saddr" /></label>
+                <label>Dest <input v-model="r.daddr" /></label>
+                <label>Sport <input v-model="r.sport" /></label>
+                <label>Dport <input v-model="r.dport" /></label>
+                <label>ct state <input v-model="r.ct_state" placeholder="established,related" /></label>
+              </div>
+              <div class="form-row">
+                <label v-if="r.action === 'dnat' || r.action === 'snat'">NAT addr <input v-model="r.nat_addr" /></label>
+                <label v-if="r.action === 'log'">Log prefix <input v-model="r.log_prefix" /></label>
+                <label>Comment <input v-model="r.comment" /></label>
+              </div>
+            </div>
+            <button class="btn-add-sub" @click="nftablesForm.rules.push({ iif: '', oif: '', saddr: '', daddr: '', protocol: '', sport: '', dport: '', ct_state: '', action: 'accept', nat_addr: '', log_prefix: '', comment: '' })">+ Add Rule</button>
+            <div class="hint">Multi-table setups: edit JSON below directly.</div>
+          </div>
+
+          <!-- UFW Form -->
+          <div v-if="activeType === 'ufw'" class="specialized-form">
+            <div class="section-label-sub">Defaults</div>
+            <div class="form-row">
+              <label>Incoming
+                <select v-model="ufwForm.defaults.incoming">
+                  <option value="allow">allow</option>
+                  <option value="deny">deny</option>
+                  <option value="reject">reject</option>
+                </select>
+              </label>
+              <label>Outgoing
+                <select v-model="ufwForm.defaults.outgoing">
+                  <option value="allow">allow</option>
+                  <option value="deny">deny</option>
+                  <option value="reject">reject</option>
+                </select>
+              </label>
+              <label>Routed
+                <select v-model="ufwForm.defaults.routed">
+                  <option value="allow">allow</option>
+                  <option value="deny">deny</option>
+                  <option value="reject">reject</option>
+                </select>
+              </label>
+              <label class="check-label"><input type="checkbox" v-model="ufwForm.enabled" /> Enable UFW</label>
+            </div>
+            <div class="section-label-sub">Rules</div>
+            <div v-for="(r, i) in ufwForm.rules" :key="i" class="fw-rule">
+              <div class="form-row">
+                <label>Direction
+                  <select v-model="r.direction">
+                    <option value="">(any)</option>
+                    <option value="in">in</option>
+                    <option value="out">out</option>
+                  </select>
+                </label>
+                <label>Action
+                  <select v-model="r.action">
+                    <option value="allow">allow</option>
+                    <option value="deny">deny</option>
+                    <option value="reject">reject</option>
+                    <option value="limit">limit</option>
+                  </select>
+                </label>
+                <label>Proto
+                  <select v-model="r.protocol">
+                    <option value="">(any)</option>
+                    <option value="tcp">tcp</option>
+                    <option value="udp">udp</option>
+                  </select>
+                </label>
+                <label>Port <input v-model="r.port" placeholder="22" /></label>
+                <button class="btn-remove" @click="ufwForm.rules.splice(i, 1)">✕</button>
+              </div>
+              <div class="form-row">
+                <label>Iface <input v-model="r.iif" /></label>
+                <label>From <input v-model="r.saddr" placeholder="any | 10.0.0.0/24" /></label>
+                <label>To <input v-model="r.daddr" /></label>
+                <label>Comment <input v-model="r.comment" /></label>
+              </div>
+            </div>
+            <button class="btn-add-sub" @click="ufwForm.rules.push({ direction: 'in', action: 'allow', iif: '', protocol: 'tcp', port: '', saddr: '', daddr: '', comment: '' })">+ Add Rule</button>
+          </div>
+
           <div class="input-section">
             <div class="section-label">Data (JSON)<span v-if="activeType" class="auto-label"> — auto-generated</span></div>
             <textarea
@@ -317,7 +538,10 @@
           </div>
 
           <div class="results-section" v-if="results.length">
-            <div class="section-label">Execution Results</div>
+            <div class="section-label">
+              Execution Results
+              <button class="btn-clear-results" @click="results = []">clear</button>
+            </div>
             <div v-for="(r, i) in results" :key="i" class="result-block">
               <div class="result-cmd">$ {{ r.command }}</div>
               <pre v-if="r.output" class="result-out">{{ r.output }}</pre>
@@ -341,9 +565,8 @@ const CONFIG_CATEGORIES = {
   network: {
     icon: '🌐', label: 'Network',
     types: [
-      { type: 'ip', label: 'IP Address' },
+      { type: 'interface', label: 'Interface Setup' },
       { type: 'routes', label: 'Routes' },
-      { type: 'dhcp', label: 'DHCP Client' },
       { type: 'dns', label: 'DNS / Resolver' },
       { type: 'nat', label: 'NAT / Forwarding' },
       { type: 'vlan-router', label: 'VLAN Router' },
@@ -351,6 +574,14 @@ const CONFIG_CATEGORIES = {
       { type: 'wireguard', label: 'WireGuard' },
       { type: 'forwarding', label: 'IP Forwarding' },
       { type: 'reset-node', label: 'Reset Node' },
+    ]
+  },
+  firewall: {
+    icon: '🛡️', label: 'Firewall',
+    types: [
+      { type: 'iptables', label: 'iptables' },
+      { type: 'nftables', label: 'nftables' },
+      { type: 'ufw', label: 'UFW' },
     ]
   },
   linux: {
@@ -372,98 +603,112 @@ const previewCommands = ref<string[]>([])
 const previewError    = ref('')
 const results         = ref<CommandResult[]>([])
 const loading         = ref(false)
+const persistMode     = ref(false)
 
-const ipForm = ref({
-  interface: 'eth0',
-  address: '10.0.0.1/24',
-  action: 'add'
+const defaultInterfaceForm    = () => ({ interface: 'eth0', addresses: [] as string[], dhcp: false, action: 'add' })
+const defaultRouteForm        = () => ({ routes: [{ dst: '10.1.0.0/24', via: '10.0.0.254', dev: '', metric: 0 }], isDelete: false })
+const defaultDnsForm          = () => ({ nameservers: ['8.8.8.8'], search: ['local'], hostname: '', domain: '', records: [{ name: '', value: '' }] })
+const defaultNatForm          = () => ({ outbound_iface: 'eth0', inbound_iface: 'eth1', source_subnet: '10.0.0.0/24', masquerade: true, port_forwards: [{ proto: 'tcp', external_port: '80', target_ip: '10.0.0.10', target_port: '80' }] })
+const defaultVlanRouterForm   = () => ({ interface: 'eth0', vlans: [{ id: '10', address: '10.0.10.1/24', description: 'Management' }] })
+const defaultVlanSwitchForm   = () => ({ bridge: 'br0', vlans: [{ id: '10', name: 'MGMT' }], ports: [{ iface: 'eth1', mode: 'access', vlan: '10', allowed: [] as string[] }] })
+const defaultWireguardForm    = () => ({ interface: 'wg0', private_key: '', address: '10.0.0.1/24', listen_port: 51820, peers: [{ public_key: '', endpoint: '', allowed_ips: '0.0.0.0/0' }] })
+const defaultForwardingForm   = () => ({ ipv4: true, ipv6: false })
+const defaultServiceForm      = () => ({ name: '', action: 'status' })
+const defaultPackageForm      = () => ({ packages: '', action: 'install', manager: 'auto' })
+const defaultUserForm         = () => ({ username: '', action: 'create', password: '', groups: '', shell: '/bin/bash', home: '', system: false })
+const defaultHostnameForm     = () => ({ hostname: '', domain: '' })
+const defaultSysctlForm       = () => ({ params: [{ key: 'net.ipv4.ip_forward', value: '1' }], persist: true })
+const defaultFileWriteForm    = () => ({ path: '/tmp/test.txt', content: '', mode: '644', owner: 'root', backup: false })
+const defaultIptablesForm     = () => ({
+  defaults: { INPUT: 'DROP', FORWARD: 'DROP', OUTPUT: 'ACCEPT' },
+  rules: [
+    { table: 'filter', chain: 'INPUT', protocol: '', iif: 'lo',  oif: '', saddr: '', daddr: '', sport: '', dport: '', ct_state: '',                      action: 'ACCEPT', nat_addr: '', log_prefix: '' },
+    { table: 'filter', chain: 'INPUT', protocol: '', iif: '',    oif: '', saddr: '', daddr: '', sport: '', dport: '', ct_state: 'ESTABLISHED,RELATED', action: 'ACCEPT', nat_addr: '', log_prefix: '' },
+  ],
+})
+const defaultUfwForm          = () => ({
+  defaults: { incoming: 'deny', outgoing: 'allow', routed: 'deny' },
+  enabled: true,
+  rules: [
+    { direction: 'in', action: 'allow', iif: '', protocol: 'tcp', port: '22', saddr: '', daddr: '', comment: 'SSH' },
+  ],
+})
+const defaultNftablesForm     = () => ({
+  family: 'inet',
+  table_name: 'filter',
+  chain_name: 'input',
+  chain_type: 'filter',
+  hook: 'input',
+  priority: '0',
+  policy: 'drop',
+  rules: [
+    { iif: 'lo', oif: '', saddr: '', daddr: '', protocol: '', sport: '', dport: '', ct_state: '',                      action: 'accept', nat_addr: '', log_prefix: '', comment: 'loopback' },
+    { iif: '',   oif: '', saddr: '', daddr: '', protocol: '', sport: '', dport: '', ct_state: 'established,related', action: 'accept', nat_addr: '', log_prefix: '', comment: '' },
+  ],
 })
 
-function syncIpForm() {
+function resetForm() {
+  if (!activeType.value) return
+  if (!confirm(`Clear current ${activeType.value} configuration form?`)) return
+  
+  const defaults: Record<string, any> = {
+    interface: defaultInterfaceForm, routes: defaultRouteForm, dns: defaultDnsForm,
+    nat: defaultNatForm, 'vlan-router': defaultVlanRouterForm, 'vlan-switch': defaultVlanSwitchForm,
+    wireguard: defaultWireguardForm, forwarding: defaultForwardingForm, service: defaultServiceForm,
+    package: defaultPackageForm, user: defaultUserForm, hostname: defaultHostnameForm,
+    sysctl: defaultSysctlForm, 'file-write': defaultFileWriteForm, iptables: defaultIptablesForm,
+    ufw: defaultUfwForm, nftables: defaultNftablesForm
+  }
+
+  const formRefs: Record<string, any> = {
+    interface: interfaceForm, routes: routeForm, dns: dnsForm,
+    nat: natForm, 'vlan-router': vlanRouterForm, 'vlan-switch': vlanSwitchForm,
+    wireguard: wireguardForm, forwarding: forwardingForm, service: serviceForm,
+    package: packageForm, user: userForm, hostname: hostnameForm,
+    sysctl: sysctlForm, 'file-write': fileWriteForm, iptables: iptablesForm,
+    ufw: ufwForm, nftables: nftablesForm
+  }
+
+  if (defaults[activeType.value] && formRefs[activeType.value]) {
+    formRefs[activeType.value].value = defaults[activeType.value]()
+    previewCommands.value = []
+    previewError.value = ''
+  }
+}
+
+const interfaceForm = ref(defaultInterfaceForm())
+
+function syncInterfaceForm() {
   inputJson.value = JSON.stringify({
-    interface: ipForm.value.interface,
-    addresses: [ipForm.value.address],
-    action: ipForm.value.action
+    interface: interfaceForm.value.interface,
+    addresses: interfaceForm.value.addresses.filter(a => a.trim()),
+    dhcp: interfaceForm.value.dhcp,
+    action: interfaceForm.value.action
   }, null, 2)
 }
 
-const routeForm = ref({
-  routes: [{ dst: '10.1.0.0/24', via: '10.0.0.254', dev: '', metric: 0 }],
-  isDelete: false
-})
-
-const dhcpForm = ref({ interface: 'eth0', action: 'renew' })
-
-const dnsForm = ref({
-  nameservers: ['8.8.8.8'],
-  search: ['local'],
-  hostname: '',
-  domain: '',
-  records: [{ name: '', value: '' }]
-})
-
-const natForm = ref({
-  outbound_iface: 'eth0',
-  inbound_iface: 'eth1',
-  source_subnet: '10.0.0.0/24',
-  masquerade: true,
-  port_forwards: [{ proto: 'tcp', external_port: '80', target_ip: '10.0.0.10', target_port: '80' }]
-})
-
-const vlanRouterForm = ref({
-  interface: 'eth0',
-  vlans: [{ id: '10', address: '10.0.10.1/24', description: 'Management' }]
-})
-
-const vlanSwitchForm = ref({
-  bridge: 'br0',
-  vlans: [{ id: '10', name: 'MGMT' }],
-  ports: [{ iface: 'eth1', mode: 'access', vlan: '10', allowed: [] as string[] }]
-})
-
-const wireguardForm = ref({
-  interface: 'wg0',
-  private_key: '',
-  address: '10.0.0.1/24',
-  listen_port: 51820,
-  peers: [{ public_key: '', endpoint: '', allowed_ips: '0.0.0.0/0' }]
-})
-
-const forwardingForm = ref({ ipv4: true, ipv6: false })
-
-const serviceForm = ref({ name: '', action: 'status' })
-
-const packageForm = ref({ packages: '', action: 'install', manager: 'auto' })
-
-const userForm = ref({
-  username: '', action: 'create', password: '',
-  groups: '', shell: '/bin/bash', home: '', system: false
-})
-
-const hostnameForm = ref({ hostname: '', domain: '' })
-
-const sysctlForm = ref({
-  params: [{ key: 'net.ipv4.ip_forward', value: '1' }],
-  persist: true
-})
-
-const fileWriteForm = ref({
-  path: '/tmp/test.txt',
-  content: '',
-  mode: '644',
-  owner: 'root',
-  backup: false
-})
+const routeForm       = ref(defaultRouteForm())
+const dnsForm         = ref(defaultDnsForm())
+const natForm         = ref(defaultNatForm())
+const vlanRouterForm  = ref(defaultVlanRouterForm())
+const vlanSwitchForm  = ref(defaultVlanSwitchForm())
+const wireguardForm   = ref(defaultWireguardForm())
+const forwardingForm  = ref(defaultForwardingForm())
+const serviceForm     = ref(defaultServiceForm())
+const packageForm     = ref(defaultPackageForm())
+const userForm        = ref(defaultUserForm())
+const hostnameForm    = ref(defaultHostnameForm())
+const sysctlForm      = ref(defaultSysctlForm())
+const fileWriteForm   = ref(defaultFileWriteForm())
+const iptablesForm    = ref(defaultIptablesForm())
+const ufwForm         = ref(defaultUfwForm())
+const nftablesForm    = ref(defaultNftablesForm())
 
 function syncRouteForm() {
   inputJson.value = JSON.stringify({
     routes: routeForm.value.routes.filter(r => r.dst),
     action: routeForm.value.isDelete ? 'del' : 'add'
   }, null, 2)
-}
-
-function syncDhcpForm() {
-  inputJson.value = JSON.stringify(dhcpForm.value, null, 2)
 }
 
 function syncDnsForm() {
@@ -539,6 +784,48 @@ function syncFileWriteForm() {
   inputJson.value = JSON.stringify(fileWriteForm.value, null, 2)
 }
 
+function _stripEmpty<T extends Record<string, unknown>>(obj: T): Partial<T> {
+  const out: Partial<T> = {}
+  for (const k in obj) {
+    const v = obj[k]
+    if (v !== '' && v !== null && v !== undefined) out[k] = v
+  }
+  return out
+}
+
+function syncIptablesForm() {
+  inputJson.value = JSON.stringify({
+    defaults: iptablesForm.value.defaults,
+    rules: iptablesForm.value.rules.map(r => _stripEmpty(r)),
+  }, null, 2)
+}
+
+function syncUfwForm() {
+  inputJson.value = JSON.stringify({
+    defaults: ufwForm.value.defaults,
+    enabled: ufwForm.value.enabled,
+    rules: ufwForm.value.rules.map(r => _stripEmpty(r)),
+  }, null, 2)
+}
+
+function syncNftablesForm() {
+  const f = nftablesForm.value
+  inputJson.value = JSON.stringify({
+    tables: [{
+      family: f.family,
+      name: f.table_name,
+      chains: [{
+        name: f.chain_name,
+        type: f.chain_type,
+        hook: f.hook,
+        priority: f.priority,
+        policy: f.policy,
+        rules: f.rules.map(r => _stripEmpty(r)),
+      }],
+    }],
+  }, null, 2)
+}
+
 const syncFnMap: Record<string, () => void> = {}
 
 function selectType(type: string) {
@@ -557,7 +844,12 @@ async function getPreview() {
   try {
     const data = JSON.parse(inputJson.value)
     const res = await api.preview(activeType.value!, data)
-    previewCommands.value = res.commands
+    let cmds = res.commands
+    if (persistMode.value && cmds.length) {
+      const wrapped = await api.preview('persist', { name: activeType.value, commands: cmds })
+      cmds = wrapped.commands
+    }
+    previewCommands.value = cmds
   } catch (e) {
     previewError.value = String(e)
   }
@@ -578,9 +870,8 @@ async function applyConfig() {
 }
 
 // Register sync functions so selectType can call them by key
-syncFnMap.ip           = syncIpForm
+syncFnMap.interface    = syncInterfaceForm
 syncFnMap.routes       = syncRouteForm
-syncFnMap.dhcp         = syncDhcpForm
 syncFnMap.dns          = syncDnsForm
 syncFnMap.nat          = syncNatForm
 syncFnMap['vlan-router']  = syncVlanRouterForm
@@ -593,11 +884,13 @@ syncFnMap.user         = syncUserForm
 syncFnMap.hostname     = syncHostnameForm
 syncFnMap.sysctl       = syncSysctlForm
 syncFnMap['file-write'] = syncFileWriteForm
+syncFnMap.iptables     = syncIptablesForm
+syncFnMap.ufw          = syncUfwForm
+syncFnMap.nftables     = syncNftablesForm
 
 // Auto-update JSON as form fields change
-watch(ipForm,          () => { if (activeType.value === 'ip')          syncIpForm() },          { deep: true })
+watch(interfaceForm,   () => { if (activeType.value === 'interface')   syncInterfaceForm() },   { deep: true })
 watch(routeForm,       () => { if (activeType.value === 'routes')      syncRouteForm() },       { deep: true })
-watch(dhcpForm,        () => { if (activeType.value === 'dhcp')        syncDhcpForm() },        { deep: true })
 watch(dnsForm,         () => { if (activeType.value === 'dns')         syncDnsForm() },         { deep: true })
 watch(natForm,         () => { if (activeType.value === 'nat')         syncNatForm() },         { deep: true })
 watch(vlanRouterForm,  () => { if (activeType.value === 'vlan-router') syncVlanRouterForm() },  { deep: true })
@@ -610,11 +903,36 @@ watch(userForm,        () => { if (activeType.value === 'user')        syncUserF
 watch(hostnameForm,    () => { if (activeType.value === 'hostname')    syncHostnameForm() },    { deep: true })
 watch(sysctlForm,      () => { if (activeType.value === 'sysctl')      syncSysctlForm() },      { deep: true })
 watch(fileWriteForm,   () => { if (activeType.value === 'file-write')  syncFileWriteForm() },   { deep: true })
+watch(iptablesForm,    () => { if (activeType.value === 'iptables')    syncIptablesForm() },    { deep: true })
+watch(ufwForm,         () => { if (activeType.value === 'ufw')         syncUfwForm() },         { deep: true })
+watch(nftablesForm,    () => { if (activeType.value === 'nftables')    syncNftablesForm() },    { deep: true })
+
+watch(persistMode, () => { if (activeType.value && previewCommands.value.length) getPreview() })
 
 watch(() => props.nodeId, () => {
-  activeType.value = null
+  activeType.value      = null
   previewCommands.value = []
-  results.value = []
+  previewError.value    = ''
+  results.value         = []
+  inputJson.value       = '{}'
+  interfaceForm.value   = defaultInterfaceForm()
+  routeForm.value       = defaultRouteForm()
+  dnsForm.value         = defaultDnsForm()
+  natForm.value         = defaultNatForm()
+  vlanRouterForm.value  = defaultVlanRouterForm()
+  vlanSwitchForm.value  = defaultVlanSwitchForm()
+  wireguardForm.value   = defaultWireguardForm()
+  forwardingForm.value  = defaultForwardingForm()
+  serviceForm.value     = defaultServiceForm()
+  packageForm.value     = defaultPackageForm()
+  userForm.value        = defaultUserForm()
+  hostnameForm.value    = defaultHostnameForm()
+  sysctlForm.value      = defaultSysctlForm()
+  fileWriteForm.value   = defaultFileWriteForm()
+  iptablesForm.value    = defaultIptablesForm()
+  ufwForm.value         = defaultUfwForm()
+  nftablesForm.value    = defaultNftablesForm()
+  persistMode.value     = false
 })
 </script>
 
@@ -646,13 +964,23 @@ watch(() => props.nodeId, () => {
 }
 .type-name { font-size: 14px; font-weight: 600; color: #e6edf3; }
 .header-actions { display: flex; gap: 8px; }
-.btn-preview, .btn-apply {
+.btn-preview, .btn-apply, .btn-clear-form {
   padding: 4px 10px; font-size: 12px; border-radius: 4px;
   cursor: pointer; border: 1px solid #30363d;
 }
 .btn-preview { background: #21262d; color: #c9d1d9; }
+.btn-clear-form { background: #21262d; color: #8b949e; }
+.btn-clear-form:hover { color: #f85149; border-color: rgba(248, 81, 73, 0.4); }
 .btn-apply { background: #238636; color: #fff; border-color: #2ea043; }
 .btn-apply:disabled { opacity: 0.5; cursor: not-allowed; }
+.persist-toggle {
+  display: flex; align-items: center; gap: 5px;
+  font-size: 11px; color: #8b949e; cursor: pointer;
+  padding: 4px 8px; border: 1px solid #30363d; border-radius: 4px;
+  background: #0d1117; user-select: none;
+}
+.persist-toggle:has(input:checked) { color: #d29922; border-color: #4a3818; background: #1f1500; }
+.persist-toggle input { margin: 0; cursor: pointer; }
 
 .specialized-form {
   background: #1c2128; padding: 12px; border-radius: 6px;
@@ -693,9 +1021,25 @@ watch(() => props.nodeId, () => {
 }
 .btn-add-sub:hover { background: #30363d; }
 .check-label { display: flex; align-items: center; gap: 6px; font-size: 12px; color: #8b949e; cursor: pointer; flex: 1; }
+.fw-rule {
+  background: #0d1117; border: 1px solid #30363d; border-radius: 6px;
+  padding: 8px 10px; margin-bottom: 8px;
+}
+.fw-rule .form-row { margin-bottom: 6px; }
+.fw-rule .form-row:last-child { margin-bottom: 0; }
+.hint { font-size: 11px; color: #6e7681; margin-top: 6px; font-style: italic; }
 
 .editor-body { flex: 1; overflow-y: auto; padding: 12px; display: flex; flex-direction: column; gap: 16px; }
-.section-label { font-size: 11px; font-weight: 600; color: #6e7681; text-transform: uppercase; margin-bottom: 6px; }
+.section-label { 
+  font-size: 11px; font-weight: 600; color: #6e7681; 
+  text-transform: uppercase; margin-bottom: 6px; 
+  display: flex; justify-content: space-between; align-items: center;
+}
+.btn-clear-results {
+  background: none; border: 1px solid #30363d; color: #6e7681;
+  font-size: 10px; padding: 1px 6px; border-radius: 3px; cursor: pointer;
+}
+.btn-clear-results:hover { color: #f85149; border-color: #f85149; }
 .auto-label { font-weight: 400; text-transform: none; color: #484f58; }
 .json-textarea {
   width: 100%; height: 120px; background: #0d1117; border: 1px solid #30363d;

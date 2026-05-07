@@ -1,2 +1,94 @@
-*, *::before, *::after { box-sizing: border-box; }
-html, body { height: 100%; margin: 0; background: #0d1117; }
+/* ═══════════════════════════════════════════════════════════════
+   DESIGN TOKENS (from gns3-config)
+═══════════════════════════════════════════════════════════════ */
+:root {
+  --bg:       #05080f;
+  --bg2:      #080d18;
+  --bg3:      #0c1220;
+  --bg4:      #101828;
+  --border:   #1a2540;
+  --border2:  #243352;
+  --green:    #00ff9d;
+  --green-d:  #00cc7a;
+  --cyan:     #00e5ff;
+  --cyan-d:   #00b8cc;
+  --pink:     #ff2d6e;
+  --yellow:   #ffbe0b;
+  --purple:   #a855f7;
+  --orange:   #ff6b35;
+  --text:     #6b7a8d;
+  --textbr:   #a8b2c1;
+  --textwh:   #e2e8f0;
+  --shadow-g: 0 0 20px rgba(0,255,157,.18);
+  --shadow-c: 0 0 20px rgba(0,229,255,.18);
+  --shadow-p: 0 0 20px rgba(255,45,110,.18);
+  --r:        6px;
+  --r2:       10px;
+  --font-hd:  'Orbitron', sans-serif;
+  --font-co:  'JetBrains Mono', monospace;
+  --font-ui:  'Inter', sans-serif;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   RESET & BASE
+═══════════════════════════════════════════════════════════════ */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body {
+  height: 100%;
+  overflow: hidden;
+  background: var(--bg);
+  color: var(--textbr);
+  font-family: var(--font-ui);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   SCROLLBARS
+═══════════════════════════════════════════════════════════════ */
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: var(--bg2); }
+::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 5px; border: 2px solid var(--bg2); }
+::-webkit-scrollbar-thumb:hover { background: var(--cyan); }
+* { scrollbar-width: thin; scrollbar-color: var(--border2) var(--bg2); }
+
+/* ═══════════════════════════════════════════════════════════════
+   ANIMATED BACKGROUND GRID
+═══════════════════════════════════════════════════════════════ */
+#app::before {
+  content: '';
+  position: fixed; inset: 0; z-index: 0; pointer-events: none;
+  background-image:
+    linear-gradient(rgba(0,229,255,.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(0,229,255,.03) 1px, transparent 1px);
+  background-size: 40px 40px;
+}
+
+#app::after {
+  content: "";
+  position: fixed;
+  top: 0; left: 0; width: 100%; height: 100%;
+  background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.25) 50%), linear-gradient(90deg, rgba(255, 0, 0, 0.06), rgba(0, 255, 0, 0.02), rgba(0, 0, 255, 0.06));
+  z-index: 9999;
+  pointer-events: none;
+  background-size: 100% 2px, 3px 100%;
+  opacity: 0.1;
+}
+
+@keyframes scanline {
+  0% { transform: translateY(-100%); }
+  100% { transform: translateY(100%); }
+}
+
+.scanline {
+  width: 100%;
+  height: 100px;
+  z-index: 10000;
+  background: linear-gradient(0deg, rgba(0, 0, 0, 0) 0%, rgba(0, 255, 157, 0.1) 50%, rgba(0, 0, 0, 0) 100%);
+  opacity: 0.1;
+  position: fixed;
+  bottom: 100%;
+  pointer-events: none;
+  animation: scanline 8s linear infinite;
+}

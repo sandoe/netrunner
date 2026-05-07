@@ -9,11 +9,13 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "vue": "^3.5.32",
-    "@xterm/xterm": "^5.5.0",
+    "@types/cytoscape": "^3.31.0",
     "@xterm/addon-fit": "^0.10.0",
     "@xterm/addon-web-links": "^0.11.0",
-    "pinia": "^3.0.3"
+    "@xterm/xterm": "^5.5.0",
+    "cytoscape": "^3.33.3",
+    "pinia": "^3.0.3",
+    "vue": "^3.5.32"
   },
   "devDependencies": {
     "@types/node": "^24.12.2",

@@ -48,6 +48,26 @@ def gen_ip(iface: str, addrs: list[str], action: str = "add") -> list[str]:
     return cmds
 
 
+def gen_interface(cfg: dict) -> list[str]:
+    iface = (cfg.get("interface") or "eth0").strip() or "eth0"
+    cmds = [f"# ── Interface Setup: {iface} ──────────────────────────"]
+    
+    # Static IPs
+    addrs = _split_csvish(cfg.get("addresses"))
+    if addrs:
+        action = cfg.get("action", "add")
+        cmds.extend(gen_ip(iface, addrs, action))
+    
+    # DHCP
+    if cfg.get("dhcp"):
+        cmds.extend(gen_dhcp(iface, "renew"))
+    
+    if not addrs and not cfg.get("dhcp"):
+        cmds.append(f"ip link set {iface} up")
+        
+    return cmds
+
+
 def gen_routes(routes: list[dict], action: str = "add") -> list[str]:
     cmds = []
     for r in routes:

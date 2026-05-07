@@ -17,7 +17,10 @@
       <div v-else>
         <div class="output-header">
           <span>{{ activeType }}</span>
-          <button class="copy-btn" :class="{ ok: copied }" @click="copyOutput">{{ copied ? '✓ copied' : 'copy' }}</button>
+          <div class="header-btns">
+            <button class="clear-btn" @click="clearOutput">clear</button>
+            <button class="copy-btn" :class="{ ok: copied }" @click="copyOutput">{{ copied ? '✓ copied' : 'copy' }}</button>
+          </div>
         </div>
         <div v-if="loadingType === activeType" class="loader">loading…</div>
         <div v-else-if="outputError" class="output-error">{{ outputError }}</div>
@@ -28,7 +31,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, watch } from 'vue'
 import { api } from '@/api/client'
 import { READ_CATEGORIES } from '@/types'
 import type { ReadType } from '@/types'
@@ -40,6 +43,14 @@ const loadingType = ref<string | null>(null)
 const output      = ref('')
 const outputError = ref('')
 const copied      = ref(false)
+
+watch(() => props.nodeId, () => {
+  activeType.value  = null
+  loadingType.value = null
+  output.value      = ''
+  outputError.value = ''
+  copied.value      = false
+})
 
 async function readType(type: ReadType) {
   activeType.value  = type
@@ -61,6 +72,12 @@ function copyOutput() {
     copied.value = true
     setTimeout(() => { copied.value = false }, 1500)
   }).catch(() => {})
+}
+
+function clearOutput() {
+  activeType.value = null
+  output.value = ''
+  outputError.value = ''
 }
 </script>
 
@@ -102,12 +119,14 @@ function copyOutput() {
   padding: 6px 12px; border-bottom: 1px solid #30363d;
   font-size: 12px; color: #6e7681;
 }
-.copy-btn {
+.header-btns { display: flex; gap: 8px; }
+.copy-btn, .clear-btn {
   font-size: 11px; padding: 2px 8px;
   background: #21262d; border: 1px solid #30363d;
   border-radius: 4px; color: #c9d1d9; cursor: pointer; transition: background .15s, color .15s;
 }
-.copy-btn:hover { background: #30363d; }
+.copy-btn:hover, .clear-btn:hover { background: #30363d; }
+.clear-btn:hover { color: #f85149; border-color: rgba(248, 81, 73, 0.4); }
 .copy-btn.ok { background: #1f3a1f; border-color: #3fb950; color: #3fb950; }
 .loader { padding: 24px; color: #6e7681; font-size: 13px; }
 .output-error {

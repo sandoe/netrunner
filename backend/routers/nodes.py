@@ -107,6 +107,9 @@ READ_CMDS: dict[str, list[str]] = {
         "iptables -S NR_FORWARD 2>/dev/null || echo '(no NR_FORWARD chain yet)'",
         "iptables -t nat -S NR_NAT 2>/dev/null || echo '(no NR_NAT chain yet)'",
     ],
+    "if-stats":     ["ip -s link show"],
+    "wifi-scan":    ["nmcli -t -f SSID,SIGNAL,SECURITY dev wifi list 2>/dev/null || iwlist scan 2>/dev/null | grep -E 'ESSID|Signal|Encryption' || echo '(WiFi tools not available)'"],
+    "nmap-scan":    ["nmap -F 127.0.0.1 2>/dev/null || echo '(nmap not installed)'"],
 
     # Linux system
     "services":     ["systemctl list-units --type=service --state=running --no-pager 2>/dev/null || service --status-all 2>/dev/null || rc-status 2>/dev/null"],
@@ -131,6 +134,7 @@ READ_CMDS: dict[str, list[str]] = {
         "vcgencmd get_throttled 2>/dev/null || true",
     ],
     "rpi-i2c":      ["i2cdetect -l 2>/dev/null", "i2cdetect -y 1 2>/dev/null || echo '(I2C bus 1 not available)'"],
+    "rpi-spi":      ["ls /dev/spidev* 2>/dev/null || echo '(SPI not enabled)'", "lsmod | grep spi"],
     "rpi-camera":   ["vcgencmd get_camera 2>/dev/null || libcamera-hello --list-cameras 2>/dev/null || echo '(camera tools not available)'"],
     "rpi-clocks":   [
         "vcgencmd measure_clock arm 2>/dev/null || true",
@@ -257,6 +261,13 @@ def api_node_delete(nid: str):
     return {"ok": True}
 
 
+@router.get("/nodes/connections")
+def api_node_connections():
+    active = set(session_manager.active_ids())
+    nodes = load_nodes()
+    return {nid: {"connected": nid in active} for nid in nodes}
+
+
 @router.post("/nodes/{nid}/connect")
 def api_node_connect(nid: str):
     nodes = load_nodes()
@@ -339,6 +350,44 @@ def _capture_local_dir(nid: str) -> Path:
     return path
 
 
+@router.get("/nodes/{nid}/capture")
+def api_capture_list(nid: str):
+    nodes = load_nodes()
+    if nid not in nodes:
+        raise HTTPException(404, "Not found")
+    prefix = f"{nid}:"
+    items = [m for k, m in _captures.items() if k.startswith(prefix)]
+    items.sort(key=lambda m: m.get("started", ""), reverse=True)
+    return {"captures": items}
+
+
+@router.delete("/nodes/{nid}/capture/{cap_id}")
+def api_capture_delete(nid: str, cap_id: str):
+    nodes = load_nodes()
+    if nid not in nodes:
+        raise HTTPException(404, "Not found")
+    key = f"{nid}:{cap_id}"
+    meta = _captures.pop(key, None)
+    if not meta:
+        raise HTTPException(404, "Capture not found")
+    paths = meta["paths"]
+    cleanup = (
+        f"PID=$(cat {shlex.quote(paths['pid'])} 2>/dev/null || echo ''); "
+        f"if [ -n \"$PID\" ]; then kill \"$PID\" 2>/dev/null || true; fi; "
+        f"rm -f {shlex.quote(paths['pcap'])} {shlex.quote(paths['pid'])} {shlex.quote(paths['log'])}"
+    )
+    try:
+        node = _get_node_with_creds(nid, nodes)
+        session_manager.run(nid, node, [f"sh -lc {shlex.quote(cleanup)}"])
+    except Exception:
+        pass
+    local = _capture_local_dir(nid) / f"{_safe_name(cap_id)}.pcap"
+    if local.exists():
+        try: local.unlink()
+        except Exception: pass
+    return {"ok": True}
+
+
 @router.post("/nodes/{nid}/capture/start")
 def api_capture_start(nid: str, body: dict):
     nodes = load_nodes()
@@ -368,6 +417,14 @@ def api_capture_start(nid: str, body: dict):
         f"sleep 1; cat {shlex.quote(paths['pid'])} 2>/dev/null || echo 0"
     )
     node = _get_node_with_creds(nid, nodes)
+    
+    # Check if tcpdump is installed
+    check_results, check_err = session_manager.run(nid, node, ["command -v tcpdump || echo '__MISSING__'"])
+    if check_err:
+        raise HTTPException(500, check_err)
+    if "__MISSING__" in (check_results[0].get("output", "") if check_results else ""):
+        raise HTTPException(400, "tcpdump is not installed on this node. Please install it to use capture features.")
+
     results, err = session_manager.run(nid, node, [remote])
     if err:
         raise HTTPException(500, err)
@@ -527,29 +584,69 @@ def api_node_rollback(nid: str):
 # Export
 # ---------------------------------------------------------------------------
 
+DEFAULT_EXPORT_DIAGNOSTICS = [
+    "ip", "routes", "interfaces", "neighbors", "sockets", "resolver",
+    "forwarding", "iptables", "nftables", "ufw", "wireguard", "dns-service",
+    "dhcp-server", "vlan-switch", "vlan-router",
+]
+
+
 @router.post("/nodes/{nid}/export")
 def api_node_export(nid: str, body: dict = {}):
     nodes = load_nodes()
     if nid not in nodes:
         raise HTTPException(404, "Not found")
-    node = nodes[nid]
-    export_name = f"{_safe_name(node.get('name', nid))}_export_{int(time.time())}.zip"
+    body = body or {}
+    node_meta = nodes[nid]
+    export_name = f"{_safe_name(node_meta.get('name', nid))}_export_{int(time.time())}.zip"
     export_path = EXPORTS_DIR / export_name
     EXPORTS_DIR.mkdir(parents=True, exist_ok=True)
 
+    diag_types     = body.get("live_diagnostics")
+    if diag_types is None:
+        diag_types = DEFAULT_EXPORT_DIAGNOSTICS
+    include_caps   = body.get("include_captures", True)
+
+    diagnostics: dict[str, str] = {}
+    diag_errors:  dict[str, str] = {}
+    if diag_types:
+        node_full = _get_node_with_creds(nid, nodes)
+        for ctype in diag_types:
+            if ctype not in READ_CMDS:
+                diag_errors[ctype] = f"unknown type '{ctype}'"
+                continue
+            results, err = session_manager.run(nid, node_full, READ_CMDS[ctype])
+            if err:
+                diag_errors[ctype] = err
+                continue
+            diagnostics[ctype] = "\n\n".join(
+                (r.get("output") or r.get("error") or "") for r in (results or [])
+            ).strip()
+
     summary = {
         "exported": datetime.now().isoformat(),
-        "node": _node_public(nid, node),
-        "diagnostics": body.get("diagnostics", {}),
+        "node": _node_public(nid, node_meta),
+        "diagnostic_types": list(diagnostics.keys()),
+        "diagnostic_errors": diag_errors,
     }
 
     with zipfile.ZipFile(export_path, "w", zipfile.ZIP_DEFLATED) as zf:
         zf.writestr("summary.json", json.dumps(summary, indent=2))
+        for ctype, output in diagnostics.items():
+            zf.writestr(f"diagnostics/{_safe_name(ctype)}.txt", output)
         for cfg in body.get("saved_configs", []):
             if cfg.get("name") and cfg.get("content") is not None:
                 zf.writestr(f"configs/{Path(cfg['name']).name}", cfg["content"])
+        if include_caps:
+            cap_dir = _capture_local_dir(nid)
+            for pcap in cap_dir.glob("*.pcap"):
+                zf.write(pcap, f"captures/{pcap.name}")
 
-    return {"name": export_name}
+    return {
+        "name": export_name,
+        "diagnostic_types": list(diagnostics.keys()),
+        "diagnostic_errors": diag_errors,
+    }
 
 
 @router.get("/exports/{fname}")

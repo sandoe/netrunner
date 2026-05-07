@@ -11,6 +11,14 @@ export interface NrNode {
   tags: string[]
 }
 
+export interface NrLink {
+  id: string
+  source: string
+  target: string
+  auto_discovered: boolean
+  metadata: Record<string, any>
+}
+
 export interface CommandResult {
   command: string
   output: string
@@ -23,13 +31,24 @@ export interface SavedConfig {
   modified: string
 }
 
+export interface CaptureMeta {
+  id: string
+  interface: string
+  filter: string
+  packet_limit: number
+  started: string
+  pid: string
+  paths: { pcap: string; pid: string; log: string }
+}
+
 export type ReadType =
   | 'ip' | 'routes' | 'interfaces' | 'neighbors' | 'sockets' | 'resolver'
   | 'nftables' | 'iptables' | 'ufw' | 'wireguard' | 'forwarding'
   | 'vlan-router' | 'vlan-switch' | 'dns-service' | 'dhcp-server' | 'nat'
+  | 'if-stats' | 'wifi-scan' | 'nmap-scan'
   | 'services' | 'packages' | 'users' | 'groups' | 'cron' | 'logs'
   | 'disk' | 'cpu' | 'memory' | 'processes' | 'os-info' | 'environment' | 'mounts'
-  | 'rpi-config' | 'rpi-gpio' | 'rpi-temp' | 'rpi-i2c' | 'rpi-camera'
+  | 'rpi-config' | 'rpi-gpio' | 'rpi-temp' | 'rpi-i2c' | 'rpi-camera' | 'rpi-spi'
   | 'rpi-clocks' | 'rpi-voltage' | 'rpi-info'
 
 export interface ReadCategory {
@@ -46,6 +65,9 @@ export const READ_CATEGORIES: Record<string, ReadCategory> = {
       { type: 'ip',          label: 'IP Addresses' },
       { type: 'routes',      label: 'Routes' },
       { type: 'interfaces',  label: 'Interfaces' },
+      { type: 'if-stats',    label: 'Interface Stats' },
+      { type: 'wifi-scan',   label: 'WiFi Scan' },
+      { type: 'nmap-scan',   label: 'Nmap Scan' },
       { type: 'neighbors',   label: 'ARP/Neighbors' },
       { type: 'sockets',     label: 'Sockets' },
       { type: 'resolver',    label: 'DNS Resolver' },
@@ -89,6 +111,7 @@ export const READ_CATEGORIES: Record<string, ReadCategory> = {
       { type: 'rpi-gpio',    label: 'GPIO' },
       { type: 'rpi-temp',    label: 'Temperature' },
       { type: 'rpi-i2c',     label: 'I2C' },
+      { type: 'rpi-spi',     label: 'SPI' },
       { type: 'rpi-camera',  label: 'Camera' },
       { type: 'rpi-clocks',  label: 'Clocks' },
       { type: 'rpi-voltage', label: 'Voltage' },

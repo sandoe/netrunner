@@ -1,14 +1,22 @@
 <template>
   <div class="terminal-wrap" ref="wrapEl">
     <div class="terminal-toolbar">
-      <span class="term-node-name">{{ node?.name }}</span>
-      <span class="term-status" :class="connected ? 'ok' : 'off'">
-        {{ connected ? 'connected' : 'disconnected' }}
-      </span>
-      <button @click="reconnect" :disabled="connecting" class="btn-sm">
-        {{ connecting ? 'connecting…' : connected ? 'reconnect' : 'connect' }}
-      </button>
-      <button @click="clearTerminal" class="btn-sm">clear</button>
+      <div class="term-info">
+        <span class="term-label">NODE:</span>
+        <span class="term-node-name">{{ node?.name }}</span>
+      </div>
+      <div class="term-info">
+        <span class="term-label">STATUS:</span>
+        <span class="term-status" :class="connected ? 'ok' : 'off'">
+          {{ connected ? 'CONNECTED' : 'DISCONNECTED' }}
+        </span>
+      </div>
+      <div class="term-actions">
+        <button @click="reconnect" :disabled="connecting" class="btn-sm">
+          {{ connecting ? 'ESTABLISHING...' : connected ? 'RECONNECT' : 'CONNECT' }}
+        </button>
+        <button @click="clearTerminal" class="btn-sm">CLEAR</button>
+      </div>
     </div>
     <div ref="termEl" class="xterm-container" />
   </div>
@@ -43,31 +51,34 @@ function initTerminal() {
 
   term = new Terminal({
     theme: {
-      background: '#0d1117',
-      foreground: '#c9d1d9',
-      cursor: '#58a6ff',
-      black: '#0d1117',
-      brightBlack: '#6e7681',
-      red: '#ff7b72',
-      brightRed: '#ff7b72',
-      green: '#3fb950',
-      brightGreen: '#3fb950',
-      yellow: '#d29922',
-      brightYellow: '#e3b341',
-      blue: '#388bfd',
-      brightBlue: '#58a6ff',
-      magenta: '#bc8cff',
-      brightMagenta: '#d2a8ff',
-      cyan: '#39c5cf',
-      brightCyan: '#56d364',
-      white: '#b1bac4',
-      brightWhite: '#f0f6fc',
+      background: '#020408',
+      foreground: '#00ff9d',
+      cursor: '#00e5ff',
+      cursorAccent: '#020408',
+      black: '#05080f',
+      brightBlack: '#1a2540',
+      red: '#ff2d6e',
+      brightRed: '#ff2d6e',
+      green: '#00ff9d',
+      brightGreen: '#00ff9d',
+      yellow: '#ffbe0b',
+      brightYellow: '#ffbe0b',
+      blue: '#00e5ff',
+      brightBlue: '#00e5ff',
+      magenta: '#a855f7',
+      brightMagenta: '#a855f7',
+      cyan: '#00e5ff',
+      brightCyan: '#00e5ff',
+      white: '#e2e8f0',
+      brightWhite: '#ffffff',
     },
-    fontFamily: '"Cascadia Code", "Fira Code", "JetBrains Mono", monospace',
-    fontSize: 13,
-    lineHeight: 1.3,
+    fontFamily: '"JetBrains Mono", "Cascadia Code", monospace',
+    fontSize: 14,
+    lineHeight: 1.2,
     cursorBlink: true,
-    scrollback: 5000,
+    cursorStyle: 'block',
+    cursorInactiveStyle: 'outline',
+    scrollback: 10000,
     allowProposedApi: true,
   })
 
@@ -76,6 +87,7 @@ function initTerminal() {
   term.loadAddon(new WebLinksAddon())
   term.open(termEl.value)
   fitAddon.fit()
+  term.focus()
 
   term.onData((data) => {
     if (ws && ws.readyState === WebSocket.OPEN) {
@@ -113,10 +125,11 @@ function connect(nodeId: string) {
         connected.value  = msg.connected
         connecting.value = false
         if (msg.connected) {
-          term?.write('\r\n\x1b[1;32m── connected ──\x1b[0m\r\n')
+          term?.write('\r\n\x1b[1;32m[SYSTEM] Neural link established.\x1b[0m\r\n')
+          term?.focus()
         }
       } else if (msg.type === 'error') {
-        term?.write(`\r\n\x1b[1;31m[error] ${msg.data}\x1b[0m\r\n`)
+        term?.write(`\r\n\x1b[1;31m[ERROR] Connection failed: ${msg.data}\x1b[0m\r\n`)
         connecting.value = false
       }
     } catch {
@@ -125,18 +138,18 @@ function connect(nodeId: string) {
   }
 
   ws.onopen = () => {
-    term?.write(`\r\n\x1b[90m── connecting to ${nodeId} …\x1b[0m\r\n`)
+    term?.write(`\r\n\x1b[1;36m[SYSTEM] Initiating link to ${nodeId}...\x1b[0m\r\n`)
   }
 
   ws.onerror = () => {
-    term?.write('\r\n\x1b[1;31m[WebSocket error]\x1b[0m\r\n')
+    term?.write('\r\n\x1b[1;31m[SYSTEM] WebSocket protocol error.\x1b[0m\r\n')
     connected.value  = false
     connecting.value = false
   }
 
   ws.onclose = () => {
     if (connected.value) {
-      term?.write('\r\n\x1b[90m── disconnected ──\x1b[0m\r\n')
+      term?.write('\r\n\x1b[1;31m[SYSTEM] Neural link terminated.\x1b[0m\r\n')
     }
     connected.value  = false
     connecting.value = false
@@ -174,27 +187,41 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   height: 100%;
-  background: #0d1117;
+  background: var(--bg);
+  position: relative;
 }
 .terminal-toolbar {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 4px 10px;
-  background: #161b22;
-  border-bottom: 1px solid #30363d;
-  font-size: 12px;
+  gap: 20px;
+  padding: 8px 16px;
+  background: var(--bg2);
+  border-bottom: 1px solid var(--border);
 }
-.term-node-name { font-weight: 600; color: #58a6ff; }
-.term-status { padding: 1px 6px; border-radius: 10px; font-size: 11px; }
-.term-status.ok  { background: #1f6823; color: #3fb950; }
-.term-status.off { background: #441111; color: #f85149; }
+.term-info { display: flex; align-items: center; gap: 8px; }
+.term-label { font-family: var(--font-hd); font-size: 8px; color: var(--text); letter-spacing: 1px; }
+.term-node-name { font-family: var(--font-co); font-size: 11px; font-weight: 600; color: var(--cyan); }
+.term-status { font-family: var(--font-hd); font-size: 9px; letter-spacing: 1px; }
+.term-status.ok  { color: var(--green); text-shadow: 0 0 8px var(--green); }
+.term-status.off { color: var(--pink); text-shadow: 0 0 8px var(--pink); }
+
+.term-actions { margin-left: auto; display: flex; gap: 8px; }
+
 .btn-sm {
-  padding: 2px 8px; font-size: 11px; border-radius: 4px;
-  background: #21262d; border: 1px solid #30363d; color: #c9d1d9;
-  cursor: pointer;
+  padding: 4px 10px; font-family: var(--font-hd); font-size: 8px; letter-spacing: 1px; border-radius: 4px;
+  background: var(--bg3); border: 1px solid var(--border); color: var(--textwh);
+  cursor: pointer; transition: all .2s;
 }
-.btn-sm:hover:not(:disabled) { background: #30363d; }
-.btn-sm:disabled { opacity: 0.5; cursor: not-allowed; }
-.xterm-container { flex: 1; overflow: hidden; padding: 4px 8px; }
+.btn-sm:hover:not(:disabled) { border-color: var(--cyan); color: var(--cyan); box-shadow: var(--shadow-c); }
+.btn-sm:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.xterm-container {
+  flex: 1;
+  overflow: hidden;
+  padding: 8px;
+  background: var(--bg);
+}
+:deep(.xterm-viewport) {
+  background: var(--bg) !important;
+}
 </style>

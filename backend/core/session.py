@@ -119,8 +119,33 @@ class TelnetClient:
                 pass
             self.sock = None
 
-    def run_command(self, cmd: str, timeout: float = 15) -> str:
+    def _drain(self) -> None:
+        """Discard any pending bytes left in the socket from a previous command.
+        Without this, residue (e.g. a stray newline or extra prompt) ends up
+        prefixed onto the next command's response and read_until can match it
+        prematurely — which is what causes outputs to bleed across calls."""
+        if not self.sock:
+            return
+        prev_to = self.sock.gettimeout()
+        try:
+            self.sock.settimeout(0.02)
+            while True:
+                try:
+                    chunk = self.sock.recv(4096)
+                except socket.timeout:
+                    break
+                except OSError:
+                    break
+                if not chunk:
+                    break
+                self._process(chunk)
+        finally:
+            try: self.sock.settimeout(prev_to)
+            except Exception: pass
         self._buf = b""
+
+    def run_command(self, cmd: str, timeout: float = 15) -> str:
+        self._drain()
         self.write(cmd)
         raw = self.read_until(["# "], timeout=timeout)
         lines = raw.split("\n")
@@ -205,6 +230,19 @@ class SessionManager:
     def __init__(self):
         self._sessions: dict[str, TelnetClient | SshClient] = {}
         self._lock = threading.Lock()
+        self._cmd_locks: dict[str, threading.Lock] = {}
+        # Nodes the user explicitly disconnected from. Stays "intentionally
+        # offline" until the user calls open() (i.e. clicks connect again),
+        # so casual reads don't silently re-establish the session.
+        self._no_auto_open: set[str] = set()
+
+    def _cmd_lock(self, nid: str) -> threading.Lock:
+        with self._lock:
+            lk = self._cmd_locks.get(nid)
+            if lk is None:
+                lk = threading.Lock()
+                self._cmd_locks[nid] = lk
+            return lk
 
     def _open_telnet(self, nid: str, node: dict) -> tuple[Optional[TelnetClient], Optional[str]]:
         cl = TelnetClient(node["host"], node["port"])
@@ -249,6 +287,7 @@ class SessionManager:
     def open(self, nid: str, node: dict) -> tuple[Optional[TelnetClient | SshClient], Optional[str]]:
         with self._lock:
             old = self._sessions.pop(nid, None)
+            self._no_auto_open.discard(nid)
             if old:
                 try:
                     old.close()
@@ -268,21 +307,31 @@ class SessionManager:
             self._sessions[nid] = cl
         return cl, None
 
-    def get(self, nid: str, node: dict) -> tuple[Optional[TelnetClient | SshClient], Optional[str]]:
+    def get(self, nid: str, node: dict, auto_open: bool = True) -> tuple[Optional[TelnetClient | SshClient], Optional[str]]:
         with self._lock:
             cl = self._sessions.get(nid)
+            blocked = nid in self._no_auto_open
         if cl and cl.alive():
             return cl, None
+        if blocked:
+            return None, "Node is disconnected — click connect to reconnect"
+        if not auto_open:
+            return None, "Not connected — click connect first"
         return self.open(nid, node)
 
     def close(self, nid: str) -> None:
         with self._lock:
             cl = self._sessions.pop(nid, None)
+            self._no_auto_open.add(nid)
         if cl:
             try:
                 cl.close()
             except Exception:
                 pass
+
+    def active_ids(self) -> list[str]:
+        with self._lock:
+            return [nid for nid, cl in self._sessions.items() if cl and cl.alive()]
 
     def close_all(self) -> None:
         with self._lock:
@@ -295,23 +344,26 @@ class SessionManager:
                 pass
 
     def run(self, nid: str, node: dict, commands: list[str]) -> tuple[Optional[list], Optional[str]]:
-        cl, err = self.get(nid, node)
-        if err:
-            return None, err
-        results = []
-        for cmd in commands:
-            cmd = cmd.strip()
-            if not cmd:
-                continue
-            try:
-                output = cl.run_command(cmd, timeout=15)
-                results.append({"command": cmd, "output": output, "error": None})
-            except Exception as e:
-                results.append({"command": cmd, "output": "", "error": str(e)})
-                with self._lock:
-                    self._sessions.pop(nid, None)
-                break
-        return results, None
+        # Serialize commands per node so concurrent callers don't interleave on
+        # the same shell session (which would mix outputs across requests).
+        with self._cmd_lock(nid):
+            cl, err = self.get(nid, node)
+            if err:
+                return None, err
+            results = []
+            for cmd in commands:
+                cmd = cmd.strip()
+                if not cmd:
+                    continue
+                try:
+                    output = cl.run_command(cmd, timeout=15)
+                    results.append({"command": cmd, "output": output, "error": None})
+                except Exception as e:
+                    results.append({"command": cmd, "output": "", "error": str(e)})
+                    with self._lock:
+                        self._sessions.pop(nid, None)
+                    break
+            return results, None
 
 
 session_manager = SessionManager()
