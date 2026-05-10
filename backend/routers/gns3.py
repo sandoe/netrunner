@@ -16,7 +16,7 @@ from .links import load_links, save_links, _add_link_if_new
 router = APIRouter()
 
 async def _gns3_req(method: str, path: str, body: Optional[dict] = None):
-    s = load_settings()
+    s = await load_settings()
     base = s.get("gns3_server_url", "http://127.0.0.1:3080").rstrip("/")
     async with httpx.AsyncClient() as client:
         try:
@@ -40,8 +40,8 @@ async def sync_gns3_project(project_id: str):
     
     if g_nodes is None: raise HTTPException(status_code=404, detail="Project not found")
 
-    nodes = load_nodes()
-    links = load_links()
+    nodes = await load_nodes()
+    links = await load_links()
     
     # Map GNS3 node UUID to Netrunner ID
     uuid_map = {}
@@ -85,14 +85,14 @@ async def sync_gns3_project(project_id: str):
                 if _add_link_if_new(links, s_id, t_id, "gns3-sync"):
                     new_links += 1
 
-    save_nodes(nodes)
-    save_links(links)
+    await save_nodes(nodes)
+    await save_links(links)
     
     return {"status": "success", "nodes": len(g_nodes), "links": new_links}
 
 @router.get("/gns3/local-projects")
 async def list_local_gns3_projects():
-    s = load_settings()
+    s = await load_settings()
     base_path = Path(s.get("gns3_local_projects_path", "/home/aso/GNS3/projects"))
     
     if not base_path.exists():
@@ -113,7 +113,7 @@ async def list_local_gns3_projects():
         return []
     return projects
 
-@router.post("/gns3/local-sync")
+@router.post("/local-sync")
 async def sync_local_gns3_project(payload: dict):
     path = payload.get("path")
     if not path or not os.path.exists(path):
@@ -129,11 +129,11 @@ async def sync_local_gns3_project(payload: dict):
     g_nodes = topology.get("nodes", [])
     g_links = topology.get("links", [])
 
-    nodes = load_nodes()
-    links = load_links()
+    nodes = await load_nodes()
+    links = await load_links()
     uuid_map = {}
     
-    s = load_settings()
+    s = await load_settings()
     # Assume console is reachable via the configured server host
     remote_host = s.get("gns3_server_url", "http://192.168.122.121").replace("http://", "").split(":")[0]
 
@@ -170,6 +170,6 @@ async def sync_local_gns3_project(payload: dict):
                 if _add_link_if_new(links, s_id, t_id, "local-gns3-sync"):
                     new_links += 1
 
-    save_nodes(nodes)
-    save_links(links)
+    await save_nodes(nodes)
+    await save_links(links)
     return {"status": "success", "nodes": len(g_nodes), "links": new_links}

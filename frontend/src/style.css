@@ -47,9 +47,9 @@ html, body {
 /* ═══════════════════════════════════════════════════════════════
    SCROLLBARS
 ═══════════════════════════════════════════════════════════════ */
-::-webkit-scrollbar { width: 10px; height: 10px; }
-::-webkit-scrollbar-track { background: var(--bg2); }
-::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 5px; border: 2px solid var(--bg2); }
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: var(--bg); }
+::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 4px; }
 ::-webkit-scrollbar-thumb:hover { background: var(--cyan); }
 * { scrollbar-width: thin; scrollbar-color: var(--border2) var(--bg2); }
 

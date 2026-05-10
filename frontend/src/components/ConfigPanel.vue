@@ -2,14 +2,19 @@
   <div class="config-panel">
     <div class="config-sidebar">
       <div v-for="(cat, key) in CONFIG_CATEGORIES" :key="key" class="cat-group">
-        <div class="cat-label">{{ cat.icon }} {{ cat.label }}</div>
-        <button
-          v-for="item in cat.types"
-          :key="item.type"
-          class="type-btn"
-          :class="{ active: activeType === item.type }"
-          @click="selectType(item.type)"
-        >{{ item.label }}</button>
+        <div class="cat-label" @click="toggleCat(key as string)">
+          <span>{{ cat.icon }} {{ cat.label }}</span>
+          <span class="cat-chevron" :class="{ collapsed: collapsedCats.has(key as string) }">⌃</span>
+        </div>
+        <div v-if="!collapsedCats.has(key as string)" class="cat-items">
+          <button
+            v-for="item in cat.types"
+            :key="item.type"
+            class="type-btn"
+            :class="{ active: activeType === item.type }"
+            @click="selectType(item.type)"
+          >{{ item.label }}</button>
+        </div>
       </div>
     </div>
 
@@ -521,6 +526,140 @@
             <button class="btn-add-sub" @click="ufwForm.rules.push({ direction: 'in', action: 'allow', iif: '', protocol: 'tcp', port: '', saddr: '', daddr: '', comment: '' })">+ Add Rule</button>
           </div>
 
+          <!-- RPi WiFi Form -->
+          <div v-if="activeType === 'rpi-wifi'" class="specialized-form">
+            <div class="form-row">
+              <label>SSID <input v-model="rpiWifiForm.ssid" /></label>
+              <label>Password <input v-model="rpiWifiForm.password" type="password" /></label>
+              <label>Country <input v-model="rpiWifiForm.country" placeholder="DK" /></label>
+              <label class="check-label"><input type="checkbox" v-model="rpiWifiForm.hidden" /> Hidden SSID</label>
+            </div>
+          </div>
+
+          <!-- RPi SPI Form -->
+          <div v-if="activeType === 'rpi-spi'" class="specialized-form">
+            <div class="form-row">
+              <label class="check-label"><input type="checkbox" v-model="rpiSpiForm.enable" /> Enable SPI Bus</label>
+            </div>
+          </div>
+
+          <!-- RPi I2C Form -->
+          <div v-if="activeType === 'rpi-i2c-enable'" class="specialized-form">
+            <div class="form-row">
+              <label>Bus <input v-model.number="rpiI2cForm.bus" type="number" /></label>
+              <label class="check-label"><input type="checkbox" v-model="rpiI2cForm.enable" /> Enable I2C Bus</label>
+            </div>
+          </div>
+
+          <!-- RPi Camera Form -->
+          <div v-if="activeType === 'rpi-camera'" class="specialized-form">
+            <div class="form-row">
+              <label class="check-label"><input type="checkbox" v-model="rpiCameraForm.enable" /> Enable Camera</label>
+              <label class="check-label"><input type="checkbox" v-model="rpiCameraForm.legacy" /> Use Legacy Stack</label>
+            </div>
+          </div>
+
+          <!-- RPi Watchdog Form -->
+          <div v-if="activeType === 'rpi-watchdog'" class="specialized-form">
+            <div class="form-row">
+              <label>Timeout (s) <input v-model.number="rpiWatchdogForm.timeout" type="number" /></label>
+              <label>Action
+                <select v-model="rpiWatchdogForm.action">
+                  <option value="enable">Enable</option>
+                  <option value="disable">Disable</option>
+                </select>
+              </label>
+            </div>
+          </div>
+
+          <!-- Nmap Form -->
+          <div v-if="activeType === 'nmap'" class="specialized-form">
+            <div class="form-row">
+              <label>Target IP / Subnet <input v-model="nmapForm.target" placeholder="127.0.0.1 | 10.0.0.0/24" /></label>
+              <label>Scan Type
+                <select v-model="nmapForm.scan_type">
+                  <option value="quick">Quick (Fast, common ports)</option>
+                  <option value="service">Service Detection (-sV)</option>
+                  <option value="os">OS & Service Detection (-O -sV)</option>
+                  <option value="stealth">Stealth Scan (-sS)</option>
+                  <option value="ping">Ping Sweep (-sn)</option>
+                  <option value="full">Full Port Scan (-p-)</option>
+                </select>
+              </label>
+            </div>
+            <div class="form-row">
+              <label>Iface <input v-model="nmapForm.interface" placeholder="(optional)" /></label>
+              <label class="check-label"><input type="checkbox" v-model="nmapForm.dns_resolve" /> Resolve DNS</label>
+            </div>
+          </div>
+
+          <!-- iperf3 Form -->
+          <div v-if="activeType === 'iperf3'" class="specialized-form">
+            <div class="form-row">
+              <label>Mode
+                <select v-model="iperf3Form.mode">
+                  <option value="client">Client (Test against server)</option>
+                  <option value="server">Server (Wait for client)</option>
+                </select>
+              </label>
+              <label v-if="iperf3Form.mode === 'client'">Server IP <input v-model="iperf3Form.server" placeholder="10.0.0.1" /></label>
+              <label v-if="iperf3Form.mode === 'client'">Duration (s) <input v-model.number="iperf3Form.duration" type="number" /></label>
+            </div>
+            <div v-if="iperf3Form.mode === 'client'" class="form-row">
+              <label>Bitrate (e.g. 100M) <input v-model="iperf3Form.bitrate" placeholder="(optional)" /></label>
+              <label class="check-label"><input type="checkbox" v-model="iperf3Form.udp" /> UDP Mode</label>
+              <label class="check-label"><input type="checkbox" v-model="iperf3Form.reverse" /> Reverse (Server to Client)</label>
+            </div>
+            <p v-if="iperf3Form.mode === 'server'" class="form-help">NODE WILL START SERVER AND WAIT FOR ONE INCOMING CONNECTION.</p>
+          </div>
+
+          <!-- MTR Form -->
+          <div v-if="activeType === 'mtr'" class="specialized-form">
+            <div class="form-row">
+              <label>Target <input v-model="mtrForm.target" placeholder="google.com" /></label>
+              <label>Cycles <input v-model.number="mtrForm.count" type="number" /></label>
+            </div>
+          </div>
+
+          <!-- Speedtest Form -->
+          <div v-if="activeType === 'speedtest'" class="specialized-form">
+            <p class="form-help">RUNS speedtest-cli AGAINST A PUBLIC SERVER. THIS MAY TAKE 30-60 SECONDS.</p>
+          </div>
+
+          <!-- DNS Lookup Form -->
+          <div v-if="activeType === 'dns-lookup'" class="specialized-form">
+            <div class="form-row">
+              <label>Domain/Host <input v-model="dnsLookupForm.target" placeholder="example.com" /></label>
+              <label>Type
+                <select v-model="dnsLookupForm.query_type">
+                  <option value="A">A (IPv4)</option>
+                  <option value="AAAA">AAAA (IPv6)</option>
+                  <option value="MX">MX (Mail)</option>
+                  <option value="TXT">TXT</option>
+                  <option value="NS">NS</option>
+                  <option value="CNAME">CNAME</option>
+                </select>
+              </label>
+              <label>Server <input v-model="dnsLookupForm.server" placeholder="8.8.8.8 (optional)" /></label>
+            </div>
+          </div>
+
+          <!-- WOL Form -->
+          <div v-if="activeType === 'wol'" class="specialized-form">
+            <div class="form-row">
+              <label>MAC Address <input v-model="wolForm.mac" placeholder="00:11:22:33:44:55" /></label>
+              <label>Iface <input v-model="wolForm.interface" placeholder="(optional)" /></label>
+            </div>
+          </div>
+
+          <!-- Arp-scan Form -->
+          <div v-if="activeType === 'arp-scan'" class="specialized-form">
+            <div class="form-row">
+              <label>Target <input v-model="arpScanForm.target" placeholder="localnet | 192.168.1.0/24" /></label>
+              <label>Iface <input v-model="arpScanForm.interface" placeholder="eth0 (optional)" /></label>
+            </div>
+          </div>
+
           <div class="input-section">
             <div class="section-label">Data (JSON)<span v-if="activeType" class="auto-label"> — auto-generated</span></div>
             <textarea
@@ -545,8 +684,15 @@
             <div v-for="(r, i) in results" :key="i" class="result-block">
               <div class="result-cmd">$ {{ r.command }}</div>
               <pre v-if="r.output" class="result-out">{{ r.output }}</pre>
-              <pre v-if="r.error"  class="result-err">{{ r.error }}</pre>
+              <pre v-if="r.error" class="result-err">{{ r.error }}</pre>
+              <!-- Fix button if command not found -->
+              <div v-if="(r.output + r.error).toLowerCase().includes('not found') || (r.output + r.error).toLowerCase().includes('not installed')" class="result-fix">
+                <button class="btn-fix-inline" @click="installMissing(r.command)" :disabled="installingTool">
+                    {{ installingTool ? 'INSTALLING...' : 'INSTALL MISSING TOOL' }}
+                </button>
+              </div>
             </div>
+
           </div>
         </div>
       </div>
@@ -594,15 +740,50 @@ const CONFIG_CATEGORIES = {
       { type: 'sysctl', label: 'Sysctl' },
       { type: 'file-write', label: 'Write File' },
     ]
+  },
+  rpi: {
+    icon: '🍓', label: 'Raspberry PI',
+    types: [
+      { type: 'rpi-info', label: 'System Info' },
+      { type: 'rpi-temperature', label: 'Temp & Throttle' },
+      { type: 'rpi-gpio-read-all', label: 'GPIO Status' },
+      { type: 'rpi-wifi', label: 'WiFi Setup' },
+      { type: 'rpi-spi', label: 'SPI Bus' },
+      { type: 'rpi-i2c-enable', label: 'I2C Bus' },
+      { type: 'rpi-camera', label: 'Camera' },
+      { type: 'rpi-watchdog', label: 'Watchdog' },
+    ]
+  },
+  tools: {
+    icon: '🔧', label: 'Network Tools',
+    types: [
+        { type: 'nmap', label: 'Nmap Scanner' },
+        { type: 'iperf3', label: 'iperf3 Bandwidth' },
+        { type: 'mtr', label: 'MTR Traceroute' },
+        { type: 'speedtest', label: 'Speedtest CLI' },
+        { type: 'dns-lookup', label: 'DNS Lookup (dig)' },
+        { type: 'wol', label: 'Wake-on-LAN' },
+        { type: 'arp-scan', label: 'Arp-scan' },
+    ]
   }
 }
 
 const activeType      = ref<string | null>(null)
+const collapsedCats   = ref<Set<string>>(new Set())
+
+function toggleCat(key: string) {
+  if (collapsedCats.value.has(key)) {
+    collapsedCats.value.delete(key)
+  } else {
+    collapsedCats.value.add(key)
+  }
+}
 const inputJson       = ref('{}')
 const previewCommands = ref<string[]>([])
 const previewError    = ref('')
 const results         = ref<CommandResult[]>([])
 const loading         = ref(false)
+const installingTool  = ref(false)
 const persistMode     = ref(false)
 
 const defaultInterfaceForm    = () => ({ interface: 'eth0', addresses: [] as string[], dhcp: false, action: 'add' })
@@ -646,6 +827,17 @@ const defaultNftablesForm     = () => ({
     { iif: '',   oif: '', saddr: '', daddr: '', protocol: '', sport: '', dport: '', ct_state: 'established,related', action: 'accept', nat_addr: '', log_prefix: '', comment: '' },
   ],
 })
+const defaultRpiWifiForm      = () => ({ ssid: '', password: '', country: 'DK', hidden: false })
+const defaultRpiSpiForm       = () => ({ enable: true })
+const defaultRpiI2cForm       = () => ({ bus: 1, enable: true })
+const defaultRpiCameraForm    = () => ({ enable: true, legacy: false })
+const defaultRpiWatchdogForm  = () => ({ timeout: 14, action: 'enable' })
+const defaultNmapForm         = () => ({ target: '127.0.0.1', scan_type: 'quick', interface: '', dns_resolve: false })
+const defaultIperf3Form       = () => ({ mode: 'client', server: '', duration: 10, udp: false, reverse: false, bitrate: '' })
+const defaultMtrForm          = () => ({ target: '', count: 5 })
+const defaultDnsLookupForm    = () => ({ target: '', query_type: 'A', server: '' })
+const defaultWolForm          = () => ({ mac: '', interface: '' })
+const defaultArpScanForm      = () => ({ target: 'localnet', interface: '' })
 
 function resetForm() {
   if (!activeType.value) return
@@ -657,7 +849,12 @@ function resetForm() {
     wireguard: defaultWireguardForm, forwarding: defaultForwardingForm, service: defaultServiceForm,
     package: defaultPackageForm, user: defaultUserForm, hostname: defaultHostnameForm,
     sysctl: defaultSysctlForm, 'file-write': defaultFileWriteForm, iptables: defaultIptablesForm,
-    ufw: defaultUfwForm, nftables: defaultNftablesForm
+    ufw: defaultUfwForm, nftables: defaultNftablesForm,
+    'rpi-wifi': defaultRpiWifiForm, 'rpi-spi': defaultRpiSpiForm, 'rpi-i2c-enable': defaultRpiI2cForm,
+    'rpi-camera': defaultRpiCameraForm, 'rpi-watchdog': defaultRpiWatchdogForm,
+    nmap: defaultNmapForm, iperf3: defaultIperf3Form, mtr: defaultMtrForm,
+    speedtest: () => ({}), 'dns-lookup': defaultDnsLookupForm, wol: defaultWolForm,
+    'arp-scan': defaultArpScanForm
   }
 
   const formRefs: Record<string, any> = {
@@ -666,7 +863,11 @@ function resetForm() {
     wireguard: wireguardForm, forwarding: forwardingForm, service: serviceForm,
     package: packageForm, user: userForm, hostname: hostnameForm,
     sysctl: sysctlForm, 'file-write': fileWriteForm, iptables: iptablesForm,
-    ufw: ufwForm, nftables: nftablesForm
+    ufw: ufwForm, nftables: nftablesForm,
+    'rpi-wifi': rpiWifiForm, 'rpi-spi': rpiSpiForm, 'rpi-i2c-enable': rpiI2cForm,
+    'rpi-camera': rpiCameraForm, 'rpi-watchdog': rpiWatchdogForm,
+    nmap: nmapForm, iperf3: iperf3Form, mtr: mtrForm,
+    'dns-lookup': dnsLookupForm, wol: wolForm, 'arp-scan': arpScanForm
   }
 
   if (defaults[activeType.value] && formRefs[activeType.value]) {
@@ -703,6 +904,18 @@ const fileWriteForm   = ref(defaultFileWriteForm())
 const iptablesForm    = ref(defaultIptablesForm())
 const ufwForm         = ref(defaultUfwForm())
 const nftablesForm    = ref(defaultNftablesForm())
+
+const rpiWifiForm     = ref(defaultRpiWifiForm())
+const rpiSpiForm      = ref(defaultRpiSpiForm())
+const rpiI2cForm      = ref(defaultRpiI2cForm())
+const rpiCameraForm   = ref(defaultRpiCameraForm())
+const rpiWatchdogForm = ref(defaultRpiWatchdogForm())
+const nmapForm        = ref(defaultNmapForm())
+const iperf3Form      = ref(defaultIperf3Form())
+const mtrForm         = ref(defaultMtrForm())
+const dnsLookupForm   = ref(defaultDnsLookupForm())
+const wolForm         = ref(defaultWolForm())
+const arpScanForm     = ref(defaultArpScanForm())
 
 function syncRouteForm() {
   inputJson.value = JSON.stringify({
@@ -784,6 +997,16 @@ function syncFileWriteForm() {
   inputJson.value = JSON.stringify(fileWriteForm.value, null, 2)
 }
 
+function syncNmapForm() {
+  inputJson.value = JSON.stringify(nmapForm.value, null, 2)
+}
+
+function syncIperf3Form() { inputJson.value = JSON.stringify(iperf3Form.value, null, 2) }
+function syncMtrForm() { inputJson.value = JSON.stringify(mtrForm.value, null, 2) }
+function syncDnsLookupForm() { inputJson.value = JSON.stringify(dnsLookupForm.value, null, 2) }
+function syncWolForm() { inputJson.value = JSON.stringify(wolForm.value, null, 2) }
+function syncArpScanForm() { inputJson.value = JSON.stringify(arpScanForm.value, null, 2) }
+
 function _stripEmpty<T extends Record<string, unknown>>(obj: T): Partial<T> {
   const out: Partial<T> = {}
   for (const k in obj) {
@@ -825,6 +1048,12 @@ function syncNftablesForm() {
     }],
   }, null, 2)
 }
+
+function syncRpiWifiForm() { inputJson.value = JSON.stringify(rpiWifiForm.value, null, 2) }
+function syncRpiSpiForm() { inputJson.value = JSON.stringify(rpiSpiForm.value, null, 2) }
+function syncRpiI2cForm() { inputJson.value = JSON.stringify(rpiI2cForm.value, null, 2) }
+function syncRpiCameraForm() { inputJson.value = JSON.stringify(rpiCameraForm.value, null, 2) }
+function syncRpiWatchdogForm() { inputJson.value = JSON.stringify(rpiWatchdogForm.value, null, 2) }
 
 const syncFnMap: Record<string, () => void> = {}
 
@@ -869,6 +1098,20 @@ async function applyConfig() {
   }
 }
 
+async function installMissing(cmd: string) {
+    // Extract tool name (first word, e.g. "arp-scan" from "arp-scan localnet")
+    const tool = cmd.replace(/^#.*\n/, '').trim().split(' ')[0]
+    installingTool.value = true
+    try {
+        await api.installTool(props.nodeId, tool)
+        alert(`${tool} installed successfully. You can now retry the command.`)
+    } catch (e) {
+        alert('Installation failed: ' + e)
+    } finally {
+        installingTool.value = false
+    }
+}
+
 // Register sync functions so selectType can call them by key
 syncFnMap.interface    = syncInterfaceForm
 syncFnMap.routes       = syncRouteForm
@@ -887,6 +1130,21 @@ syncFnMap['file-write'] = syncFileWriteForm
 syncFnMap.iptables     = syncIptablesForm
 syncFnMap.ufw          = syncUfwForm
 syncFnMap.nftables     = syncNftablesForm
+syncFnMap['rpi-wifi']       = syncRpiWifiForm
+syncFnMap['rpi-spi']        = syncRpiSpiForm
+syncFnMap['rpi-i2c-enable'] = syncRpiI2cForm
+syncFnMap['rpi-camera']     = syncRpiCameraForm
+syncFnMap['rpi-watchdog']   = syncRpiWatchdogForm
+syncFnMap.nmap              = syncNmapForm
+syncFnMap.iperf3            = syncIperf3Form
+syncFnMap.mtr               = syncMtrForm
+syncFnMap.speedtest         = () => { inputJson.value = '{}' }
+syncFnMap['dns-lookup']     = syncDnsLookupForm
+syncFnMap.wol               = syncWolForm
+syncFnMap['arp-scan']       = syncArpScanForm
+syncFnMap['rpi-info']       = () => { inputJson.value = '{}' }
+syncFnMap['rpi-temperature'] = () => { inputJson.value = '{}' }
+syncFnMap['rpi-gpio-read-all'] = () => { inputJson.value = '{}' }
 
 // Auto-update JSON as form fields change
 watch(interfaceForm,   () => { if (activeType.value === 'interface')   syncInterfaceForm() },   { deep: true })
@@ -906,6 +1164,17 @@ watch(fileWriteForm,   () => { if (activeType.value === 'file-write')  syncFileW
 watch(iptablesForm,    () => { if (activeType.value === 'iptables')    syncIptablesForm() },    { deep: true })
 watch(ufwForm,         () => { if (activeType.value === 'ufw')         syncUfwForm() },         { deep: true })
 watch(nftablesForm,    () => { if (activeType.value === 'nftables')    syncNftablesForm() },    { deep: true })
+watch(rpiWifiForm,     () => { if (activeType.value === 'rpi-wifi')    syncRpiWifiForm() },     { deep: true })
+watch(rpiSpiForm,      () => { if (activeType.value === 'rpi-spi')     syncRpiSpiForm() },      { deep: true })
+watch(rpiI2cForm,      () => { if (activeType.value === 'rpi-i2c-enable') syncRpiI2cForm() },   { deep: true })
+watch(rpiCameraForm,   () => { if (activeType.value === 'rpi-camera')  syncRpiCameraForm() },   { deep: true })
+watch(rpiWatchdogForm, () => { if (activeType.value === 'rpi-watchdog')syncRpiWatchdogForm() }, { deep: true })
+watch(nmapForm,        () => { if (activeType.value === 'nmap')        syncNmapForm() },        { deep: true })
+watch(iperf3Form,      () => { if (activeType.value === 'iperf3')      syncIperf3Form() },      { deep: true })
+watch(mtrForm,         () => { if (activeType.value === 'mtr')         syncMtrForm() },         { deep: true })
+watch(dnsLookupForm,   () => { if (activeType.value === 'dns-lookup')  syncDnsLookupForm() },   { deep: true })
+watch(wolForm,         () => { if (activeType.value === 'wol')         syncWolForm() },         { deep: true })
+watch(arpScanForm,     () => { if (activeType.value === 'arp-scan')    syncArpScanForm() },     { deep: true })
 
 watch(persistMode, () => { if (activeType.value && previewCommands.value.length) getPreview() })
 
@@ -944,9 +1213,14 @@ watch(() => props.nodeId, () => {
 }
 .cat-group { margin-bottom: 8px; }
 .cat-label {
-  padding: 4px 12px; font-size: 11px; font-weight: 600;
+  padding: 6px 12px; font-size: 11px; font-weight: 600;
   color: #6e7681; text-transform: uppercase;
+  cursor: pointer; display: flex; justify-content: space-between; align-items: center;
+  user-select: none; transition: color .2s;
 }
+.cat-label:hover { color: #c9d1d9; }
+.cat-chevron { font-size: 10px; transition: transform .3s; }
+.cat-chevron.collapsed { transform: rotate(180deg); }
 .type-btn {
   display: block; width: 100%; padding: 5px 14px; text-align: left;
   background: none; border: none; color: #8b949e;
@@ -1061,4 +1335,13 @@ watch(() => props.nodeId, () => {
 }
 .result-out { background: #0d1117; color: #c9d1d9; }
 .result-err { background: #1a0a0a; color: #f85149; }
+
+.result-fix { margin-top: 6px; }
+.btn-fix-inline {
+    padding: 4px 12px; background: none; border: 1px solid var(--green);
+    color: var(--green); border-radius: 4px; font-size: 10px;
+    font-family: var(--font-hd); cursor: pointer; transition: all 0.2s;
+}
+.btn-fix-inline:hover:not(:disabled) { background: var(--green); color: var(--bg); box-shadow: var(--shadow-g); }
+.btn-fix-inline:disabled { opacity: 0.5; cursor: wait; }
 </style>

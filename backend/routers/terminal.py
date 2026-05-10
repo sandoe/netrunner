@@ -12,15 +12,11 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 router = APIRouter()
 
 
-def _load_node(nid: str) -> dict | None:
-    nodes_file = Path("data") / "nodes.json"
-    if not nodes_file.exists():
-        return None
-    try:
-        data = json.loads(nodes_file.read_text())
-        return data.get(nid)
-    except Exception:
-        return None
+from ..core.db import load_nodes_db
+
+async def _load_node(nid: str) -> dict | None:
+    nodes = await load_nodes_db()
+    return nodes.get(nid)
 
 
 # ---------------------------------------------------------------------------
@@ -35,7 +31,7 @@ async def _ssh_terminal(ws: WebSocket, nid: str, node: dict) -> None:
         await ws.send_json({"type": "error", "data": "paramiko not installed"})
         return
 
-    username, password = load_credentials(nid)
+    username, password = await load_credentials(nid)
     host = node["host"]
     port = int(node["port"])
 
@@ -193,7 +189,7 @@ async def _telnet_terminal(ws: WebSocket, nid: str, node: dict) -> None:
 async def ws_terminal(ws: WebSocket, nid: str):
     await ws.accept()
 
-    node = _load_node(nid)
+    node = await _load_node(nid)
     if not node:
         await ws.send_json({"type": "error", "data": f"Node '{nid}' not found"})
         await ws.close()

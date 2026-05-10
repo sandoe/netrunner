@@ -16,12 +16,12 @@ from pydantic import BaseModel, field_validator
 
 from ..core.session import session_manager
 from ..core.vault import store_credentials, load_credentials, delete_credentials, has_credentials
-from ..core.detect import detect_device_type
+from ..core.detect import detect_device_type, detect_package_manager
+from ..core.db import load_nodes_db, save_node_db, delete_node_db
 
 router = APIRouter()
 
 DATA_DIR    = Path("data")
-NODES_FILE  = DATA_DIR / "nodes.json"
 CONFIGS_DIR = DATA_DIR / "configs"
 CAPTURES_DIR = DATA_DIR / "captures"
 EXPORTS_DIR  = DATA_DIR / "exports"
@@ -31,26 +31,16 @@ EXPORTS_DIR  = DATA_DIR / "exports"
 # Data helpers
 # ---------------------------------------------------------------------------
 
-def load_nodes() -> dict:
-    if NODES_FILE.exists():
-        try:
-            return json.loads(NODES_FILE.read_text())
-        except json.JSONDecodeError:
-            return {}
-    return {}
+async def load_nodes() -> dict:
+    return await load_nodes_db()
 
 
-def save_nodes(nodes: dict) -> None:
-    DATA_DIR.mkdir(exist_ok=True)
-    NODES_FILE.write_text(json.dumps(nodes, indent=2))
+async def save_nodes(nodes: dict) -> None:
+    for nid, n in nodes.items():
+        await save_node_db(n)
 
 
-def _safe_name(value: str, fallback: str = "file") -> str:
-    cleaned = re.sub(r"[^a-zA-Z0-9_\-]", "_", str(value or fallback)).strip("_")
-    return cleaned or fallback
-
-
-def _node_public(nid: str, node: dict) -> dict:
+async def _node_public(nid: str, node: dict) -> dict:
     return {
         "id": nid,
         "name": node.get("name"),
@@ -59,18 +49,23 @@ def _node_public(nid: str, node: dict) -> dict:
         "username": node.get("username"),
         "transport": node.get("transport", "telnet"),
         "device_type": node.get("device_type", "unknown"),
-        "has_password": has_credentials(nid),
+        "has_password": await has_credentials(nid),
         "created": node.get("created"),
         "tags": node.get("tags", []),
     }
 
 
-def _get_node_with_creds(nid: str, nodes: dict) -> dict:
+async def _get_node_with_creds(nid: str, nodes: dict) -> dict:
     node = dict(nodes[nid])
-    username, password = load_credentials(nid)
+    username, password = await load_credentials(nid)
     node["username"] = username
     node["password"] = password
     return node
+
+
+def _safe_name(value: str, fallback: str = "file") -> str:
+    cleaned = re.sub(r"[^a-zA-Z0-9_\-]", "_", str(value or fallback)).strip("_")
+    return cleaned or fallback
 
 
 # ---------------------------------------------------------------------------
@@ -109,7 +104,7 @@ READ_CMDS: dict[str, list[str]] = {
     ],
     "if-stats":     ["ip -s link show"],
     "wifi-scan":    ["nmcli -t -f SSID,SIGNAL,SECURITY dev wifi list 2>/dev/null || iwlist scan 2>/dev/null | grep -E 'ESSID|Signal|Encryption' || echo '(WiFi tools not available)'"],
-    "nmap-scan":    ["nmap -F 127.0.0.1 2>/dev/null || echo '(nmap not installed)'"],
+    "nmap-scan":    ["nmap -sV -F 127.0.0.1 2>/dev/null || nmap -F 127.0.0.1 2>/dev/null || echo '(nmap not installed)'"],
 
     # Linux system
     "services":     ["systemctl list-units --type=service --state=running --no-pager 2>/dev/null || service --status-all 2>/dev/null || rc-status 2>/dev/null"],
@@ -200,14 +195,14 @@ class NodeUpdate(NodeCreate):
 # ---------------------------------------------------------------------------
 
 @router.get("/nodes")
-def api_nodes():
-    nodes = load_nodes()
-    return {nid: _node_public(nid, n) for nid, n in nodes.items()}
+async def api_nodes():
+    nodes = await load_nodes()
+    return {nid: await _node_public(nid, n) for nid, n in nodes.items()}
 
 
 @router.post("/nodes", status_code=201)
-def api_nodes_create(body: NodeCreate):
-    nodes = load_nodes()
+async def api_nodes_create(body: NodeCreate):
+    nodes = await load_nodes()
     nid   = f"n{int(time.time() * 1000)}"
     node  = {
         "id":          nid,
@@ -220,15 +215,15 @@ def api_nodes_create(body: NodeCreate):
         "tags":        body.tags,
         "created":     datetime.now().isoformat(),
     }
-    store_credentials(nid, body.username, body.password)
+    await store_credentials(nid, body.username, body.password)
     nodes[nid] = node
-    save_nodes(nodes)
-    return _node_public(nid, node)
+    await save_nodes(nodes)
+    return await _node_public(nid, node)
 
 
 @router.put("/nodes/{nid}")
-def api_node_update(nid: str, body: NodeUpdate):
-    nodes = load_nodes()
+async def api_node_update(nid: str, body: NodeUpdate):
+    nodes = await load_nodes()
     if nid not in nodes:
         raise HTTPException(404, "Not found")
     node = nodes[nid]
@@ -239,93 +234,93 @@ def api_node_update(nid: str, body: NodeUpdate):
     if body.device_type is not None: node["device_type"] = body.device_type
     if body.tags        is not None: node["tags"]        = body.tags
     if body.username is not None or body.password is not None:
-        old_user, old_pass = load_credentials(nid)
-        store_credentials(
+        old_user, old_pass = await load_credentials(nid)
+        await store_credentials(
             nid,
             body.username if body.username is not None else old_user,
             body.password if body.password is not None else old_pass,
         )
         if body.username is not None:
             node["username"] = body.username
-    save_nodes(nodes)
-    return _node_public(nid, node)
+    await save_nodes(nodes)
+    return await _node_public(nid, node)
 
 
 @router.delete("/nodes/{nid}")
-def api_node_delete(nid: str):
-    nodes = load_nodes()
+async def api_node_delete(nid: str):
+    nodes = await load_nodes()
     nodes.pop(nid, None)
-    save_nodes(nodes)
+    await delete_node_db(nid)
     session_manager.close(nid)
-    delete_credentials(nid)
+    await delete_credentials(nid)
     return {"ok": True}
 
 
 @router.get("/nodes/connections")
-def api_node_connections():
+async def api_node_connections():
     active = set(session_manager.active_ids())
-    nodes = load_nodes()
+    nodes = await load_nodes()
     return {nid: {"connected": nid in active} for nid in nodes}
 
 
 @router.post("/nodes/{nid}/connect")
-def api_node_connect(nid: str):
-    nodes = load_nodes()
+async def api_node_connect(nid: str):
+    nodes = await load_nodes()
     if nid not in nodes:
         raise HTTPException(404, "Not found")
-    node = _get_node_with_creds(nid, nodes)
-    cl, err = session_manager.open(nid, node)
+    node = await _get_node_with_creds(nid, nodes)
+    cl, err = await session_manager.open(nid, node)
     if err:
         raise HTTPException(500, err)
     return {"status": "connected"}
 
 
 @router.post("/nodes/{nid}/disconnect")
-def api_node_disconnect(nid: str):
+async def api_node_disconnect(nid: str):
     session_manager.close(nid)
     return {"ok": True}
 
 
 @router.post("/nodes/{nid}/detect")
-def api_node_detect(nid: str):
-    nodes = load_nodes()
+async def api_node_detect(nid: str):
+    nodes = await load_nodes()
     if nid not in nodes:
         raise HTTPException(404, "Not found")
-    node = _get_node_with_creds(nid, nodes)
+    node = await _get_node_with_creds(nid, nodes)
     device_type = detect_device_type(
         node["host"], node["port"],
         node.get("username", "root"),
         node.get("password", ""),
     )
     nodes[nid]["device_type"] = device_type
-    save_nodes(nodes)
+    await save_node_db(nodes[nid])
     return {"device_type": device_type}
 
 
 @router.get("/nodes/{nid}/read/{ctype}")
-def api_node_read(nid: str, ctype: str):
-    nodes = load_nodes()
+async def api_node_read(nid: str, ctype: str):
+    nodes = await load_nodes()
     if nid not in nodes:
         raise HTTPException(404, "Not found")
     if ctype not in READ_CMDS:
         raise HTTPException(400, f"Unknown type '{ctype}'. Valid: {', '.join(READ_CMDS)}")
-    node = _get_node_with_creds(nid, nodes)
-    results, err = session_manager.run(nid, node, READ_CMDS[ctype])
+    node = await _get_node_with_creds(nid, nodes)
+    results, err = await session_manager.run(nid, node, READ_CMDS[ctype])
     if err:
         raise HTTPException(500, err)
     return {"results": results}
 
 
 @router.post("/nodes/{nid}/execute")
-def api_node_execute(nid: str, body: dict):
-    nodes = load_nodes()
+async def api_node_execute(nid: str, body: dict):
+    nodes = await load_nodes()
     if nid not in nodes:
         raise HTTPException(404, "Not found")
     cmds = body.get("commands", [])
     if isinstance(cmds, str):
         cmds = [c for c in cmds.split("\n") if c.strip()]
-    node = _get_node_with_creds(nid, nodes)
-    results, err = session_manager.run(nid, node, cmds)
+    node = await _get_node_with_creds(nid, nodes)
+    results, err = await session_manager.run(nid, node, cmds)
     if err:
         raise HTTPException(500, err)
     return {"results": results}
@@ -351,8 +346,8 @@ def _capture_local_dir(nid: str) -> Path:
 
 
 @router.get("/nodes/{nid}/capture")
-def api_capture_list(nid: str):
-    nodes = load_nodes()
+async def api_capture_list(nid: str):
+    nodes = await load_nodes()
     if nid not in nodes:
         raise HTTPException(404, "Not found")
     prefix = f"{nid}:"
@@ -362,8 +357,8 @@ def api_capture_list(nid: str):
 
 
 @router.delete("/nodes/{nid}/capture/{cap_id}")
-def api_capture_delete(nid: str, cap_id: str):
-    nodes = load_nodes()
+async def api_capture_delete(nid: str, cap_id: str):
+    nodes = await load_nodes()
     if nid not in nodes:
         raise HTTPException(404, "Not found")
     key = f"{nid}:{cap_id}"
@@ -377,8 +372,8 @@ def api_capture_delete(nid: str, cap_id: str):
         f"rm -f {shlex.quote(paths['pcap'])} {shlex.quote(paths['pid'])} {shlex.quote(paths['log'])}"
     )
     try:
-        node = _get_node_with_creds(nid, nodes)
-        session_manager.run(nid, node, [f"sh -lc {shlex.quote(cleanup)}"])
+        node = await _get_node_with_creds(nid, nodes)
+        await session_manager.run(nid, node, [f"sh -lc {shlex.quote(cleanup)}"])
     except Exception:
         pass
     local = _capture_local_dir(nid) / f"{_safe_name(cap_id)}.pcap"
@@ -389,8 +384,8 @@ def api_capture_delete(nid: str, cap_id: str):
 
 
 @router.post("/nodes/{nid}/capture/start")
-def api_capture_start(nid: str, body: dict):
-    nodes = load_nodes()
+async def api_capture_start(nid: str, body: dict):
+    nodes = await load_nodes()
     if nid not in nodes:
         raise HTTPException(404, "Not found")
 
@@ -416,16 +411,16 @@ def api_capture_start(nid: str, body: dict):
         f"sh -lc {shlex.quote(start_cmd)}; "
         f"sleep 1; cat {shlex.quote(paths['pid'])} 2>/dev/null || echo 0"
     )
-    node = _get_node_with_creds(nid, nodes)
+    node = await _get_node_with_creds(nid, nodes)
     
     # Check if tcpdump is installed
-    check_results, check_err = session_manager.run(nid, node, ["command -v tcpdump || echo '__MISSING__'"])
+    check_results, check_err = await session_manager.run(nid, node, ["command -v tcpdump || echo '__MISSING__'"])
     if check_err:
         raise HTTPException(500, check_err)
     if "__MISSING__" in (check_results[0].get("output", "") if check_results else ""):
         raise HTTPException(400, "tcpdump is not installed on this node. Please install it to use capture features.")
 
-    results, err = session_manager.run(nid, node, [remote])
+    results, err = await session_manager.run(nid, node, [remote])
     if err:
         raise HTTPException(500, err)
 
@@ -441,8 +436,8 @@ def api_capture_start(nid: str, body: dict):
 
 
 @router.get("/nodes/{nid}/capture/{cap_id}/status")
-def api_capture_status(nid: str, cap_id: str):
-    nodes = load_nodes()
+async def api_capture_status(nid: str, cap_id: str):
+    nodes = await load_nodes()
     if nid not in nodes:
         raise HTTPException(404, "Not found")
     meta = _captures.get(f"{nid}:{cap_id}")
@@ -457,8 +452,8 @@ def api_capture_status(nid: str, cap_id: str):
         f"SIZE=$(wc -c < {shlex.quote(paths['pcap'])} 2>/dev/null || echo 0); echo SIZE=$SIZE; "
         f"tail -n 10 {shlex.quote(paths['log'])} 2>/dev/null || true"
     )
-    node = _get_node_with_creds(nid, nodes)
-    results, err = session_manager.run(nid, node, [f"sh -lc {shlex.quote(status_script)}"])
+    node = await _get_node_with_creds(nid, nodes)
+    results, err = await session_manager.run(nid, node, [f"sh -lc {shlex.quote(status_script)}"])
     if err:
         raise HTTPException(500, err)
     output = results[0].get("output", "") if results else ""
@@ -468,8 +463,8 @@ def api_capture_status(nid: str, cap_id: str):
 
 
 @router.post("/nodes/{nid}/capture/{cap_id}/stop")
-def api_capture_stop(nid: str, cap_id: str):
-    nodes = load_nodes()
+async def api_capture_stop(nid: str, cap_id: str):
+    nodes = await load_nodes()
     if nid not in nodes:
         raise HTTPException(404, "Not found")
     meta = _captures.get(f"{nid}:{cap_id}")
@@ -481,8 +476,8 @@ def api_capture_stop(nid: str, cap_id: str):
         f"if [ -n \"$PID\" ]; then kill \"$PID\" 2>/dev/null || true; sleep 1; fi; "
         f"SIZE=$(wc -c < {shlex.quote(paths['pcap'])} 2>/dev/null || echo 0); echo SIZE=$SIZE"
     )
-    node = _get_node_with_creds(nid, nodes)
-    results, err = session_manager.run(nid, node, [f"sh -lc {shlex.quote(stop_script)}"])
+    node = await _get_node_with_creds(nid, nodes)
+    results, err = await session_manager.run(nid, node, [f"sh -lc {shlex.quote(stop_script)}"])
     if err:
         raise HTTPException(500, err)
     output = results[0].get("output", "") if results else ""
@@ -491,8 +486,8 @@ def api_capture_stop(nid: str, cap_id: str):
 
 
 @router.get("/nodes/{nid}/capture/{cap_id}/download")
-def api_capture_download(nid: str, cap_id: str):
-    nodes = load_nodes()
+async def api_capture_download(nid: str, cap_id: str):
+    nodes = await load_nodes()
     if nid not in nodes:
         raise HTTPException(404, "Not found")
     meta = _captures.get(f"{nid}:{cap_id}")
@@ -503,8 +498,8 @@ def api_capture_download(nid: str, cap_id: str):
         f"if [ ! -f {shlex.quote(paths['pcap'])} ]; then echo __MISSING__; "
         f"else base64 {shlex.quote(paths['pcap'])} 2>/dev/null || busybox base64 {shlex.quote(paths['pcap'])}; fi"
     )
-    node = _get_node_with_creds(nid, nodes)
-    results, err = session_manager.run(nid, node, [f"sh -lc {shlex.quote(dl_script)}"])
+    node = await _get_node_with_creds(nid, nodes)
+    results, err = await session_manager.run(nid, node, [f"sh -lc {shlex.quote(dl_script)}"])
     if err:
         raise HTTPException(500, err)
     output = (results[0].get("output") or "").strip() if results else ""
@@ -538,8 +533,8 @@ def _backup_paths(nid: str, backup_id: str) -> dict:
 
 
 @router.post("/nodes/{nid}/backup")
-def api_node_backup(nid: str, body: dict = {}):
-    nodes = load_nodes()
+async def api_node_backup(nid: str, body: dict = {}):
+    nodes = await load_nodes()
     if nid not in nodes:
         raise HTTPException(404, "Not found")
     backup_id = _safe_name((body or {}).get("id") or f"bkp_{int(time.time())}", "backup")
@@ -547,8 +542,8 @@ def api_node_backup(nid: str, body: dict = {}):
 
     from ..generators.network import gen_backup_commands
     cmds  = gen_backup_commands(paths)
-    node  = _get_node_with_creds(nid, nodes)
-    results, err = session_manager.run(nid, node, cmds)
+    node  = await _get_node_with_creds(nid, nodes)
+    results, err = await session_manager.run(nid, node, cmds)
     if err:
         raise HTTPException(500, err)
 
@@ -562,8 +557,8 @@ def api_node_backup(nid: str, body: dict = {}):
 
 
 @router.post("/nodes/{nid}/rollback")
-def api_node_rollback(nid: str):
-    nodes = load_nodes()
+async def api_node_rollback(nid: str):
+    nodes = await load_nodes()
     if nid not in nodes:
         raise HTTPException(404, "Not found")
     meta = _backups.get(nid)
@@ -573,8 +568,8 @@ def api_node_rollback(nid: str):
 
     from ..generators.network import gen_restore_commands
     restore_cmds = gen_restore_commands(paths)
-    node = _get_node_with_creds(nid, nodes)
-    results, err = session_manager.run(nid, node, restore_cmds)
+    node = await _get_node_with_creds(nid, nodes)
+    results, err = await session_manager.run(nid, node, restore_cmds)
     if err:
         raise HTTPException(500, err)
     return {"ok": True, "backup": {"id": meta["id"], "created": meta["created"]}, "results": results}
@@ -592,8 +587,8 @@ DEFAULT_EXPORT_DIAGNOSTICS = [
 
 
 @router.post("/nodes/{nid}/export")
-def api_node_export(nid: str, body: dict = {}):
-    nodes = load_nodes()
+async def api_node_export(nid: str, body: dict = {}):
+    nodes = await load_nodes()
     if nid not in nodes:
         raise HTTPException(404, "Not found")
     body = body or {}
@@ -610,12 +605,12 @@ def api_node_export(nid: str, body: dict = {}):
     diagnostics: dict[str, str] = {}
     diag_errors:  dict[str, str] = {}
     if diag_types:
-        node_full = _get_node_with_creds(nid, nodes)
+        node_full = await _get_node_with_creds(nid, nodes)
         for ctype in diag_types:
             if ctype not in READ_CMDS:
                 diag_errors[ctype] = f"unknown type '{ctype}'"
                 continue
-            results, err = session_manager.run(nid, node_full, READ_CMDS[ctype])
+            results, err = await session_manager.run(nid, node_full, READ_CMDS[ctype])
             if err:
                 diag_errors[ctype] = err
                 continue
@@ -625,7 +620,7 @@ def api_node_export(nid: str, body: dict = {}):
 
     summary = {
         "exported": datetime.now().isoformat(),
-        "node": _node_public(nid, node_meta),
+        "node": await _node_public(nid, node_meta),
         "diagnostic_types": list(diagnostics.keys()),
         "diagnostic_errors": diag_errors,
     }
@@ -647,6 +642,66 @@ def api_node_export(nid: str, body: dict = {}):
         "diagnostic_types": list(diagnostics.keys()),
         "diagnostic_errors": diag_errors,
     }
+
+
+@router.post("/nodes/{nid}/install")
+async def api_node_install_tool(nid: str, body: dict):
+    tool = body.get("tool")
+    if not tool:
+        raise HTTPException(400, "Missing tool name")
+        
+    nodes = await load_nodes()
+    if nid not in nodes:
+        raise HTTPException(404, "Node not found")
+        
+    node = await _get_node_with_creds(nid, nodes)
+    
+    # Map common tools to package names if different
+    package_map = {
+        "nmap": "nmap",
+        "nmap-scan": "nmap",
+        "tcpdump": "tcpdump",
+        "wireguard": "wireguard",
+        "iperf3": "iperf3",
+        "htop": "htop",
+        "dhcp-server": "dnsmasq",
+        "dns-service": "dnsmasq",
+        "vlan-switch": "bridge-utils",
+        "lldp": "lldpd",
+        "mtr": "mtr",
+        "speedtest": "speedtest-cli",
+        "dns-lookup": "bind9-host", # or 'dnsutils' / 'bind-tools'
+        "wol": "wakeonlan",
+        "arp-scan": "arp-scan"
+    }
+    
+    pkg = package_map.get(tool.lower(), tool.lower())
+    
+    # Detect package manager
+    async def _run(c):
+        res, err = await session_manager.run(nid, node, [c])
+        if err: return ""
+        return res[0].get("output", "") if res else ""
+
+    mgr = detect_package_manager(_run)
+    
+    commands = []
+    if mgr == "apt":
+        commands = [f"apt-get update", f"apt-get install -y {pkg}"]
+    elif mgr == "apk":
+        commands = [f"apk add {pkg}"]
+    elif mgr == "yum" or mgr == "dnf":
+        commands = [f"{mgr} install -y {pkg}"]
+    elif mgr == "pacman":
+        commands = [f"pacman -Sy --noconfirm {pkg}"]
+    else:
+        raise HTTPException(400, f"Unsupported package manager on this node (detected: {mgr})")
+
+    results, err = await session_manager.run(nid, node, commands)
+    if err:
+        raise HTTPException(500, err)
+        
+    return {"status": "success", "results": results}
 
 
 @router.get("/exports/{fname}")

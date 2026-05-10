@@ -492,3 +492,115 @@ def gen_restore_commands(paths: dict) -> list[str]:
         f"if [ -d {q(wg_dir)} ]; then mkdir -p /etc/wireguard && cp -r {q(wg_dir)}/. /etc/wireguard/; fi",
         "echo 'Rollback complete'",
     ]
+
+
+def gen_nmap(cfg: dict) -> list[str]:
+    target = str(cfg.get("target", "127.0.0.1")).strip() or "127.0.0.1"
+    scan_type = cfg.get("scan_type", "quick")
+    
+    # Base command
+    nmap = ["nmap"]
+    
+    if scan_type == "quick":
+        nmap += ["-F", "-T4"]
+    elif scan_type == "service":
+        nmap += ["-sV", "-T4"]
+    elif scan_type == "os":
+        nmap += ["-O", "-sV", "-T4"]
+    elif scan_type == "stealth":
+        nmap += ["-sS", "-T4"]
+    elif scan_type == "ping":
+        nmap += ["-sn"]
+    elif scan_type == "full":
+        nmap += ["-p-", "-sV", "-T4"]
+    
+    if cfg.get("dns_resolve") is False:
+        nmap += ["-n"]
+    
+    if cfg.get("interface"):
+        nmap += ["-e", cfg["interface"]]
+        
+    nmap.append(target)
+    
+    return [
+        "# ── Nmap Network Scan ──────────────────────────────────────",
+        " ".join(nmap)
+    ]
+
+
+def gen_iperf3(cfg: dict) -> list[str]:
+    mode = cfg.get("mode", "client")
+    cmds = ["# ── iperf3 Bandwidth Test ──────────────────────────────────"]
+    if mode == "server":
+        cmds.append("iperf3 -s -1") # Run once and exit
+    else:
+        server = str(cfg.get("server", "")).strip()
+        if not server: raise ValueError("Server IP/Hostname required")
+        args = ["iperf3", "-c", server, "-t", str(cfg.get("duration", 10))]
+        if cfg.get("reverse"): args.append("-R")
+        if cfg.get("udp"): args.append("-u")
+        if cfg.get("bitrate"): args += ["-b", cfg["bitrate"]]
+        cmds.append(" ".join(args))
+    return cmds
+
+
+def gen_mtr(cfg: dict) -> list[str]:
+    target = str(cfg.get("target", "")).strip()
+    if not target: raise ValueError("Target required")
+    count = cfg.get("count", 5)
+    return [
+        "# ── MTR Traceroute ─────────────────────────────────────────",
+        f"mtr -rw -c {count} {target}"
+    ]
+
+
+def gen_speedtest() -> list[str]:
+    return [
+        "# ── Speedtest-CLI ──────────────────────────────────────────",
+        "speedtest-cli --simple || speedtest --simple"
+    ]
+
+
+def gen_dns_lookup(cfg: dict) -> list[str]:
+    target = str(cfg.get("target", "")).strip()
+    if not target: raise ValueError("Target required")
+    qtype = cfg.get("query_type", "A")
+    server = str(cfg.get("server", "")).strip()
+    
+    cmd = ["dig", qtype, target]
+    if server: cmd.append(f"@{server}")
+    cmd.append("+short")
+    
+    return [
+        "# ── DNS Lookup (dig) ───────────────────────────────────────",
+        " ".join(cmd)
+    ]
+
+
+def gen_wol(cfg: dict) -> list[str]:
+    mac = str(cfg.get("mac", "")).strip()
+    if not mac: raise ValueError("MAC address required")
+    iface = str(cfg.get("interface", "")).strip()
+    
+    cmd = ["wakeonlan"]
+    if iface: cmd += ["-i", iface]
+    cmd.append(mac)
+    
+    return [
+        "# ── Wake-on-LAN ────────────────────────────────────────────",
+        " ".join(cmd)
+    ]
+
+
+def gen_arp_scan(cfg: dict) -> list[str]:
+    iface = str(cfg.get("interface", "")).strip()
+    target = str(cfg.get("target", "localnet")).strip()
+    
+    cmd = ["arp-scan"]
+    if iface: cmd += ["-I", iface]
+    cmd.append(target)
+    
+    return [
+        "# ── Arp-scan ───────────────────────────────────────────────",
+        " ".join(cmd)
+    ]

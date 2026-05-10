@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -13,6 +14,7 @@ from fastapi.staticfiles import StaticFiles
 
 from .routers import ai, configs, gns3, links, nodes, preview, terminal, settings
 from .routers.settings import load_settings
+from .core.db import init_db
 
 FRONTEND_DIST = Path(__file__).parent.parent / "frontend" / "dist"
 DATA_DIR = Path("data")
@@ -24,8 +26,11 @@ async def lifespan(app: FastAPI):
     for d in ("configs", "captures", "exports"):
         (DATA_DIR / d).mkdir(parents=True, exist_ok=True)
     
+    # Initialize DB
+    await init_db()
+
     # Load settings into env
-    s = load_settings()
+    s = await load_settings()
     if s.get("openai_api_key"):
         os.environ["OPENAI_API_KEY"] = s["openai_api_key"]
 

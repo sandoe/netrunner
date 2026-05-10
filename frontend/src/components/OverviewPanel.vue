@@ -22,33 +22,49 @@
       </div>
     </div>
 
-    <div v-else class="tile-grid">
-      <div
-        v-for="tile in tiles"
-        :key="tile.key"
-        class="tile"
-        :class="{ loading: tile.loading, expanded: tile.expanded }"
-        @click="toggleExpand(tile, $event)"
-      >
-        <div class="tile-head">
-          <span class="tile-icon">{{ tile.icon }}</span>
-          <span class="tile-title">{{ tile.title }}</span>
-          <span v-if="tile.loading" class="pulse-dot"></span>
-          <span class="tile-chevron" :class="{ open: tile.expanded }">⌃</span>
-          <button class="tile-refresh" @click.stop="loadTile(tile)" :disabled="tile.loading" title="Refresh">↻</button>
+    <div v-else class="ov-content">
+      <div v-for="(group, catId) in groupedTiles" :key="catId" class="ov-section">
+        <div class="ov-section-head" @click="toggleCat(catId as string)">
+          <span class="ov-section-title">{{ getCatLabel(catId as string) }}</span>
+          <span class="ov-section-chevron" :class="{ collapsed: collapsedCats.has(catId as string) }">⌃</span>
         </div>
+        
+        <div v-if="!collapsedCats.has(catId as string)" class="tile-grid">
+          <div
+            v-for="tile in group"
+            :key="tile.key"
+            class="tile"
+            :class="{ loading: tile.loading, expanded: tile.expanded }"
+            @click="toggleExpand(tile, $event)"
+          >
+            <div class="tile-head">
+              <span class="tile-icon">{{ tile.icon }}</span>
+              <span class="tile-title">{{ tile.title }}</span>
+              <span v-if="tile.loading" class="pulse-dot"></span>
+              <span class="tile-chevron" :class="{ open: tile.expanded }">⌃</span>
+              <button class="tile-refresh" @click.stop="loadTile(tile)" :disabled="tile.loading" title="Refresh">↻</button>
+            </div>
 
-        <div v-if="tile.error" class="tile-error">{{ tile.error }}</div>
-        <div v-else class="tile-body">
-          <div v-if="tile.summary" class="tile-summary">
-            <div v-for="(v, k) in tile.summary" :key="k" class="kv">
-              <span class="k">{{ k }}</span>
-              <span class="v">{{ v }}</span>
+            <div v-if="tile.error" class="tile-error">
+              {{ tile.error }}
+              <div v-if="tile.error.toLowerCase().includes('not installed') || tile.error.toLowerCase().includes('not found')" class="tile-fix">
+                <button class="btn-fix" @click.stop="installTool(tile)" :disabled="tile.loading">
+                  {{ tile.loading ? 'INSTALLING...' : 'INSTALL ' + tile.type.toUpperCase() }}
+                </button>
+              </div>
+            </div>
+            <div v-else class="tile-body">
+              <div v-if="tile.summary" class="tile-summary">
+                <div v-for="(v, k) in tile.summary" :key="k" class="kv">
+                  <span class="k">{{ k }}</span>
+                  <span class="v">{{ v }}</span>
+                </div>
+              </div>
+              <pre v-if="tile.expanded && tile.raw" class="tile-pre full">{{ tile.raw }}</pre>
+              <pre v-else-if="tile.preview" class="tile-pre">{{ tile.preview }}</pre>
+              <div v-if="!tile.summary && !tile.preview && !tile.loading && !tile.raw" class="tile-empty">— NO DATA DETECTED —</div>
             </div>
           </div>
-          <pre v-if="tile.expanded && tile.raw" class="tile-pre full">{{ tile.raw }}</pre>
-          <pre v-else-if="tile.preview" class="tile-pre">{{ tile.preview }}</pre>
-          <div v-if="!tile.summary && !tile.preview && !tile.loading && !tile.raw" class="tile-empty">— NO DATA DETECTED —</div>
         </div>
       </div>
     </div>
@@ -65,6 +81,7 @@ interface Tile {
   key: string
   title: string
   icon: string
+  category: 'network' | 'linux' | 'rpi' | 'firewall'
   type: ReadType
   parse: (raw: string) => { summary?: Record<string, string>; preview?: string }
   loading: boolean
@@ -81,6 +98,31 @@ const store = useNodesStore()
 const connected = computed(() => store.isConnected(props.nodeId))
 const connecting = ref(false)
 const connectError = ref('')
+const collapsedCats = ref<Set<string>>(new Set())
+
+const groupedTiles = computed(() => {
+  const groups: Record<string, Tile[]> = {}
+  for (const t of tiles.value) {
+    if (!groups[t.category]) groups[t.category] = []
+    groups[t.category].push(t)
+  }
+  return groups
+})
+
+function getCatLabel(id: string) {
+  const labels: Record<string, string> = {
+    network: 'NETWORK LIVE TELEMETRY',
+    linux: 'LINUX SYSTEM STATUS',
+    rpi: 'RASPBERRY PI HARDWARE',
+    firewall: 'FIREWALL & SECURITY'
+  }
+  return labels[id] || id.toUpperCase()
+}
+
+function toggleCat(id: string) {
+  if (collapsedCats.value.has(id)) collapsedCats.value.delete(id)
+  else collapsedCats.value.add(id)
+}
 
 async function connectNow() {
   connecting.value = true
@@ -98,72 +140,72 @@ async function connectNow() {
 function makeTiles(deviceType?: string): Tile[] {
   const all: Tile[] = [
     {
-      key: 'ip', title: 'IP ADDRESSES', icon: '🌐', type: 'ip',
+      key: 'ip', title: 'IP ADDRESSES', icon: '🌐', type: 'ip', category: 'network',
       parse: parseIp,
       loading: false, error: '', summary: null, preview: '', raw: '', expanded: false,
     },
     {
-      key: 'routes', title: 'ROUTING TABLE', icon: '🛤️', type: 'routes',
+      key: 'routes', title: 'ROUTING TABLE', icon: '🛤️', type: 'routes', category: 'network',
       parse: parseRoutes,
       loading: false, error: '', summary: null, preview: '', raw: '', expanded: false,
     },
     {
-      key: 'interfaces', title: 'INTERFACES', icon: '🔌', type: 'interfaces',
+      key: 'interfaces', title: 'INTERFACES', icon: '🔌', type: 'interfaces', category: 'network',
       parse: parseInterfaces,
       loading: false, error: '', summary: null, preview: '', raw: '', expanded: false,
     },
     {
-      key: 'if-stats', title: 'INTERFACE METRICS', icon: '📊', type: 'if-stats',
+      key: 'if-stats', title: 'INTERFACE METRICS', icon: '📊', type: 'if-stats', category: 'network',
       parse: parseIfStats,
       loading: false, error: '', summary: null, preview: '', raw: '', expanded: false,
     },
     {
-      key: 'wifi-scan', title: 'WIFI SCANNER', icon: '📡', type: 'wifi-scan',
+      key: 'wifi-scan', title: 'WIFI SCANNER', icon: '📡', type: 'wifi-scan', category: 'network',
       parse: parseWifiScan,
       loading: false, error: '', summary: null, preview: '', raw: '', expanded: false,
     },
     {
-      key: 'nmap-scan', title: 'SECURITY AUDIT', icon: '🕵️', type: 'nmap-scan',
+      key: 'nmap-scan', title: 'SECURITY AUDIT', icon: '🕵️', type: 'nmap-scan', category: 'network',
       parse: parseNmap,
       loading: false, error: '', summary: null, preview: '', raw: '', expanded: false,
     },
     {
-      key: 'forwarding', title: 'IP FORWARDING', icon: '↪️', type: 'forwarding',
+      key: 'forwarding', title: 'IP FORWARDING', icon: '↪️', type: 'forwarding', category: 'network',
       parse: parseForwarding,
       loading: false, error: '', summary: null, preview: '', raw: '', expanded: false,
     },
     {
-      key: 'firewall-nft', title: 'NFTABLES', icon: '🛡️', type: 'nftables',
+      key: 'firewall-nft', title: 'NFTABLES', icon: '🛡️', type: 'nftables', category: 'firewall',
       parse: parseFirewall,
       loading: false, error: '', summary: null, preview: '', raw: '', expanded: false,
     },
     {
-      key: 'firewall-ipt', title: 'IPTABLES', icon: '🛡️', type: 'iptables',
+      key: 'firewall-ipt', title: 'IPTABLES', icon: '🛡️', type: 'iptables', category: 'firewall',
       parse: parseFirewall,
       loading: false, error: '', summary: null, preview: '', raw: '', expanded: false,
     },
     {
-      key: 'wireguard', title: 'WIREGUARD', icon: '🔐', type: 'wireguard',
+      key: 'wireguard', title: 'WIREGUARD', icon: '🔐', type: 'wireguard', category: 'network',
       parse: parseWireguard,
       loading: false, error: '', summary: null, preview: '', raw: '', expanded: false,
     },
     {
-      key: 'dhcp-server', title: 'DHCP SERVER', icon: '📨', type: 'dhcp-server',
+      key: 'dhcp-server', title: 'DHCP SERVER', icon: '📨', type: 'dhcp-server', category: 'network',
       parse: parseDhcp,
       loading: false, error: '', summary: null, preview: '', raw: '', expanded: false,
     },
     {
-      key: 'rpi-spi', title: 'SPI STATUS', icon: '📟', type: 'rpi-spi',
+      key: 'rpi-spi', title: 'SPI STATUS', icon: '📟', type: 'rpi-spi', category: 'rpi',
       parse: parseSpi,
       loading: false, error: '', summary: null, preview: '', raw: '', expanded: false,
     },
     {
-      key: 'sockets', title: 'LISTENING SOCKETS', icon: '📡', type: 'sockets',
+      key: 'sockets', title: 'LISTENING SOCKETS', icon: '📡', type: 'sockets', category: 'linux',
       parse: parseSockets,
       loading: false, error: '', summary: null, preview: '', raw: '', expanded: false,
     },
     {
-      key: 'os-info', title: 'OS METRICS', icon: '💻', type: 'os-info',
+      key: 'os-info', title: 'OS METRICS', icon: '💻', type: 'os-info', category: 'linux',
       parse: parseOs,
       loading: false, error: '', summary: null, preview: '', raw: '', expanded: false,
     },
@@ -261,9 +303,15 @@ function parseWifiScan(raw: string): ReturnType<Tile['parse']> {
 function parseNmap(raw: string): ReturnType<Tile['parse']> {
   if (!raw || /not installed/.test(raw)) return { summary: { 'STATUS': 'UNINSTALLED' } }
   const ports = (raw.match(/\d+\/tcp\s+open/g) || []).length
+  const services = raw.split('\n')
+    .filter(l => /open/i.test(l))
+    .map(l => l.replace(/\s+/g, ' ').trim())
+    .slice(0, 3)
+    .join('\n')
+    
   return {
     summary: { 'OPEN PORTS': String(ports) },
-    preview: raw.split('\n').filter(l => /open/i.test(l)).slice(0, 5).join('\n')
+    preview: services || 'No open ports found'
   }
 }
 
@@ -361,6 +409,17 @@ async function loadTile(tile: Tile) {
   try {
     const data = await api.readNode(props.nodeId, tile.type)
     const raw  = data.results.map(r => (r.output || r.error || '')).join('\n').trim()
+    
+    // Auto-detect "not installed" messages from shell or typical error messages
+    const missingIndicators = ['not found', 'no such file', 'not installed', 'unable to locate', 'command not found']
+    if (missingIndicators.some(ind => raw.toLowerCase().includes(ind))) {
+        tile.error = `Tool '${tile.type}' not installed on node.`
+        tile.summary = null
+        tile.preview = ''
+        tile.raw = raw // Keep raw for debugging in expanded mode
+        return
+    }
+
     const parsed = tile.parse(raw)
     tile.raw     = raw
     tile.summary = parsed.summary || null
@@ -374,6 +433,18 @@ async function loadTile(tile: Tile) {
   } finally {
     tile.loading = false
   }
+}
+
+async function installTool(tile: Tile) {
+    tile.loading = true
+    try {
+        await api.installTool(props.nodeId, tile.type)
+        await loadTile(tile)
+    } catch (e) {
+        tile.error = `Installation failed: ${e}`
+    } finally {
+        tile.loading = false
+    }
 }
 
 function toggleExpand(tile: Tile, ev: MouseEvent) {
@@ -441,6 +512,19 @@ onUnmounted(() => { if (timer) clearInterval(timer) })
 .last-update { font-family: var(--font-co); font-size: 9px; color: var(--text); margin-left: auto; }
 
 .ov-disconnected { flex: 1; display: flex; align-items: center; justify-content: center; padding: 40px; }
+
+.ov-content { flex: 1; overflow-y: auto; padding: 20px; display: flex; flex-direction: column; gap: 32px; }
+.ov-section { display: flex; flex-direction: column; gap: 16px; }
+.ov-section-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 0 4px 8px; border-bottom: 1px solid var(--border);
+  cursor: pointer; user-select: none;
+}
+.ov-section-head:hover .ov-section-title { color: var(--cyan); }
+.ov-section-title { font-family: var(--font-hd); font-size: 11px; font-weight: 800; color: var(--text); letter-spacing: 2px; transition: color .2s; }
+.ov-section-chevron { font-size: 12px; color: var(--text); transition: transform .3s; }
+.ov-section-chevron.collapsed { transform: rotate(180deg); }
+
 .dc-card {
   max-width: 400px; width: 100%; text-align: center;
   background: var(--bg2); border: 1px solid var(--border); border-radius: var(--r2); padding: 32px;
@@ -516,5 +600,12 @@ onUnmounted(() => { if (timer) clearInterval(timer) })
   margin-top: 10px; padding: 8px; background: rgba(255,45,110,.1); border: 1px solid var(--pink); border-radius: var(--r);
   color: var(--pink); font-size: 10px; font-family: var(--font-co);
 }
+.tile-fix { margin-top: 8px; }
+.btn-fix {
+  width: 100%; padding: 6px; background: var(--bg3); border: 1px solid var(--green);
+  border-radius: 4px; color: var(--green); font-family: var(--font-hd); font-size: 8px;
+  letter-spacing: 1px; cursor: pointer; transition: all .2s;
+}
+.btn-fix:hover:not(:disabled) { background: var(--green); color: var(--bg); box-shadow: var(--shadow-g); }
 .tile-empty { color: var(--text); font-family: var(--font-hd); font-size: 8px; letter-spacing: 1px; padding: 12px 0; text-align: center; }
 </style>

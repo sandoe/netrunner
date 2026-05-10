@@ -9,31 +9,27 @@ from typing import List, Optional
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
-
 from .nodes import load_nodes, _get_node_with_creds
 from ..core.session import session_manager
+from ..core.db import load_links_db, save_link_db, delete_link_db
 
 router = APIRouter()
 
 DATA_DIR = Path("data")
-LINKS_FILE = DATA_DIR / "links.json"
+
 
 # ---------------------------------------------------------------------------
 # Data helpers
 # ---------------------------------------------------------------------------
 
-def load_links() -> dict:
-    if LINKS_FILE.exists():
-        try:
-            return json.loads(LINKS_FILE.read_text())
-        except json.JSONDecodeError:
-            return {}
-    return {}
+async def load_links() -> dict:
+    return await load_links_db()
 
 
-def save_links(links: dict) -> None:
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
-    LINKS_FILE.write_text(json.dumps(links, indent=2))
+async def save_links(links: dict) -> None:
+    for lid, l in links.items():
+        await save_link_db(l)
+
 
 
 # ---------------------------------------------------------------------------
@@ -56,13 +52,13 @@ class Link(LinkCreate):
 
 @router.get("/links", response_model=List[Link])
 async def get_links():
-    links = load_links()
+    links = await load_links()
     return list(links.values())
 
 
 @router.post("/links", response_model=Link)
 async def create_link(link_in: LinkCreate):
-    links = load_links()
+    links = await load_links()
     
     # Simple check for duplicates
     for l in links.values():
@@ -74,18 +70,17 @@ async def create_link(link_in: LinkCreate):
     link_id = str(uuid.uuid4())
     new_link = Link(id=link_id, **link_in.model_dump())
     links[link_id] = new_link.model_dump()
-    save_links(links)
+    await save_links(links)
     return new_link
 
 
 @router.delete("/links/{link_id}")
 async def delete_link(link_id: str):
-    links = load_links()
+    links = await load_links()
     if link_id not in links:
         raise HTTPException(status_code=404, detail="Link not found")
     
-    del links[link_id]
-    save_links(links)
+    await delete_link_db(link_id)
     return {"status": "deleted"}
 
 
@@ -95,8 +90,8 @@ async def delete_link(link_id: str):
 
 @router.post("/links/discover")
 async def discover_links():
-    nodes = load_nodes()
-    links = load_links()
+    nodes = await load_nodes()
+    links = await load_links()
     active_ids = session_manager.active_ids()
     
     if not active_ids:
@@ -112,9 +107,9 @@ async def discover_links():
         
         # Try to get more IPs if node is active
         try:
-            node_creds = _get_node_with_creds(nid, nodes)
+            node_creds = await _get_node_with_creds(nid, nodes)
             # This is a bit slow but robust: fetch all IPs for this node
-            ip_results, _ = session_manager.run(nid, node_creds, ["ip -4 addr show | grep inet | awk '{print $2}' | cut -d/ -f1"])
+            ip_results, _ = await session_manager.run(nid, node_creds, ["ip -4 addr show | grep inet | awk '{print $2}' | cut -d/ -f1"])
             if ip_results:
                 for ip in ip_results[0].get("output", "").splitlines():
                     if ip.strip():
@@ -123,7 +118,7 @@ async def discover_links():
             pass
 
     for nid in active_ids:
-        node_data = _get_node_with_creds(nid, nodes)
+        node_data = await _get_node_with_creds(nid, nodes)
         
         cmds = [
             "ip -4 neigh show",
@@ -131,7 +126,7 @@ async def discover_links():
             "bridge vlan show 2>/dev/null || echo ''" # Helper for switches
         ]
         
-        results, err = session_manager.run(nid, node_data, cmds)
+        results, err = await session_manager.run(nid, node_data, cmds)
         if not results:
             continue
             
@@ -194,7 +189,12 @@ async def discover_links():
             except:
                 pass
 
-    save_links(links)
+    await save_links(links)
+    return {
+        "status": "success", 
+        "discovered": new_links_count, 
+        "unknown_neighbors": unknown_neighbors
+    }
     return {
         "status": "success", 
         "discovered": new_links_count, 

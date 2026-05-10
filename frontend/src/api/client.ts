@@ -38,8 +38,20 @@ export const api = {
     req<{ role: string; content: string }>('POST', '/ai/chat', { messages }),
 
   // Settings
-  getSettings: () => req<{ openai_api_key_set: boolean; masked_key: string; gns3_server_url: string }>('GET', '/settings'),
-  updateSettings: (body: { openai_api_key?: string; gns3_server_url?: string }) => req<{ status: string }>('POST', '/settings', body),
+  getSettings: () => req<{ 
+    openai_api_key_set: boolean; 
+    masked_key: string; 
+    gns3_server_url: string;
+    database_url: string;
+  }>('GET', '/settings'),
+  updateSettings: (body: { 
+    openai_api_key?: string; 
+    gns3_server_url?: string;
+    database_url?: string;
+  }) => req<{ status: string }>('POST', '/settings', body),
+  testDbConnection: (url: string) => req<{ status: string; message?: string }>('POST', '/settings/test-db', { url }),
+  initDb: (url: string) => req<{ status: string }>('POST', '/settings/init-db', { url }),
+  restartServer: () => req<{ status: string }>('POST', '/settings/restart'),
 
   // GNS3
   listGns3Projects: () => req<{ name: string; project_id: string }[]>('GET', '/gns3/projects'),
@@ -49,6 +61,7 @@ export const api = {
 
   readNode: (id: string, type: string) => req<{ results: CommandResult[] }>('GET', `/nodes/${id}/read/${type}`),
   executeNode: (id: string, commands: string[]) => req<{ results: CommandResult[] }>('POST', `/nodes/${id}/execute`, { commands }),
+  installTool: (id: string, tool: string) => req<{ status: string; results: CommandResult[] }>('POST', `/nodes/${id}/install`, { tool }),
 
   // Backup
   backupNode: (id: string) => req<{ ok: boolean }>('POST', `/nodes/${id}/backup`),

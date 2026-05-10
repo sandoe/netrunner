@@ -6,7 +6,8 @@ from fastapi import APIRouter, HTTPException
 from ..generators.network import (
     gen_ip, gen_interface, gen_routes, gen_forwarding, gen_dhcp, gen_dns, gen_dhcp_server,
     gen_nat, gen_reset_node, gen_vlan_router, gen_vlan_switch, gen_wireguard,
-    gen_persist_script,
+    gen_persist_script, gen_nmap, gen_iperf3, gen_mtr, gen_speedtest,
+    gen_dns_lookup, gen_wol, gen_arp_scan,
 )
 from ..generators.firewall import gen_iptables, gen_ufw, gen_nftables
 from ..generators.linux import (
@@ -55,6 +56,20 @@ def api_preview(body: dict):
             cmds = gen_vlan_switch(cfg.get("bridge", "br0"), cfg.get("vlans", []), cfg.get("ports", []))
         elif t == "wireguard":
             cmds = gen_wireguard(cfg.get("interface", "wg0"), cfg)
+        elif t == "nmap":
+            cmds = gen_nmap(cfg)
+        elif t == "iperf3":
+            cmds = gen_iperf3(cfg)
+        elif t == "mtr":
+            cmds = gen_mtr(cfg)
+        elif t == "speedtest":
+            cmds = gen_speedtest()
+        elif t == "dns-lookup":
+            cmds = gen_dns_lookup(cfg)
+        elif t == "wol":
+            cmds = gen_wol(cfg)
+        elif t == "arp-scan":
+            cmds = gen_arp_scan(cfg)
         elif t == "persist":
             cmds = gen_persist_script(cfg.get("name", "config"), cfg.get("commands", []))
 

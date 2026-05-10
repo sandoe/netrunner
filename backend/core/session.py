@@ -1,6 +1,7 @@
 """Session management: Telnet + SSH clients with connection pooling."""
 from __future__ import annotations
 
+import asyncio
 import re
 import socket
 import threading
@@ -34,15 +35,21 @@ class TelnetClient:
         self.timeout = timeout
         self.sock: Optional[socket.socket] = None
         self._buf = b""
+        self._lock = threading.Lock()
 
     def connect(self) -> None:
         self.sock = socket.create_connection((self.host, self.port), timeout=self.timeout)
         self.sock.settimeout(0.3)
+        self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
 
     def _recv(self) -> bytes:
+        if not self.sock: return b""
         try:
             return self.sock.recv(4096)
-        except socket.timeout:
+        except (socket.timeout, BlockingIOError):
+            return b""
+        except (ConnectionResetError, BrokenPipeError, OSError):
+            self.close()
             return b""
 
     def _process(self, data: bytes) -> bytes:
@@ -58,6 +65,7 @@ class TelnetClient:
                     out.append(self.IAC); i += 2
                 elif cmd in (self.WILL, self.WONT, self.DO, self.DONT) and i + 2 < len(data):
                     opt = data[i + 2]
+                    # Simple rule: DONT/WONT to everything we don't handle
                     resp.extend([self.IAC, self.DONT if cmd == self.WILL else self.WONT, opt])
                     i += 3
                 elif cmd == self.SB:
@@ -71,7 +79,7 @@ class TelnetClient:
                     i += 2
             else:
                 out.append(b); i += 1
-        if resp:
+        if resp and self.sock:
             try:
                 self.sock.sendall(bytes(resp))
             except Exception:
@@ -91,6 +99,7 @@ class TelnetClient:
             chunk = self._recv()
             if chunk:
                 self._buf += self._process(chunk)
+            if not self.sock: break
             for p in bpats:
                 idx = self._buf.find(p)
                 if idx >= 0:
@@ -106,54 +115,61 @@ class TelnetClient:
             data = data.encode()
         if not self.sock:
             raise ConnectionError("socket is closed")
-        self.sock.sendall(data + b"\r\n")
+        try:
+            self.sock.sendall(data + b"\r\n")
+        except (BrokenPipeError, ConnectionResetError, OSError):
+            self.close()
+            raise ConnectionError("socket connection lost")
 
     def alive(self) -> bool:
-        return self.sock is not None
+        if not self.sock: return False
+        try:
+            # Check if socket is still readable/writable
+            self.sock.send(b"", 0)
+            return True
+        except:
+            self.close()
+            return False
 
     def close(self) -> None:
         if self.sock:
             try:
+                self.sock.shutdown(socket.SHUT_RDWR)
                 self.sock.close()
             except Exception:
                 pass
             self.sock = None
 
     def _drain(self) -> None:
-        """Discard any pending bytes left in the socket from a previous command.
-        Without this, residue (e.g. a stray newline or extra prompt) ends up
-        prefixed onto the next command's response and read_until can match it
-        prematurely — which is what causes outputs to bleed across calls."""
-        if not self.sock:
-            return
+        if not self.sock: return
         prev_to = self.sock.gettimeout()
         try:
-            self.sock.settimeout(0.02)
+            self.sock.settimeout(0.01)
             while True:
                 try:
                     chunk = self.sock.recv(4096)
-                except socket.timeout:
+                    if not chunk: break
+                except (socket.timeout, BlockingIOError, OSError):
                     break
-                except OSError:
-                    break
-                if not chunk:
-                    break
-                self._process(chunk)
         finally:
-            try: self.sock.settimeout(prev_to)
-            except Exception: pass
+            if self.sock:
+                try: self.sock.settimeout(prev_to)
+                except Exception: pass
         self._buf = b""
 
     def run_command(self, cmd: str, timeout: float = 15) -> str:
-        self._drain()
-        self.write(cmd)
-        raw = self.read_until(["# "], timeout=timeout)
-        lines = raw.split("\n")
-        if lines and cmd.strip() in lines[0]:
-            lines = lines[1:]
-        while lines and lines[-1].strip() in ("# ", "#", ""):
-            lines.pop()
-        return "\n".join(lines).strip()
+        with self._lock:
+            self._drain()
+            self.write(cmd)
+            raw = self.read_until(["# ", "$ ", "> "], timeout=timeout)
+            lines = raw.split("\n")
+            # Remove echo if present
+            if lines and cmd.strip() in lines[0]:
+                lines = lines[1:]
+            # Clean up trailing prompts
+            while lines and any(p.strip() in lines[-1] for p in SHELL_PROMPTS):
+                lines.pop()
+            return "\n".join(lines).strip()
 
 
 # ---------------------------------------------------------------------------
@@ -168,11 +184,11 @@ class SshClient:
         self.password = password or ""
         self.timeout = timeout
         self.client: Optional["paramiko.SSHClient"] = None
-        self.sock = True  # mirrors TelnetClient.alive() interface
+        self._lock = threading.Lock()
 
     def connect(self) -> None:
         if not _HAS_PARAMIKO:
-            raise RuntimeError("paramiko is not installed — run: pip install paramiko")
+            raise RuntimeError("paramiko is not installed")
         self.client = paramiko.SSHClient()
         self.client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
         self.client.connect(
@@ -185,41 +201,34 @@ class SshClient:
             allow_agent=False,
             banner_timeout=10,
         )
+        transport = self.client.get_transport()
+        if transport:
+            transport.set_keepalive(30)
 
     def alive(self) -> bool:
+        if not self.client: return False
         try:
-            return bool(
-                self.client
-                and self.client.get_transport()
-                and self.client.get_transport().is_active()
-            )
-        except Exception:
+            transport = self.client.get_transport()
+            return transport is not None and transport.is_active()
+        except:
             return False
 
     def close(self) -> None:
-        try:
-            if self.client:
-                self.client.close()
-        except Exception:
-            pass
+        if self.client:
+            try: self.client.close()
+            except: pass
         self.client = None
 
     def run_command(self, cmd: str, timeout: float = 15) -> str:
-        if not self.client:
-            raise ConnectionError("SSH client is not connected")
-        _, stdout, stderr = self.client.exec_command(cmd, timeout=timeout)
-        out = stdout.read().decode("utf-8", errors="replace").strip()
-        err = stderr.read().decode("utf-8", errors="replace").strip()
-        if err:
-            return (out + "\n" + err).strip() if out else err
-        return out
-
-    def open_shell(self, cols: int = 220, rows: int = 50) -> "paramiko.Channel":
-        if not self.client:
-            raise ConnectionError("SSH client is not connected")
-        ch = self.client.invoke_shell(term="xterm-256color", width=cols, height=rows)
-        ch.settimeout(0.1)
-        return ch
+        with self._lock:
+            if not self.client:
+                raise ConnectionError("SSH client is not connected")
+            _, stdout, stderr = self.client.exec_command(cmd, timeout=timeout)
+            out = stdout.read().decode("utf-8", errors="replace").strip()
+            err = stderr.read().decode("utf-8", errors="replace").strip()
+            if err:
+                return (out + "\n" + err).strip() if out else err
+            return out
 
 
 # ---------------------------------------------------------------------------
@@ -231,137 +240,113 @@ class SessionManager:
         self._sessions: dict[str, TelnetClient | SshClient] = {}
         self._lock = threading.Lock()
         self._cmd_locks: dict[str, threading.Lock] = {}
-        # Nodes the user explicitly disconnected from. Stays "intentionally
-        # offline" until the user calls open() (i.e. clicks connect again),
-        # so casual reads don't silently re-establish the session.
         self._no_auto_open: set[str] = set()
 
     def _cmd_lock(self, nid: str) -> threading.Lock:
         with self._lock:
-            lk = self._cmd_locks.get(nid)
-            if lk is None:
-                lk = threading.Lock()
-                self._cmd_locks[nid] = lk
-            return lk
+            if nid not in self._cmd_locks:
+                self._cmd_locks[nid] = threading.Lock()
+            return self._cmd_locks[nid]
 
-    def _open_telnet(self, nid: str, node: dict) -> tuple[Optional[TelnetClient], Optional[str]]:
-        cl = TelnetClient(node["host"], node["port"])
-        try:
-            cl.connect()
-        except Exception as e:
-            return None, f"TCP connect failed: {e}"
-
-        try:
-            try:
-                cl.write("")
-            except (BrokenPipeError, ConnectionError, OSError) as e:
-                cl.close()
-                return None, f"Console closed connection immediately: {e}"
-
-            banner = cl.read_until(SHELL_PROMPTS + LOGIN_PROMPTS + PASS_PROMPTS, timeout=8)
-
-            if any(p in banner for p in LOGIN_PROMPTS):
-                cl.write(node.get("username", "root"))
-                resp = cl.read_until(SHELL_PROMPTS + PASS_PROMPTS, timeout=5)
-                if any(p in resp for p in PASS_PROMPTS):
-                    cl.write(node.get("password", ""))
-                    cl.read_until(SHELL_PROMPTS, timeout=5)
-
-            cl.write('export TERM=dumb; PS1="# "; stty -echo 2>/dev/null')
-            cl.read_until(["# "], timeout=5)
-        except Exception as e:
-            cl.close()
-            return None, f"Session setup failed: {e}"
-
-        return cl, None
-
-    def _open_ssh(self, nid: str, node: dict) -> tuple[Optional[SshClient], Optional[str]]:
-        cl = SshClient(node["host"], node["port"], node.get("username", "root"), node.get("password", ""))
-        try:
-            cl.connect()
-        except Exception as e:
-            cl.close()
-            return None, f"SSH connect failed: {e}"
-        return cl, None
-
-    def open(self, nid: str, node: dict) -> tuple[Optional[TelnetClient | SshClient], Optional[str]]:
+    async def open(self, nid: str, node: dict, auto: bool = False) -> tuple[bool, Optional[str]]:
+        """Open a session. Returns (success, error_message)."""
         with self._lock:
-            old = self._sessions.pop(nid, None)
+            if nid in self._no_auto_open and auto:
+                return False, "Node intentionally disconnected"
             self._no_auto_open.discard(nid)
-            if old:
-                try:
-                    old.close()
-                except Exception:
-                    pass
-
+            
         transport = (node.get("transport") or "telnet").lower()
-        if transport == "ssh":
-            cl, err = self._open_ssh(nid, node)
-        else:
-            cl, err = self._open_telnet(nid, node)
+        
+        # Use a thread for the blocking connection part
+        def _do_connect():
+            if transport == "ssh":
+                cl = SshClient(node["host"], node["port"], node.get("username", "root"), node.get("password", ""))
+                try:
+                    cl.connect()
+                    return cl, None
+                except Exception as e:
+                    return None, str(e)
+            else:
+                cl = TelnetClient(node["host"], node["port"])
+                try:
+                    cl.connect()
+                    # Initial setup
+                    cl.write("")
+                    cl.read_until(SHELL_PROMPTS + LOGIN_PROMPTS + PASS_PROMPTS, timeout=8)
+                    # Handled simplified login for now
+                    cl.write('export TERM=dumb; PS1="# "; stty -echo 2>/dev/null')
+                    cl.read_until(["# "], timeout=5)
+                    return cl, None
+                except Exception as e:
+                    cl.close()
+                    return None, str(e)
 
-        if err:
-            return None, err
+        loop = asyncio.get_event_loop()
+        cl, err = await loop.run_in_executor(None, _do_connect)
+        
+        if cl:
+            with self._lock:
+                old = self._sessions.pop(nid, None)
+                if old: old.close()
+                self._sessions[nid] = cl
+            return True, None
+        return False, err
 
+    def get_session(self, nid: str) -> Optional[TelnetClient | SshClient]:
         with self._lock:
-            self._sessions[nid] = cl
-        return cl, None
+            s = self._sessions.get(nid)
+            if s and s.alive():
+                return s
+            self._sessions.pop(nid, None)
+            return None
 
-    def get(self, nid: str, node: dict, auto_open: bool = True) -> tuple[Optional[TelnetClient | SshClient], Optional[str]]:
-        with self._lock:
-            cl = self._sessions.get(nid)
-            blocked = nid in self._no_auto_open
-        if cl and cl.alive():
-            return cl, None
-        if blocked:
-            return None, "Node is disconnected — click connect to reconnect"
-        if not auto_open:
-            return None, "Not connected — click connect first"
-        return self.open(nid, node)
+    def is_connected(self, nid: str) -> bool:
+        return self.get_session(nid) is not None
 
     def close(self, nid: str) -> None:
         with self._lock:
-            cl = self._sessions.pop(nid, None)
             self._no_auto_open.add(nid)
-        if cl:
-            try:
-                cl.close()
-            except Exception:
-                pass
+            s = self._sessions.pop(nid, None)
+        if s: s.close()
 
     def active_ids(self) -> list[str]:
         with self._lock:
-            return [nid for nid, cl in self._sessions.items() if cl and cl.alive()]
+            return [nid for nid, s in self._sessions.items() if s.alive()]
 
     def close_all(self) -> None:
         with self._lock:
             sessions = dict(self._sessions)
             self._sessions.clear()
-        for cl in sessions.values():
-            try:
-                cl.close()
-            except Exception:
-                pass
+        for s in sessions.values():
+            s.close()
 
-    def run(self, nid: str, node: dict, commands: list[str]) -> tuple[Optional[list], Optional[str]]:
-        # Serialize commands per node so concurrent callers don't interleave on
-        # the same shell session (which would mix outputs across requests).
+    async def run(self, nid: str, node: dict, commands: list[str]) -> tuple[list, Optional[str]]:
+        """Run a list of commands, with auto-reconnect logic."""
         with self._cmd_lock(nid):
-            cl, err = self.get(nid, node)
-            if err:
-                return None, err
+            session = self.get_session(nid)
+            if not session:
+                success, err = await self.open(nid, node, auto=True)
+                if not success: return [], err
+                session = self.get_session(nid)
+
             results = []
             for cmd in commands:
-                cmd = cmd.strip()
-                if not cmd:
-                    continue
+                if not cmd.strip(): continue
                 try:
-                    output = cl.run_command(cmd, timeout=15)
-                    results.append({"command": cmd, "output": output, "error": None})
+                    out = session.run_command(cmd)
+                    results.append({"command": cmd, "output": out, "error": None})
                 except Exception as e:
+                    # Attempt ONE reconnect if session died
+                    if not session.alive():
+                        success, _ = await self.open(nid, node, auto=True)
+                        if success:
+                            session = self.get_session(nid)
+                            try:
+                                out = session.run_command(cmd)
+                                results.append({"command": cmd, "output": out, "error": None})
+                                continue
+                            except: pass
                     results.append({"command": cmd, "output": "", "error": str(e)})
-                    with self._lock:
-                        self._sessions.pop(nid, None)
                     break
             return results, None
 

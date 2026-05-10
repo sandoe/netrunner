@@ -46,28 +46,36 @@
       </div>
 
       <div class="node-list">
-        <div
-          v-for="node in filteredNodes"
-          :key="node.id"
-          class="node-item"
-          :class="{ active: store.selectedId === node.id }"
-          @click="store.select(node.id)"
-        >
-          <div 
-            class="node-dot" 
-            :class="{ 
-              connected: store.isConnected(node.id),
-              'manually-off': !store.isConnected(node.id) && store.manuallyDisconnected.has(node.id)
-            }"
-          ></div>
-          <div class="node-meta">
-            <div class="node-name">{{ node.name }}</div>
-            <div class="node-host">{{ node.host }}:{{ node.port }}</div>
-            <div class="node-tags" v-if="node.tags && node.tags.length">
-              <span v-for="tag in node.tags.slice(0, 3)" :key="tag" class="tag-chip">{{ tag }}</span>
+        <div v-for="(group, type) in groupedNodes" :key="type" class="node-group">
+          <div class="node-group-head" @click="toggleSidebarCat(type as string)">
+            <span>{{ getDeviceTypeLabel(type as string) }}</span>
+            <span class="node-group-chevron" :class="{ collapsed: collapsedSidebarCats.has(type as string) }">⌃</span>
+          </div>
+          <div v-if="!collapsedSidebarCats.has(type as string)" class="node-group-items">
+            <div
+              v-for="node in group"
+              :key="node.id"
+              class="node-item"
+              :class="{ active: store.selectedId === node.id }"
+              @click="store.select(node.id)"
+            >
+              <div 
+                class="node-dot" 
+                :class="{ 
+                  connected: store.isConnected(node.id),
+                  'manually-off': !store.isConnected(node.id) && store.manuallyDisconnected.has(node.id)
+                }"
+              ></div>
+              <div class="node-meta">
+                <div class="node-name">{{ node.name }}</div>
+                <div class="node-host">{{ node.host }}:{{ node.port }}</div>
+                <div class="node-tags" v-if="node.tags && node.tags.length">
+                  <span v-for="tag in node.tags.slice(0, 3)" :key="tag" class="tag-chip">{{ tag }}</span>
+                </div>
+              </div>
+              <span class="node-transport" :class="node.transport">{{ node.transport }}</span>
             </div>
           </div>
-          <span class="node-transport" :class="node.transport">{{ node.transport }}</span>
         </div>
         <div v-if="!store.loading && filteredNodes.length === 0" class="sidebar-empty">
           NO NODES DETECTED.
@@ -182,6 +190,33 @@ const filteredNodes = computed(() => {
     (n.tags ?? []).some(t => t.toLowerCase().includes(q))
   )
 })
+
+const collapsedSidebarCats = ref<Set<string>>(new Set())
+
+const groupedNodes = computed(() => {
+  const groups: Record<string, NrNode[]> = {}
+  for (const n of filteredNodes.value) {
+    const type = n.device_type || 'unknown'
+    if (!groups[type]) groups[type] = []
+    groups[type].push(n)
+  }
+  return groups
+})
+
+function getDeviceTypeLabel(type: string) {
+  const labels: Record<string, string> = {
+    linux: 'LINUX',
+    rpi: 'RASPBERRY PI',
+    gns3: 'NETWORK',
+    unknown: 'UNKNOWN'
+  }
+  return labels[type] || type.toUpperCase()
+}
+
+function toggleSidebarCat(type: string) {
+  if (collapsedSidebarCats.value.has(type)) collapsedSidebarCats.value.delete(type)
+  else collapsedSidebarCats.value.add(type)
+}
 
 const tabs = [
   { id: 'overview', label: 'OVERVIEW' },
@@ -340,6 +375,20 @@ onUnmounted(() => { if (connTimer) clearInterval(connTimer) })
 .search-input:focus { border-color: var(--cyan); box-shadow: 0 0 8px rgba(0,229,255,.2); }
 
 .node-list { flex: 1; overflow-y: auto; padding: 4px 10px; }
+
+.node-group { margin-bottom: 12px; }
+.node-group-head {
+  padding: 8px 12px; font-family: var(--font-hd); font-size: 9px; font-weight: 800;
+  color: var(--text); letter-spacing: 1.5px; cursor: pointer;
+  display: flex; justify-content: space-between; align-items: center;
+  border-bottom: 1px solid transparent; transition: all .2s;
+  user-select: none;
+}
+.node-group-head:hover { color: var(--textwh); background: rgba(255,255,255,0.02); }
+.node-group-chevron { font-size: 10px; transition: transform .3s; }
+.node-group-chevron.collapsed { transform: rotate(180deg); }
+.node-group-items { margin-top: 4px; }
+
 .node-item { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: var(--r); cursor: pointer; border: 1px solid transparent; margin-bottom: 4px; transition: all .18s; position: relative; }
 .node-item:hover { background: var(--bg3); border-color: var(--border); }
 .node-item.active { background: rgba(0,255,157,.06); border-color: rgba(0,255,157,.3); }

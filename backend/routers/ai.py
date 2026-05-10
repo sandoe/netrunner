@@ -31,8 +31,8 @@ class ChatRequest(BaseModel):
 # Tool Implementations
 # ---------------------------------------------------------------------------
 
-def list_nodes_tool():
-    nodes = load_nodes()
+async def list_nodes_tool():
+    nodes = await load_nodes()
     return [{
         "id": nid,
         "name": n.get("name"),
@@ -40,8 +40,8 @@ def list_nodes_tool():
         "device_type": n.get("device_type")
     } for nid, n in nodes.items()]
 
-def get_topology_tool():
-    links = load_links()
+async def get_topology_tool():
+    links = await load_links()
     return list(links.values())
 
 async def run_discovery_tool():
@@ -54,7 +54,7 @@ async def create_link_tool(source_id: str, target_id: str):
     except Exception as e:
         return {"error": str(e)}
 
-def read_node_tool(node_id: str, read_type: str):
+async def read_node_tool(node_id: str, read_type: str):
     from .nodes import READ_CMDS
     if read_type not in READ_CMDS:
         return {"error": f"Invalid read_type. Valid: {', '.join(READ_CMDS.keys())}"}
@@ -64,7 +64,7 @@ def read_node_tool(node_id: str, read_type: str):
     try:
         session = session_manager.get_session(node_id) 
         if not session:
-            nodes = load_nodes()
+            nodes = await load_nodes()
             if node_id not in nodes:
                 return {"error": "Node not found"}
             return {"error": "Node not connected. Please connect via UI first."}
@@ -168,15 +168,15 @@ async def chat(req: ChatRequest):
                 args = json.loads(tc.function.arguments)
                 
                 if func_name == "list_nodes":
-                    result = list_nodes_tool()
+                    result = await list_nodes_tool()
                 elif func_name == "get_topology":
-                    result = get_topology_tool()
+                    result = await get_topology_tool()
                 elif func_name == "run_discovery":
                     result = await run_discovery_tool()
                 elif func_name == "create_link":
                     result = await create_link_tool(args.get("source_id"), args.get("target_id"))
                 elif func_name == "read_node":
-                    result = read_node_tool(args.get("node_id"), args.get("read_type"))
+                    result = await read_node_tool(args.get("node_id"), args.get("read_type"))
                 else:
                     result = {"error": "Unknown tool"}
                 
