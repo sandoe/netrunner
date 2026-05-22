@@ -99,7 +99,8 @@ class TelnetClient:
             chunk = self._recv()
             if chunk:
                 self._buf += self._process(chunk)
-            if not self.sock: break
+            if not self.sock:
+                break
             for p in bpats:
                 idx = self._buf.find(p)
                 if idx >= 0:
@@ -107,8 +108,12 @@ class TelnetClient:
                     data, self._buf = self._buf[:end], self._buf[end:]
                     return self._strip_ansi(data.decode("utf-8", errors="replace"))
             time.sleep(0.05)
-        data, self._buf = self._buf, b""
-        return self._strip_ansi(data.decode("utf-8", errors="replace"))
+        
+        # If we broke out because socket is closed or lost
+        if not self.sock:
+            raise ConnectionError("Telnet connection lost during command execution")
+        # If we reached the deadline without matching any patterns
+        raise TimeoutError(f"Command execution timed out (expected prompts: {patterns})")
 
     def write(self, data: str | bytes) -> None:
         if isinstance(data, str):
@@ -133,6 +138,12 @@ class TelnetClient:
 
     def close(self) -> None:
         if self.sock:
+            try:
+                # Restore terminal echo and prompt states before disconnecting
+                self.sock.sendall(b"\r\nstty echo; export PS1='\\h:\\w\\$ '\r\n")
+                time.sleep(0.1)
+            except Exception:
+                pass
             try:
                 self.sock.shutdown(socket.SHUT_RDWR)
                 self.sock.close()
@@ -161,15 +172,37 @@ class TelnetClient:
         with self._lock:
             self._drain()
             self.write(cmd)
-            raw = self.read_until(["# ", "$ ", "> "], timeout=timeout)
+            try:
+                raw = self.read_until(["NR_PROMPT# "], timeout=timeout)
+            except TimeoutError as e:
+                # Recover by sending Ctrl+C to interrupt the hung command on the node
+                try:
+                    if self.sock:
+                        self.sock.sendall(b"\x03")
+                        time.sleep(0.5)
+                        self._drain()
+                except Exception:
+                    pass
+                # Safely close the socket so a fresh, clean connection is opened next time
+                self.close()
+                raise e
             lines = raw.split("\n")
             # Remove echo if present
             if lines and cmd.strip() in lines[0]:
                 lines = lines[1:]
-            # Clean up trailing prompts
-            while lines and any(p.strip() in lines[-1] for p in SHELL_PROMPTS):
-                lines.pop()
+            # Clean up trailing prompts robustly
+            if lines:
+                last_line = lines[-1].strip()
+                if last_line == "NR_PROMPT#":
+                    lines.pop()
+                else:
+                    if lines[-1].endswith("NR_PROMPT# "):
+                        lines[-1] = lines[-1][:-11]
+                    elif lines[-1].endswith("NR_PROMPT#"):
+                        lines[-1] = lines[-1][:-10]
             return "\n".join(lines).strip()
+
+
 
 
 # ---------------------------------------------------------------------------
@@ -270,12 +303,19 @@ class SessionManager:
                 cl = TelnetClient(node["host"], node["port"])
                 try:
                     cl.connect()
+                    # Send Ctrl+C to interrupt any running or stuck processes
+                    try:
+                        if cl.sock:
+                            cl.sock.sendall(b"\x03")
+                            time.sleep(0.2)
+                    except Exception:
+                        pass
                     # Initial setup
                     cl.write("")
-                    cl.read_until(SHELL_PROMPTS + LOGIN_PROMPTS + PASS_PROMPTS, timeout=8)
+                    cl.read_until(SHELL_PROMPTS + LOGIN_PROMPTS + PASS_PROMPTS + ["NR_PROMPT# "], timeout=8)
                     # Handled simplified login for now
-                    cl.write('export TERM=dumb; PS1="# "; stty -echo 2>/dev/null')
-                    cl.read_until(["# "], timeout=5)
+                    cl.write('export TERM=dumb; PS1="NR_PROMPT# "; stty -echo 2>/dev/null')
+                    cl.read_until(["NR_PROMPT# "], timeout=5)
                     return cl, None
                 except Exception as e:
                     cl.close()

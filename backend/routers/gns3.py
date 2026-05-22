@@ -15,18 +15,81 @@ from .links import load_links, save_links, _add_link_if_new
 
 router = APIRouter()
 
+import configparser
+
+def get_gns3_config():
+    conf_path = Path.home() / ".config" / "GNS3" / "2.2" / "gns3_server.conf"
+    if conf_path.exists():
+        try:
+            config = configparser.ConfigParser()
+            config.read(conf_path)
+            if "Server" in config:
+                return config["Server"]
+        except Exception:
+            pass
+    return None
+
 async def _gns3_req(method: str, path: str, body: Optional[dict] = None):
     s = await load_settings()
     base = s.get("gns3_server_url", "http://127.0.0.1:3080").rstrip("/")
-    async with httpx.AsyncClient() as client:
-        try:
-            url = f"{base}/v2{path}"
-            res = await client.request(method, url, json=body, timeout=10.0)
-            if res.status_code == 404: return None
-            res.raise_for_status()
-            return res.json()
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=f"GNS3 API error: {e}")
+    
+    server_conf = get_gns3_config()
+    auth = None
+    if server_conf:
+        conf_user = server_conf.get("user", "")
+        conf_pass = server_conf.get("password", "")
+        conf_auth = server_conf.getboolean("auth", fallback=False)
+        if conf_auth and conf_user and conf_pass:
+            auth = (conf_user, conf_pass)
+            
+    candidates = []
+    # Always include the local GNS3 server if config exists
+    if server_conf:
+        conf_host = server_conf.get("host", "127.0.0.1")
+        conf_port = server_conf.get("port", "3080")
+        local_base = f"http://{conf_host}:{conf_port}"
+        candidates.append((local_base, auth))
+        
+    # Also include the configured URL from settings
+    if base not in [c[0] for c in candidates]:
+        candidates.append((base, auth))
+        
+    results = []
+    success = False
+    last_err = None
+    
+    for b_url, b_auth in candidates:
+        async with httpx.AsyncClient() as client:
+            try:
+                url = f"{b_url}/v2{path}"
+                res = await client.request(method, url, json=body, auth=b_auth, timeout=10.0)
+                if res.status_code == 404:
+                    continue
+                res.raise_for_status()
+                data = res.json()
+                success = True
+                if isinstance(data, list):
+                    results.extend(data)
+                else:
+                    return data
+            except Exception as e:
+                last_err = e
+                continue
+                
+    if success:
+        if method == "GET" and isinstance(results, list):
+            # De-duplicate lists by unique key
+            seen = set()
+            unique_results = []
+            for item in results:
+                key = item.get("project_id") or item.get("node_id") or item.get("name") or str(item)
+                if key not in seen:
+                    seen.add(key)
+                    unique_results.append(item)
+            return unique_results
+        return results
+        
+    raise HTTPException(status_code=500, detail=f"GNS3 API error: {last_err}")
 
 @router.get("/gns3/projects")
 async def list_gns3_projects():

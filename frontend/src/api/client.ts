@@ -36,6 +36,10 @@ export const api = {
   deleteNode: (id: string) => req<{ ok: boolean }>('DELETE', `/nodes/${id}`),
   connectNode: (id: string) => req<{ status: string }>('POST', `/nodes/${id}/connect`),
   disconnectNode: (id: string) => req<{ ok: boolean }>('POST', `/nodes/${id}/disconnect`),
+  rebootNode: (id: string, method?: 'command' | 'gns3') => 
+    req<{ status: string, message: string, api_call?: string, details?: any }>('POST', `/nodes/${id}/reboot`, { method }),
+  gns3ApiCall: (id: string, method: string, path: string, body?: any) => 
+    req<{ status: string; url: string; response: any }>('POST', `/nodes/${id}/gns3-api`, { method, path, body }),
   listConnections: () => req<Record<string, { connected: boolean }>>('GET', '/nodes/connections'),
   detectDevice: (id: string) => req<{ device_type: string }>('POST', `/nodes/${id}/detect`),
   defenseScan: (id: string) => req<{ output: string }>('POST', `/nodes/${id}/defense/scan`),
@@ -137,6 +141,7 @@ export const api = {
 
   // Preview
   preview: (type: string, data: unknown) => req<{ commands: string[] }>('POST', '/preview', { type, data }),
+  generateWireguardKeys: () => req<{ private_key: string; public_key: string }>('GET', '/wireguard/generate-keys'),
 
   // Configs
   listConfigs: () => req<SavedConfig[]>('GET', '/configs'),

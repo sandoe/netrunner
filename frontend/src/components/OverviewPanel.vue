@@ -408,7 +408,25 @@ async function loadTile(tile: Tile) {
   tile.error   = ''
   try {
     const data = await api.readNode(props.nodeId, tile.type)
-    const raw  = data.results.map(r => (r.output || r.error || '')).join('\n').trim()
+    
+    // Check if there was any error in results
+    const errResult = data.results?.find(r => r.error)
+    if (errResult) {
+      tile.error = errResult.error || 'Connection or command error.'
+      tile.summary = null
+      tile.preview = ''
+      tile.raw = ''
+      return
+    }
+    if (!data.results || data.results.length === 0) {
+      tile.error = 'No telemetry data returned.'
+      tile.summary = null
+      tile.preview = ''
+      tile.raw = ''
+      return
+    }
+
+    const raw  = data.results.map(r => r.output || '').join('\n').trim()
     
     // Auto-detect "not installed" messages from shell or typical error messages
     const missingIndicators = ['not found', 'no such file', 'not installed', 'unable to locate', 'command not found']

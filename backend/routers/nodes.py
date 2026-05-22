@@ -10,6 +10,7 @@ import zipfile
 from collections import Counter
 from datetime import datetime
 from pathlib import Path
+from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Response
 from fastapi.responses import FileResponse
@@ -84,7 +85,7 @@ READ_CMDS: dict[str, list[str]] = {
     "nftables":     ["nft list ruleset 2>/dev/null || echo '(nftables empty or not available)'"],
     "iptables":     ["iptables-save 2>/dev/null || iptables -S 2>/dev/null || echo '(iptables not available)'"],
     "ufw":          ["ufw status verbose 2>/dev/null || echo '(ufw not available)'"],
-    "wireguard":    ["wg show all 2>/dev/null || echo '(WireGuard not running)'"],
+    "wireguard":    ["wg show 2>/dev/null || wg 2>/dev/null || echo '(WireGuard not running)'"],
     "forwarding":   ["sysctl net.ipv4.ip_forward net.ipv6.conf.all.forwarding 2>/dev/null || echo '(sysctl unavailable)'"],
     "vlan-router":  ["ip -d link show type vlan 2>/dev/null || echo '(no VLAN sub-interfaces)'"],
     "vlan-switch":  [
@@ -280,6 +281,210 @@ async def api_node_connect(nid: str):
 async def api_node_disconnect(nid: str):
     session_manager.close(nid)
     return {"ok": True}
+
+
+async def _discover_gns3_node_details(node: dict) -> tuple[Optional[str], Optional[str]]:
+    """Attempt to discover GNS3 project_id and node_id for a GNS3 node by its console port and name."""
+    from .gns3 import _gns3_req
+    port = node.get("port")
+    node_name = node.get("name", "").strip().lower()
+    if not port:
+        return None, None
+    try:
+        projects = await _gns3_req("GET", "/projects")
+        if not projects:
+            return None, None
+        
+        # Sort projects to prioritize "opened" status
+        sorted_projects = sorted(
+            projects, 
+            key=lambda p: 0 if p.get("status") == "opened" else 1
+        )
+        
+        best_match = None
+        
+        for proj in sorted_projects:
+            proj_id = proj.get("project_id")
+            if not proj_id:
+                continue
+            try:
+                proj_nodes = await _gns3_req("GET", f"/projects/{proj_id}/nodes")
+            except Exception:
+                continue
+            if not proj_nodes:
+                continue
+            for gn in proj_nodes:
+                if gn.get("console") == port:
+                    gn_name = gn.get("name", "").strip().lower()
+                    if node_name and gn_name == node_name:
+                        # Perfect match: port and name match
+                        return proj_id, gn.get("node_id")
+                    elif not best_match:
+                        # Port matches, keep as fallback candidate
+                        best_match = (proj_id, gn.get("node_id"))
+        
+        if best_match:
+            return best_match
+            
+    except Exception as e:
+        print(f"[GNS3 Discovery Error] {e}")
+    return None, None
+
+
+@router.post("/nodes/{nid}/reboot")
+async def api_node_reboot(nid: str, body: Optional[dict] = None):
+    nodes = await load_nodes()
+    if nid not in nodes:
+        raise HTTPException(404, "Not found")
+    node = await _get_node_with_creds(nid, nodes)
+    
+    body = body or {}
+    method = body.get("method", "command")
+    
+    if method == "gns3":
+        # Check metadata for GNS3 IDs, otherwise perform dynamic auto-discovery
+        gns3_meta = node.get("metadata", {}).get("gns3", {})
+        project_id = gns3_meta.get("project_id")
+        node_id = gns3_meta.get("node_id")
+        
+        force_rediscover = False
+        if project_id and node_id:
+            # Self-healing verification: test if project/node is active and accessible
+            from .gns3 import _gns3_req
+            try:
+                await _gns3_req("GET", f"/projects/{project_id}/nodes/{node_id}")
+            except Exception:
+                force_rediscover = True
+                
+        if not project_id or not node_id or force_rediscover:
+            new_project_id, new_node_id = await _discover_gns3_node_details(node)
+            if new_project_id and new_node_id:
+                project_id = new_project_id
+                node_id = new_node_id
+                if "metadata" not in nodes[nid]:
+                    nodes[nid]["metadata"] = {}
+                nodes[nid]["metadata"]["gns3"] = {
+                    "project_id": project_id,
+                    "node_id": node_id
+                }
+                await save_node_db(nodes[nid])
+            elif not project_id or not node_id:
+                raise HTTPException(
+                    400, 
+                    "Could not discover GNS3 project ID or node ID for this node. Ensure the node is active in GNS3."
+                )
+                
+        # Send reload request via GNS3 API
+        from .gns3 import _gns3_req
+        try:
+            res = await _gns3_req("POST", f"/projects/{project_id}/nodes/{node_id}/reload")
+            # Force disconnect console immediately because it is rebooting
+            session_manager.close(nid)
+            return {
+                "status": "success",
+                "message": "GNS3 API reload initiated successfully.",
+                "api_call": f"POST /projects/{project_id}/nodes/{node_id}/reload",
+                "details": res
+            }
+        except Exception as e:
+            raise HTTPException(500, f"GNS3 API reload failed: {e}")
+            
+    else: # method == "command"
+        password = node.get("password", "")
+        if password:
+            escaped = password.replace("'", "'\\''")
+            cmd = f"reboot -f || echo '{escaped}' | sudo -S reboot -f || sudo reboot -f || reboot || sudo reboot"
+        else:
+            cmd = "reboot -f || sudo reboot -f || reboot || sudo reboot"
+            
+        results, err = await session_manager.run(nid, node, [cmd])
+        if err:
+            raise HTTPException(500, f"Failed to execute reboot command: {err}")
+            
+        # Give the session a tiny moment to process and verify connection state
+        # If still connected, command finished but connection did not drop (meaning it failed)
+        if session_manager.is_connected(nid):
+            output = ""
+            if results:
+                output = results[0].get("output") or results[0].get("error") or ""
+            raise HTTPException(
+                500,
+                f"Reboot command failed: {output or 'Node finished command but connection was not severed.'}"
+            )
+            
+        session_manager.close(nid)
+        return {
+            "status": "success",
+            "message": "Console terminal reboot command accepted.",
+            "api_call": "Terminal force-reboot command sent"
+        }
+
+
+
+
+class Gns3ApiRequest(BaseModel):
+    method: str
+    path: str
+    body: Optional[dict] = None
+
+Gns3ApiRequest.model_rebuild()
+
+@router.post("/nodes/{nid}/gns3-api")
+async def api_node_gns3_api(nid: str, payload: Gns3ApiRequest):
+    nodes = await load_nodes()
+    if nid not in nodes:
+        raise HTTPException(404, "Node not found")
+    node = await _get_node_with_creds(nid, nodes)
+    
+    # 1. Discover or load GNS3 details
+    gns3_meta = node.get("metadata", {}).get("gns3", {})
+    project_id = gns3_meta.get("project_id")
+    node_id = gns3_meta.get("node_id")
+    
+    force_rediscover = False
+    if project_id and node_id:
+        # Self-healing verification: test if project/node is active and accessible
+        from .gns3 import _gns3_req
+        try:
+            await _gns3_req("GET", f"/projects/{project_id}/nodes/{node_id}")
+        except Exception:
+            force_rediscover = True
+            
+    if not project_id or not node_id or force_rediscover:
+        new_project_id, new_node_id = await _discover_gns3_node_details(node)
+        if new_project_id and new_node_id:
+            project_id = new_project_id
+            node_id = new_node_id
+            if "metadata" not in nodes[nid]:
+                nodes[nid]["metadata"] = {}
+            nodes[nid]["metadata"]["gns3"] = {
+                "project_id": project_id,
+                "node_id": node_id
+            }
+            await save_node_db(nodes[nid])
+        elif not project_id or not node_id:
+            raise HTTPException(
+                400,
+                "Could not auto-discover GNS3 IDs. Ensure the node is currently running in a GNS3 project."
+            )
+            
+    # 2. Format path placeholders: replace '{project_id}' and '{node_id}'
+    formatted_path = payload.path.replace("{project_id}", project_id).replace("{node_id}", node_id)
+    if not formatted_path.startswith("/"):
+        formatted_path = "/" + formatted_path
+        
+    # 3. Call _gns3_req
+    from .gns3 import _gns3_req
+    try:
+        res = await _gns3_req(payload.method.upper(), formatted_path, payload.body)
+        return {
+            "status": "success",
+            "url": f"{payload.method.upper()} /v2{formatted_path}",
+            "response": res
+        }
+    except Exception as e:
+        raise HTTPException(500, f"GNS3 API call failed: {e}")
+
 
 
 @router.post("/nodes/{nid}/detect")

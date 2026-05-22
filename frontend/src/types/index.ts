@@ -10,6 +10,7 @@ export interface NrNode {
   created: string
   tags: string[]
   threat_monitoring?: boolean
+  metadata?: Record<string, any>
 }
 
 export interface NrLink {

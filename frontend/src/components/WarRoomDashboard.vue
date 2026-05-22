@@ -393,6 +393,9 @@ onUnmounted(() => {
   align-items: center;
   gap: 20px;
   border-bottom: 1px solid var(--border);
+  overflow-y: auto;
+  min-height: 0;
+  max-height: 55%;
 }
 
 .desc {
@@ -554,6 +557,9 @@ onUnmounted(() => {
 
 .control-area.manual-mode {
   padding: 20px 30px;
+  overflow-y: auto;
+  min-height: 0;
+  max-height: 55%;
 }
 
 .strike-form {

@@ -117,7 +117,10 @@
             </div>
             <div class="header-actions">
               <button v-if="!store.isConnected(store.selected.id)" @click="doConnect" class="btn-action" :disabled="connBusy">CONNECT</button>
-              <button v-else @click="doDisconnect" class="btn-action" :disabled="connBusy">DISCONNECT</button>
+              <template v-else>
+                <button @click="doDisconnect" class="btn-action" :disabled="connBusy">DISCONNECT</button>
+                <button @click="doReboot" class="btn-action btn-reboot" :disabled="connBusy">REBOOT</button>
+              </template>
               <button @click="detectType" class="btn-action">DETECT</button>
               <button @click="doBackup"   class="btn-action">BACKUP</button>
               <button @click="doRollback" class="btn-action">ROLLBACK</button>
@@ -128,7 +131,7 @@
           <!-- Tab bar -->
           <div class="tab-bar">
             <button
-              v-for="tab in tabs"
+              v-for="tab in dynamicTabs"
               :key="tab.id"
               class="tab"
               :class="{ active: activeTab === tab.id }"
@@ -139,6 +142,7 @@
           <!-- Tab content -->
           <div class="tab-content">
             <OverviewPanel v-if="activeTab === 'overview'" :node-id="store.selected.id" />
+            <Gns3Panel    v-if="activeTab === 'gns3-api'" :node-id="store.selected.id" />
             <DiagPanel    v-if="activeTab === 'diag'"     :node-id="store.selected.id" />
             <ConfigPanel  v-if="activeTab === 'config'"   :node-id="store.selected.id" />
             <ExecPanel    v-if="activeTab === 'exec'"     :node-id="store.selected.id" />
@@ -154,6 +158,83 @@
     <NodeForm v-if="showAddForm" @close="showAddForm = false" />
     <NodeForm v-if="showEdit"    :node="store.selected" @close="showEdit = false" />
     <SettingsModal v-if="showSettings" @close="showSettings = false" />
+
+    <!-- Reboot Modal -->
+    <div v-if="showRebootModal" class="modal-overlay reboot-overlay" @click.self="showRebootModal = false">
+      <div class="cyber-modal-card reboot-card">
+        <div class="cyber-modal-header warning">
+          <div class="modal-title">⚠️ SYSTEM REBOOT SEQUENCE</div>
+          <button class="btn-close-modal" @click="showRebootModal = false">×</button>
+        </div>
+        <div class="cyber-modal-body">
+          <p class="modal-intro-text">
+            Choose the reboot vector for <strong class="text-orange">{{ store.selected?.name }}</strong>:
+          </p>
+
+          <!-- Method Cards (Only show selector if GNS3 node) -->
+          <div v-if="store.selected?.device_type === 'gns3'" class="reboot-vectors">
+            <div 
+              class="vector-card" 
+              :class="{ active: rebootMethod === 'gns3' }" 
+              @click="rebootMethod = 'gns3'"
+            >
+              <div class="vector-icon">⚡</div>
+              <div class="vector-info">
+                <div class="vector-name">GNS3 Hypervisor API</div>
+                <div class="vector-desc">Force reload the VM/container node using the GNS3 control channel. Highly robust fallback if OS shell is frozen.</div>
+              </div>
+              <div class="vector-badge">HYPERVISOR</div>
+            </div>
+
+            <div 
+              class="vector-card" 
+              :class="{ active: rebootMethod === 'command' }" 
+              @click="rebootMethod = 'command'"
+            >
+              <div class="vector-icon">🐚</div>
+              <div class="vector-info">
+                <div class="vector-name">Console Terminal Shell</div>
+                <div class="vector-desc">Send force-reboot command sequences directly over the Telnet/SSH active session channel.</div>
+              </div>
+              <div class="vector-badge">CONSOLES</div>
+            </div>
+          </div>
+
+          <!-- Code Snippet Preview -->
+          <div class="vector-preview">
+            <div class="preview-header">EXECUTION VECTOR PREVIEW:</div>
+            <pre class="preview-code"><code>{{ 
+              rebootMethod === 'gns3' 
+                ? `POST /v2/projects/${store.selected?.metadata?.gns3?.project_id || '...'}/nodes/${store.selected?.metadata?.gns3?.node_id || '...'}/reload`
+                : `reboot -f || sudo reboot -f || reboot` 
+            }}</code></pre>
+          </div>
+
+          <div class="modal-warning-box">
+            <span class="warning-icon">⚠️</span>
+            <span class="warning-text">WARNING: Rebooting will immediately drop all socket sessions, interrupt active capture tasks, and temporarily clear live telemetry sparklines.</span>
+          </div>
+
+          <!-- Error Feedback -->
+          <div v-if="rebootError" class="modal-error-box">
+            <div class="error-header">⚡ SEQUENCE TERMINATION FAILURE:</div>
+            <div class="error-msg">{{ rebootError }}</div>
+          </div>
+        </div>
+
+        <div class="cyber-modal-footer">
+          <button class="btn-modal-cancel" @click="showRebootModal = false" :disabled="rebootLoading">CANCEL</button>
+          <button 
+            class="btn-modal-confirm reboot" 
+            @click="confirmReboot" 
+            :disabled="rebootLoading"
+          >
+            <span v-if="rebootLoading" class="spinner"></span>
+            <span v-else>CONFIRM REBOOT</span>
+          </button>
+        </div>
+      </div>
+    </div>
 
     <!-- Flash messages -->
     <div class="flash-stack">
@@ -197,6 +278,7 @@ import AiChatSidebar from './components/AiChatSidebar.vue'
 import SettingsModal from './components/SettingsModal.vue'
 import LoginView from './components/LoginView.vue'
 import WarRoomDashboard from './components/WarRoomDashboard.vue'
+import Gns3Panel from './components/Gns3Panel.vue'
 import type { NrNode } from '@/types'
 import { provide } from 'vue'
 
@@ -219,13 +301,19 @@ window.addEventListener('auth-expired', () => {
 
 const store       = useNodesStore()
 const viewMode    = ref<'node' | 'topology' | 'threat' | 'warroom'>('node')
-const activeTab   = ref<'overview' | 'diag' | 'config' | 'exec' | 'defense' | 'capture' | 'terminal'>('overview')
+const activeTab   = ref<'overview' | 'gns3-api' | 'diag' | 'config' | 'exec' | 'defense' | 'capture' | 'terminal'>('overview')
 const showAddForm = ref(false)
 const showEdit    = ref(false)
 const showSettings = ref(false)
 const searchQuery = ref('')
 const connBusy    = ref(false)
 const exporting   = ref(false)
+
+// Reboot options modal state
+const showRebootModal = ref(false)
+const rebootMethod = ref<'command' | 'gns3'>('command')
+const rebootLoading = ref(false)
+const rebootError = ref('')
 
 const systemState = ref({ autopilot: false, chaos: false })
 let lastLogCount = 0
@@ -284,15 +372,23 @@ function toggleSidebarCat(type: string) {
   else collapsedSidebarCats.value.add(type)
 }
 
-const tabs = [
-  { id: 'overview', label: 'OVERVIEW' },
-  { id: 'diag',     label: 'DIAGNOSTICS' },
-  { id: 'config',   label: 'CONFIG' },
-  { id: 'exec',     label: 'EXECUTE' },
-  { id: 'defense',  label: 'ACTIVE DEFENSE' },
-  { id: 'capture',  label: 'CAPTURE' },
-  { id: 'terminal', label: 'TERMINAL' },
-] as const
+const dynamicTabs = computed(() => {
+  const list = [
+    { id: 'overview', label: 'OVERVIEW' },
+  ] as { id: string; label: string }[]
+  if (store.selected?.device_type === 'gns3') {
+    list.push({ id: 'gns3-api', label: 'GNS3 CONTROL' })
+  }
+  list.push(
+    { id: 'diag',     label: 'DIAGNOSTICS' },
+    { id: 'config',   label: 'CONFIG' },
+    { id: 'exec',     label: 'EXECUTE' },
+    { id: 'defense',  label: 'ACTIVE DEFENSE' },
+    { id: 'capture',  label: 'CAPTURE' },
+    { id: 'terminal', label: 'TERMINAL' }
+  )
+  return list
+})
 
 interface Flash { id: number; text: string; type: 'ok' | 'err' }
 const flashes = ref<Flash[]>([])
@@ -331,6 +427,37 @@ async function doDisconnect() {
     flash(String(e), 'err')
   } finally {
     connBusy.value = false
+  }
+}
+
+function doReboot() {
+  if (!store.selected) return
+  rebootError.value = ''
+  rebootLoading.value = false
+  if (store.selected.device_type === 'gns3') {
+    rebootMethod.value = 'gns3'
+  } else {
+    rebootMethod.value = 'command'
+  }
+  showRebootModal.value = true
+}
+
+async function confirmReboot() {
+  if (!store.selected) return
+  rebootLoading.value = true
+  rebootError.value = ''
+  try {
+    const res = await api.rebootNode(store.selected.id, rebootMethod.value)
+    flash(res.message || `Reboot initiated for ${store.selected.name}`)
+    showRebootModal.value = false
+    store.manuallyDisconnected.add(store.selected.id)
+    await store.refreshConnections()
+  } catch (e) {
+    const errMsg = (e as any).response?.data?.detail || String(e)
+    rebootError.value = errMsg
+    flash(`Reboot failed: ${errMsg}`, 'err')
+  } finally {
+    rebootLoading.value = false
   }
 }
 
@@ -587,6 +714,7 @@ onUnmounted(() => {
   position: relative;
   z-index: 2;
   background: var(--bg);
+  overflow: hidden;
 }
 
 .glass-panel.is-overlay {
@@ -634,6 +762,15 @@ onUnmounted(() => {
   color: #ff0055; 
   box-shadow: 0 0 15px #ff0055, inset 0 0 10px rgba(255, 0, 85, 0.3);
   text-shadow: 0 0 5px #ff0055;
+}
+
+.btn-reboot { border-color: #ffaa00; color: #ffaa00; }
+.btn-reboot:hover:not(:disabled) {
+  background: rgba(255, 170, 0, 0.2);
+  border-color: #ffcc00;
+  color: #ffcc00;
+  box-shadow: 0 0 15px #ffaa00, inset 0 0 10px rgba(255, 170, 0, 0.3);
+  text-shadow: 0 0 5px #ffaa00;
 }
 
 .tab-bar { background: rgba(8, 13, 24, 0.4); border-bottom: 1px solid var(--border); display: flex; padding: 0 14px; overflow-x: auto; }
@@ -732,5 +869,145 @@ onUnmounted(() => {
   white-space: pre-wrap;
   max-height: 80px;
   overflow-y: auto;
+}
+
+/* Reboot Modal styles */
+.reboot-overlay {
+  backdrop-filter: blur(12px) saturate(120%);
+  -webkit-backdrop-filter: blur(12px) saturate(120%);
+  background: rgba(2, 4, 8, 0.7);
+  transition: all 0.3s;
+}
+.reboot-card {
+  border: 1px solid #ffaa00 !important;
+  box-shadow: 0 0 25px rgba(255, 170, 0, 0.25) !important;
+}
+.reboot-card .cyber-modal-header.warning {
+  background: rgba(255, 170, 0, 0.1) !important;
+  border-bottom: 1px solid rgba(255, 170, 0, 0.3) !important;
+}
+.reboot-card .modal-title {
+  color: #ffaa00 !important;
+  text-shadow: 0 0 10px rgba(255, 170, 0, 0.5) !important;
+}
+.reboot-vectors {
+  display: flex;
+  gap: 16px;
+  margin: 18px 0;
+}
+.vector-card {
+  flex: 1;
+  border: 1px solid var(--border);
+  padding: 14px;
+  cursor: pointer;
+  border-radius: var(--r);
+  position: relative;
+  transition: all 0.2s ease-in-out;
+  background: rgba(255, 255, 255, 0.02);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.vector-card:hover {
+  border-color: var(--border2);
+  background: rgba(255, 255, 255, 0.04);
+}
+.vector-card.active {
+  border-color: #ffaa00;
+  background: rgba(255, 170, 0, 0.06);
+  box-shadow: 0 0 15px rgba(255, 170, 0, 0.15);
+}
+.vector-badge {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  font-size: 8px;
+  color: var(--text);
+  border: 1px solid var(--border);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-family: var(--font-hd);
+}
+.vector-card.active .vector-badge {
+  color: #ffaa00;
+  border-color: #ffaa00;
+  text-shadow: 0 0 4px #ffaa00;
+}
+.vector-icon {
+  font-size: 24px;
+  margin-bottom: 4px;
+}
+.vector-name {
+  font-weight: bold;
+  font-family: var(--font-hd);
+  font-size: 11px;
+  margin-bottom: 4px;
+  color: var(--textwh);
+}
+.vector-desc {
+  font-size: 10px;
+  color: var(--text);
+  line-height: 1.4;
+}
+.vector-preview {
+  margin-top: 14px;
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  overflow: hidden;
+}
+.preview-header {
+  font-size: 9px;
+  color: var(--text);
+  font-family: var(--font-hd);
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.02);
+}
+.preview-code {
+  padding: 10px;
+  margin: 0;
+  font-family: var(--font-co);
+  font-size: 10px;
+  color: var(--cyan);
+  white-space: pre-wrap;
+  overflow-x: auto;
+}
+.modal-warning-box {
+  margin-top: 14px;
+  padding: 10px;
+  border: 1px dashed rgba(255, 170, 0, 0.4);
+  border-radius: var(--r);
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  background: rgba(255, 170, 0, 0.02);
+}
+.warning-icon {
+  font-size: 16px;
+}
+.warning-text {
+  font-size: 10px;
+  color: var(--text);
+  line-height: 1.4;
+}
+.modal-error-box {
+  margin-top: 14px;
+  padding: 10px;
+  border: 1px solid var(--pink);
+  background: rgba(255, 45, 110, 0.05);
+  border-radius: var(--r);
+  font-family: var(--font-co);
+}
+.error-header {
+  color: var(--pink);
+  font-size: 10px;
+  font-weight: bold;
+  text-shadow: 0 0 5px var(--pink);
+}
+.error-msg {
+  font-size: 10px;
+  color: var(--textwh);
+  margin-top: 4px;
 }
 </style>

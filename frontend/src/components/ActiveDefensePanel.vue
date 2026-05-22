@@ -189,7 +189,7 @@ async function enforceZTA() {
 .defense-layout {
   display: flex;
   gap: 20px;
-  height: 100%;
+  min-height: 100%;
 }
 
 .defense-controls {

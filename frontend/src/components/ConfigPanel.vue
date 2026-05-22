@@ -369,13 +369,17 @@
             </div>
             <div class="form-actions">
               <button class="btn-add-sub" @click="interfaceForm.addresses.push('')">+ Add Static IP</button>
-              <label v-if="interfaceForm.addresses.length > 0">Action
-                <select v-model="interfaceForm.action">
-                  <option value="add">Add Only</option>
-                  <option value="del">Remove</option>
-                  <option value="flush">Flush & Add</option>
+              <label v-if="interfaceForm.addresses.length > 0 || interfaceForm.interface.includes('.')">Action
+                <select v-model="interfaceForm.action" class="cyber-select">
+                  <option v-if="interfaceForm.addresses.length > 0" value="add">Add Only</option>
+                  <option v-if="interfaceForm.addresses.length > 0" value="del">Remove Addresses</option>
+                  <option v-if="interfaceForm.addresses.length > 0" value="flush">Flush & Add</option>
+                  <option v-if="interfaceForm.interface.includes('.')" value="delete_interface">Delete VLAN Interface</option>
                 </select>
               </label>
+            </div>
+            <div v-if="interfaceForm.addresses.length > 0" class="form-actions-tip">
+              💡 <span class="cyan-glow">Tip:</span> To remove an address from the router, select <strong>"Remove Addresses"</strong> action before deleting it from the form, or use <strong>"Flush & Add"</strong> to make the router match this list exactly.
             </div>
 
             <!-- VLAN Sub-interface Helper -->
@@ -472,13 +476,19 @@
               <label>Base Interface <input v-model="vlanRouterForm.interface" list="detected-interfaces" /></label>
             </div>
             <div class="section-label-sub">VLAN Interfaces</div>
-            <div v-for="(v, i) in vlanRouterForm.vlans" :key="i" class="form-row multi-row">
-              <label>VLAN ID <input v-model="v.id" /></label>
-              <label>Address <input v-model="v.address" /></label>
-              <label>Description <input v-model="v.description" /></label>
+            <div v-for="(v, i) in vlanRouterForm.vlans" :key="i" class="form-row multi-row" :class="{ 'vlan-to-delete': v.action === 'del' }">
+              <label>VLAN ID <input v-model="v.id" :disabled="v.action === 'del'" /></label>
+              <label>Address <input v-model="v.address" :disabled="v.action === 'del'" /></label>
+              <label>Description <input v-model="v.description" :disabled="v.action === 'del'" /></label>
+              <label>Action
+                <select v-model="v.action" class="cyber-select">
+                  <option value="add">Create / Update</option>
+                  <option value="del">Delete</option>
+                </select>
+              </label>
               <button class="btn-remove" @click="vlanRouterForm.vlans.splice(i, 1)">✕</button>
             </div>
-            <button class="btn-add-sub" @click="vlanRouterForm.vlans.push({ id: '', address: '', description: '' })">+ Add VLAN</button>
+            <button class="btn-add-sub" @click="vlanRouterForm.vlans.push({ id: '', address: '', description: '', action: 'add' })">+ Add VLAN</button>
           </div>
 
           <!-- VLAN Switch Form -->
@@ -511,21 +521,166 @@
           </div>
 
           <!-- WireGuard Form -->
-          <div v-if="activeType === 'wireguard'" class="specialized-form">
-            <div class="form-row">
-              <label>Interface <input v-model="wireguardForm.interface" /></label>
-              <label>Address <input v-model="wireguardForm.address" /></label>
-              <label>Listen Port <input v-model.number="wireguardForm.listen_port" type="number" /></label>
+          <div v-if="activeType === 'wireguard'" class="specialized-form wireguard-form-container" :class="{ 'wg-deletion-mode': wireguardForm.action === 'delete' }">
+            <!-- Action Selector -->
+            <div class="form-row action-selector-row">
+              <label>Configuration Action
+                <select v-model="wireguardForm.action" class="action-select">
+                  <option value="add">🚀 Create / Update Interface & Keys</option>
+                  <option value="delete">🔥 Delete Interface & Purge Keys</option>
+                </select>
+              </label>
             </div>
-            <label>Private Key <input v-model="wireguardForm.private_key" type="password" /></label>
-            <div class="section-label-sub">Peers</div>
-            <div v-for="(peer, i) in wireguardForm.peers" :key="i" class="form-row multi-row">
-              <label>Public Key <input v-model="peer.public_key" /></label>
-              <label>Endpoint <input v-model="peer.endpoint" /></label>
-              <label>Allowed IPs <input v-model="peer.allowed_ips" /></label>
-              <button class="btn-remove" @click="wireguardForm.peers.splice(i, 1)">✕</button>
+
+            <!-- Standard creation/update inputs -->
+            <div v-if="wireguardForm.action !== 'delete'" class="wg-form-body">
+              <div class="form-row">
+                <label>Interface <input v-model="wireguardForm.interface" placeholder="wg0" /></label>
+                <label>Address <input v-model="wireguardForm.address" placeholder="10.0.0.1/24" /></label>
+                <label>Listen Port <input v-model.number="wireguardForm.listen_port" type="number" placeholder="51820" /></label>
+              </div>
+              
+              <!-- Key Generation Row -->
+              <div class="form-row key-gen-row">
+                <div class="input-with-actions-container">
+                  <label class="private-key-label">
+                    <span>Private Key</span>
+                    <div class="input-actions-wrapper">
+                      <input 
+                        v-model="wireguardForm.private_key" 
+                        :type="hidePrivateKey ? 'password' : 'text'" 
+                        placeholder="Local private key..."
+                        class="private-key-input"
+                      />
+                      <button 
+                        type="button" 
+                        class="btn-input-action" 
+                        @click="hidePrivateKey = !hidePrivateKey"
+                        :title="hidePrivateKey ? 'Reveal Private Key' : 'Hide Private Key'"
+                      >
+                        {{ hidePrivateKey ? '👁️' : '🔒' }}
+                      </button>
+                      <button 
+                        type="button" 
+                        class="btn-input-action" 
+                        @click="copyToClipboard(wireguardForm.private_key)"
+                        :disabled="!wireguardForm.private_key"
+                        title="Copy Private Key to clipboard"
+                      >
+                        📋
+                      </button>
+                    </div>
+                  </label>
+                </div>
+                <div class="gen-keys-button-wrapper">
+                  <button 
+                    type="button" 
+                    class="btn-wg-generate" 
+                    @click="generateWireguardKeys" 
+                    :disabled="generatingKeys"
+                  >
+                    <span v-if="generatingKeys">⏳ Generating...</span>
+                    <span v-else>🔑 Generate Keypair</span>
+                  </button>
+                </div>
+              </div>
+
+              <!-- Derived Public Key Panel -->
+              <div v-if="generatedPublicKey" class="derived-pubkey-panel">
+                <div class="derived-pubkey-header">
+                  <span class="pubkey-title-glow">📡 LOCAL PUBLIC KEY (Share with Peer)</span>
+                  <button 
+                    type="button" 
+                    class="btn-pubkey-copy" 
+                    @click="copyToClipboard(generatedPublicKey)"
+                  >
+                    📋 Copy Key
+                  </button>
+                </div>
+                <div class="derived-pubkey-value">{{ generatedPublicKey }}</div>
+              </div>
+
+              <!-- Key History Collapsible Toggle -->
+              <div class="wg-advanced-toggle wg-history-toggle" @click="wgHistoryExpanded = !wgHistoryExpanded">
+                <span class="advanced-toggle-title">🔑 Key History / Nøglering ({{ keyHistory.length }})</span>
+                <span class="guide-chevron">{{ wgHistoryExpanded ? '▲' : '▼' }}</span>
+              </div>
+
+              <!-- Key History List -->
+              <div v-if="wgHistoryExpanded" class="wg-history-fields">
+                <div v-if="!keyHistory.length" class="no-keys-message">Ingen genererede nøgler i historikken.</div>
+                <div v-else class="wg-history-list">
+                  <div v-for="item in keyHistory" :key="item.id" class="history-item-card">
+                    <div class="history-item-header">
+                      <span class="history-item-label">{{ item.label }}</span>
+                      <span class="history-item-date">{{ item.timestamp }}</span>
+                    </div>
+                    <div class="history-keys-row">
+                      <div class="history-key-wrapper">
+                        <span class="key-type">Priv:</span>
+                        <span class="key-value monospace">{{ item.hidePrivate ? '••••••••••••••••••••••••••••••••' : item.privateKey }}</span>
+                        <button type="button" class="btn-history-action" @click="item.hidePrivate = !item.hidePrivate" :title="item.hidePrivate ? 'Vis privat nøgle' : 'Skjul privat nøgle'">
+                          {{ item.hidePrivate ? '👁️' : '🔒' }}
+                        </button>
+                        <button type="button" class="btn-history-action" @click="copyToClipboard(item.privateKey)" title="Kopiér privat nøgle">📋</button>
+                      </div>
+                      <div class="history-key-wrapper">
+                        <span class="key-type">Pub:</span>
+                        <span class="key-value monospace">{{ item.publicKey }}</span>
+                        <button type="button" class="btn-history-action" @click="copyToClipboard(item.publicKey)" title="Kopiér offentlig nøgle">📋</button>
+                      </div>
+                    </div>
+                    <div class="history-card-actions">
+                      <button type="button" class="btn-history-load" @click="loadKeyIntoForm(item)">⚡ Indlæs i formular</button>
+                      <button type="button" class="btn-history-remove" @click="deleteKeyFromHistory(item.id)">✕ Fjern</button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Advanced Configuration Collapsible Toggle -->
+              <div class="wg-advanced-toggle" @click="wgAdvancedExpanded = !wgAdvancedExpanded">
+                <span class="advanced-toggle-title">⚙️ Advanced Interface Options</span>
+                <span class="guide-chevron">{{ wgAdvancedExpanded ? '▲' : '▼' }}</span>
+              </div>
+              
+              <!-- Advanced Fields -->
+              <div v-if="wgAdvancedExpanded" class="wg-advanced-fields">
+                <div class="form-row">
+                  <label>DNS <input v-model="wireguardForm.dns" placeholder="e.g. 1.1.1.1, 8.8.8.8" /></label>
+                  <label>MTU <input v-model="wireguardForm.mtu" placeholder="e.g. 1420" /></label>
+                </div>
+                <div class="form-row">
+                  <label>PostUp <input v-model="wireguardForm.post_up" placeholder="iptables -A FORWARD -i wg0 -j ACCEPT; ..." /></label>
+                  <label>PostDown <input v-model="wireguardForm.post_down" placeholder="iptables -D FORWARD -i wg0 -j ACCEPT; ..." /></label>
+                </div>
+              </div>
+
+              <!-- Peers Section -->
+              <div class="section-label-sub">Peers</div>
+              <div v-for="(peer, i) in wireguardForm.peers" :key="i" class="form-row multi-row peer-row-container">
+                <div class="peer-grid">
+                  <label class="peer-full-width">Public Key <input v-model="peer.public_key" placeholder="Remote peer public key..." /></label>
+                  <label>Endpoint <input v-model="peer.endpoint" placeholder="e.g. 192.168.1.100:51820" /></label>
+                  <label>Allowed IPs <input v-model="peer.allowed_ips" placeholder="e.g. 10.0.0.2/32, 192.168.20.0/24" /></label>
+                  <label>Preshared Key <input v-model="peer.preshared_key" placeholder="Optional peer preshared key..." /></label>
+                  <label>Keepalive <input v-model.number="peer.persistent_keepalive" type="number" placeholder="e.g. 25" /></label>
+                </div>
+                <button class="btn-remove btn-remove-peer" @click="wireguardForm.peers.splice(i, 1)">✕</button>
+              </div>
+              <button class="btn-add-sub" @click="wireguardForm.peers.push({ public_key: '', preshared_key: '', endpoint: '', allowed_ips: '0.0.0.0/0', persistent_keepalive: '' })">+ Add Peer</button>
             </div>
-            <button class="btn-add-sub" @click="wireguardForm.peers.push({ public_key: '', endpoint: '', allowed_ips: '0.0.0.0/0' })">+ Add Peer</button>
+
+            <!-- Deletion Mode Layout -->
+            <div v-else class="wg-delete-body">
+              <div class="form-row">
+                <label>Interface to Delete <input v-model="wireguardForm.interface" placeholder="wg0" /></label>
+              </div>
+              <div class="wg-delete-warning-box">
+                <div class="warning-header">⚠️ WARNING: IRREVERSIBLE OPERATION</div>
+                <p>This action will permanently tear down the WireGuard interface <strong class="highlight-wg">{{ wireguardForm.interface }}</strong>, disable its persistence, and completely delete its config and key files on the device.</p>
+              </div>
+            </div>
           </div>
 
           <!-- IP Forwarding Form -->
@@ -639,6 +794,52 @@
               <textarea v-model="fileWriteForm.content" class="json-textarea" style="height: 180px;"></textarea>
             </div>
             <label class="check-label"><input type="checkbox" v-model="fileWriteForm.backup" /> Create .bak before writing</label>
+          </div>
+
+          <!-- Direct File Editor Form -->
+          <div v-if="activeType === 'direct-file'" class="specialized-form">
+            <div class="form-row">
+              <label>Target File Path <input v-model="directFilePath" placeholder="/etc/wireguard/wg0.conf" /></label>
+              <label>Permissions Mode <input v-model="directFileMode" placeholder="600" /></label>
+              <label style="display: flex; align-items: flex-end; margin-bottom: 4px;">
+                <button class="btn-ref-retry" :disabled="loadingFile" @click="loadDirectFile" style="margin: 0; padding: 10px 16px; background: var(--bg4); border: 1px solid var(--border); border-radius: 4px; color: var(--textbr); font-family: var(--font-ui); cursor: pointer; transition: all 0.2s;">
+                  {{ loadingFile ? '📥 LOADING...' : '📥 LOAD FILE FROM NODE' }}
+                </button>
+              </label>
+            </div>
+            <div class="input-section">
+              <div class="section-label">File Content (Direct Editor)</div>
+              <textarea 
+                v-model="directFileContent" 
+                class="json-textarea" 
+                style="height: 350px; font-family: var(--font-co); font-size: 12px; line-height: 1.5;" 
+                placeholder="# Paste or type your file contents directly here..."
+              ></textarea>
+            </div>
+            <label class="check-label"><input type="checkbox" v-model="directFileBackup" /> Create backup copy (.bak) on remote node before overwriting</label>
+          </div>
+
+          <!-- Direct JSON Config Form -->
+          <div v-if="activeType === 'direct-json'" class="specialized-form">
+            <div class="form-row">
+              <label>Generator Target Type
+                <select v-model="directJsonGeneratorType">
+                  <option value="interface">interface (Interface Setup)</option>
+                  <option value="routes">routes (Routes)</option>
+                  <option value="dns">dns (DNS / Resolver)</option>
+                  <option value="nat">nat (NAT / Forwarding)</option>
+                  <option value="wireguard">wireguard (WireGuard)</option>
+                  <option value="forwarding">forwarding (IP Forwarding)</option>
+                  <option value="iptables">iptables (iptables)</option>
+                  <option value="nftables">nftables (nftables)</option>
+                  <option value="ufw">ufw (UFW)</option>
+                  <option value="service">service (Services)</option>
+                  <option value="package">package (Packages)</option>
+                  <option value="file-write">file-write (Write File)</option>
+                </select>
+              </label>
+            </div>
+            <div class="section-label-sub">Directly paste or edit generator JSON below:</div>
           </div>
 
           <!-- iptables Form -->
@@ -995,11 +1196,16 @@
             </div>
           </div>
 
-          <div class="input-section">
-            <div class="section-label">Data (JSON)<span v-if="activeType" class="auto-label"> — auto-generated</span></div>
+          <div class="input-section" v-if="activeType !== 'direct-file'">
+            <div class="section-label">
+              Data (JSON)
+              <span v-if="activeType === 'direct-json'" class="auto-label" style="color: var(--accent-light, #00f0ff); font-weight: bold;"> — DIRECT EDIT MODE</span>
+              <span v-else-if="activeType" class="auto-label"> — auto-generated</span>
+            </div>
             <textarea
               v-model="inputJson"
               class="json-textarea"
+              :style="{ height: activeType === 'direct-json' ? '350px' : '180px' }"
               spellcheck="false"
               placeholder='{ "interface": "eth0", "addresses": ["192.168.1.1/24"] }'
             ></textarea>
@@ -1130,6 +1336,13 @@ const CONFIG_CATEGORIES = {
         { type: 'dns-lookup', label: 'DNS Lookup (dig)' },
         { type: 'wol', label: 'Wake-on-LAN' },
         { type: 'arp-scan', label: 'Arp-scan' },
+    ]
+  },
+  advanced: {
+    icon: '⚙️', label: 'Advanced',
+    types: [
+      { type: 'direct-file', label: '📝 Direct File Editor' },
+      { type: 'direct-json', label: '⚡ Direct JSON Config' },
     ]
   }
 }
@@ -1280,9 +1493,9 @@ const defaultInterfaceForm    = () => ({ interface: 'eth0', addresses: [''] as s
 const defaultRouteForm        = () => ({ routes: [{ dst: '10.1.0.0/24', via: '10.0.0.254', dev: '', metric: 0 }], isDelete: false })
 const defaultDnsForm          = () => ({ nameservers: ['8.8.8.8'], search: ['local'], hostname: '', domain: '', records: [{ name: '', value: '' }] })
 const defaultNatForm          = () => ({ outbound_iface: 'eth0', inbound_iface: 'eth1', source_subnet: '10.0.0.0/24', masquerade: true, port_forwards: [{ proto: 'tcp', external_port: '80', target_ip: '10.0.0.10', target_port: '80' }] })
-const defaultVlanRouterForm   = () => ({ interface: 'eth0', vlans: [{ id: '10', address: '10.0.10.1/24', description: 'Management' }] })
+const defaultVlanRouterForm   = () => ({ interface: 'eth0', vlans: [{ id: '10', address: '10.0.10.1/24', description: 'Management', action: 'add' }] })
 const defaultVlanSwitchForm   = () => ({ bridge: 'br0', vlans: [{ id: '10', name: 'MGMT' }], ports: [{ iface: 'eth1', mode: 'access', vlan: '10', allowed: '' }] })
-const defaultWireguardForm    = () => ({ interface: 'wg0', private_key: '', address: '10.0.0.1/24', listen_port: 51820, peers: [{ public_key: '', endpoint: '', allowed_ips: '0.0.0.0/0' }] })
+const defaultWireguardForm    = () => ({ action: 'add', interface: 'wg0', private_key: '', address: '10.0.0.1/24', listen_port: 51820, dns: '', mtu: '', post_up: '', post_down: '', peers: [{ public_key: '', preshared_key: '', endpoint: '', allowed_ips: '0.0.0.0/0', persistent_keepalive: '' }] })
 const defaultForwardingForm   = () => ({ ipv4: true, ipv6: false })
 const defaultServiceForm      = () => ({ name: '', action: 'status' })
 const defaultPackageForm      = () => ({ packages: '', action: 'install', manager: 'auto' })
@@ -1332,6 +1545,23 @@ const defaultArpScanForm      = () => ({ target: 'localnet', interface: '' })
 function resetForm() {
   if (!activeType.value) return
   if (!confirm(`Clear current ${activeType.value} configuration form?`)) return
+  
+  if (activeType.value === 'direct-file') {
+    directFileContent.value = ''
+    directFilePath.value = '/etc/wireguard/wg0.conf'
+    directFileMode.value = '600'
+    directFileBackup.value = false
+    previewCommands.value = []
+    previewError.value = ''
+    return
+  }
+  
+  if (activeType.value === 'direct-json') {
+    inputJson.value = JSON_BOILERPLATES[directJsonGeneratorType.value] || '{}'
+    previewCommands.value = []
+    previewError.value = ''
+    return
+  }
   
   const defaults: Record<string, any> = {
     interface: defaultInterfaceForm, routes: defaultRouteForm, dns: defaultDnsForm,
@@ -1390,6 +1620,77 @@ const natForm         = ref(defaultNatForm())
 const vlanRouterForm  = ref(defaultVlanRouterForm())
 const vlanSwitchForm  = ref(defaultVlanSwitchForm())
 const wireguardForm   = ref(defaultWireguardForm())
+const generatedPublicKey = ref('')
+const hidePrivateKey = ref(true)
+const wgAdvancedExpanded = ref(false)
+const generatingKeys = ref(false)
+
+interface WireguardKeyItem {
+  id: string
+  timestamp: string
+  privateKey: string
+  publicKey: string
+  label?: string
+  hidePrivate?: boolean
+}
+
+const keyHistory = ref<WireguardKeyItem[]>([])
+const wgHistoryExpanded = ref(false)
+
+function loadKeyHistory() {
+  try {
+    const raw = localStorage.getItem('nr_wg_key_history')
+    if (raw) {
+      keyHistory.value = JSON.parse(raw).map((item: any) => ({
+        ...item,
+        hidePrivate: item.hidePrivate !== false
+      }))
+    }
+  } catch (e) {
+    console.error('Failed to load WireGuard key history:', e)
+  }
+}
+
+function saveKeyHistory() {
+  try {
+    localStorage.setItem('nr_wg_key_history', JSON.stringify(keyHistory.value))
+  } catch (e) {
+    console.error('Failed to save WireGuard key history:', e)
+  }
+}
+
+function addKeyToHistory(privateKey: string, publicKey: string) {
+  const now = new Date()
+  const timestamp = now.toLocaleString('da-DK', { hour12: false })
+  
+  const newItem: WireguardKeyItem = {
+    id: Math.random().toString(36).substring(2, 9),
+    timestamp,
+    privateKey,
+    publicKey,
+    label: `Key for ${wireguardForm.value.interface || 'wg0'}`,
+    hidePrivate: true
+  }
+  
+  keyHistory.value.unshift(newItem)
+  saveKeyHistory()
+}
+
+function deleteKeyFromHistory(id: string) {
+  if (confirm('Vil du fjerne denne nøgle fra din historik?')) {
+    keyHistory.value = keyHistory.value.filter(k => k.id !== id)
+    saveKeyHistory()
+  }
+}
+
+function loadKeyIntoForm(item: WireguardKeyItem) {
+  wireguardForm.value.private_key = item.privateKey
+  generatedPublicKey.value = item.publicKey
+  syncWireguardForm()
+}
+
+// Initial load
+loadKeyHistory()
 const forwardingForm  = ref(defaultForwardingForm())
 const serviceForm     = ref(defaultServiceForm())
 const packageForm     = ref(defaultPackageForm())
@@ -1412,6 +1713,29 @@ const mtrForm         = ref(defaultMtrForm())
 const dnsLookupForm   = ref(defaultDnsLookupForm())
 const wolForm         = ref(defaultWolForm())
 const arpScanForm     = ref(defaultArpScanForm())
+
+// Advanced direct editing refs
+const directFilePath = ref('/etc/wireguard/wg0.conf')
+const directFileContent = ref('')
+const directFileMode = ref('600')
+const directFileBackup = ref(false)
+const loadingFile = ref(false)
+const directJsonGeneratorType = ref('wireguard')
+
+const JSON_BOILERPLATES: Record<string, string> = {
+  interface: JSON.stringify({ interface: "eth1", addresses: ["192.168.10.1/24"], gateway: "192.168.10.254", up: true }, null, 2),
+  routes: JSON.stringify({ routes: [{ destination: "10.0.0.0/8", gateway: "192.168.10.254" }] }, null, 2),
+  dns: JSON.stringify({ nameservers: ["8.8.8.8", "1.1.1.1"] }, null, 2),
+  nat: JSON.stringify({ action: "setup", out_interface: "eth0", inside_subnets: ["192.168.110.0/24"] }, null, 2),
+  wireguard: JSON.stringify({ interface: "wg0", action: "add", addresses: ["10.110.0.1/24"], listen_port: 51820, private_key: "wPOIlmY3PXlwkJ4NP2PzHaetquG+kNHzgv+R/fcMgnw=", peers: [{ public_key: "ZG/F+OQdWRxBHlqkJPsQFlMtlq1URE4WT7sI8g8TlAc=", allowed_ips: ["10.110.0.2/32"], endpoint: "192.168.110.2:51820", persistent_keepalive: 25 }] }, null, 2),
+  forwarding: JSON.stringify({ enabled: true }, null, 2),
+  iptables: JSON.stringify({ defaults: { INPUT: "ACCEPT", FORWARD: "DROP", OUTPUT: "ACCEPT" }, rules: [] }, null, 2),
+  nftables: JSON.stringify({ ruleset: "table inet filter {\n  chain input {\n    type filter hook input priority 0; policy accept;\n  }\n}" }, null, 2),
+  ufw: JSON.stringify({ enabled: true, defaults: { incoming: "deny", outgoing: "allow" }, rules: [] }, null, 2),
+  service: JSON.stringify({ name: "wireguard", action: "start", enabled: true }, null, 2),
+  package: JSON.stringify({ name: "wireguard-tools", action: "install" }, null, 2),
+  "file-write": JSON.stringify({ path: "/etc/wireguard/wg0.conf", content: "[Interface]\nAddress = 10.110.0.1/24\n", mode: "600", owner: "root", backup: true }, null, 2)
+}
 
 function syncRouteForm() {
   inputJson.value = JSON.stringify({
@@ -1454,6 +1778,21 @@ function syncWireguardForm() {
     ...wireguardForm.value,
     peers: wireguardForm.value.peers.filter(p => p.public_key)
   }, null, 2)
+}
+
+async function generateWireguardKeys() {
+  generatingKeys.value = true
+  try {
+    const res = await api.generateWireguardKeys()
+    wireguardForm.value.private_key = res.private_key
+    generatedPublicKey.value = res.public_key
+    syncWireguardForm()
+    addKeyToHistory(res.private_key, res.public_key)
+  } catch (err: any) {
+    console.error(err)
+  } finally {
+    generatingKeys.value = false
+  }
 }
 
 function syncForwardingForm() {
@@ -1551,6 +1890,34 @@ function syncRpiI2cForm() { inputJson.value = JSON.stringify(rpiI2cForm.value, n
 function syncRpiCameraForm() { inputJson.value = JSON.stringify(rpiCameraForm.value, null, 2) }
 function syncRpiWatchdogForm() { inputJson.value = JSON.stringify(rpiWatchdogForm.value, null, 2) }
 
+async function loadDirectFile() {
+  if (!directFilePath.value) return
+  loadingFile.value = true
+  try {
+    const res = await api.executeNode(props.nodeId, [`cat ${directFilePath.value}`])
+    const r = res.results?.[0]
+    if (r && !r.error) {
+      directFileContent.value = r.output || ''
+    } else {
+      alert(`Failed to load file: ${r?.error || 'File empty or not found.'}`)
+    }
+  } catch (e: any) {
+    alert(`Error: ${e.message || e}`)
+  } finally {
+    loadingFile.value = false
+  }
+}
+
+function syncDirectFileForm() {
+  inputJson.value = JSON.stringify({
+    path: directFilePath.value,
+    content: directFileContent.value,
+    mode: directFileMode.value,
+    owner: 'root',
+    backup: directFileBackup.value
+  }, null, 2)
+}
+
 const syncFnMap: Record<string, () => void> = {}
 
 function selectType(type: string) {
@@ -1568,10 +1935,16 @@ async function getPreview() {
   previewCommands.value = []
   try {
     const data = JSON.parse(inputJson.value)
-    const res = await api.preview(activeType.value!, data)
+    let previewType = activeType.value!
+    if (previewType === 'direct-json') {
+      previewType = directJsonGeneratorType.value
+    } else if (previewType === 'direct-file') {
+      previewType = 'file-write'
+    }
+    const res = await api.preview(previewType, data)
     let cmds = res.commands
     if (persistMode.value && cmds.length) {
-      const wrapped = await api.preview('persist', { name: activeType.value, commands: cmds })
+      const wrapped = await api.preview('persist', { name: previewType, commands: cmds })
       cmds = wrapped.commands
     }
     previewCommands.value = cmds
@@ -1584,12 +1957,27 @@ async function applyConfig() {
   if (!previewCommands.value.length) return
   loading.value = true
   results.value = []
+  previewError.value = ''
   try {
     const cmds = persistMode.value
       ? [previewCommands.value.join('\n')]
       : previewCommands.value
     const res = await api.executeNode(props.nodeId, cmds)
     results.value = res.results
+    
+    // Automatically trigger a refresh of live telemetry if no execution errors occurred
+    const hasError = res.results?.some(r => r.error)
+    if (!hasError) {
+      await fetchLiveInterfaces()
+      if (activeType.value === 'wireguard' && wireguardForm.value.action === 'delete') {
+        const deletedIface = wireguardForm.value.interface
+        wireguardForm.value.private_key = ''
+        generatedPublicKey.value = ''
+        wireguardForm.value.action = 'add'
+        syncWireguardForm()
+        alert(`WireGuard keys and configuration for interface "${deletedIface}" were successfully deleted from the device.`)
+      }
+    }
   } catch (e) {
     previewError.value = `Execution failed: ${e}`
   } finally {
@@ -1644,6 +2032,10 @@ syncFnMap['arp-scan']       = syncArpScanForm
 syncFnMap['rpi-info']       = () => { inputJson.value = '{}' }
 syncFnMap['rpi-temperature'] = () => { inputJson.value = '{}' }
 syncFnMap['rpi-gpio-read-all'] = () => { inputJson.value = '{}' }
+syncFnMap['direct-file'] = syncDirectFileForm
+syncFnMap['direct-json'] = () => {
+  inputJson.value = JSON_BOILERPLATES[directJsonGeneratorType.value] || '{}'
+}
 
 // Auto-update JSON as form fields change
 watch(interfaceForm,   () => { if (activeType.value === 'interface')   syncInterfaceForm() },   { deep: true })
@@ -1704,6 +2096,16 @@ watch(dnsLookupForm,   () => { if (activeType.value === 'dns-lookup')  syncDnsLo
 watch(wolForm,         () => { if (activeType.value === 'wol')         syncWolForm() },         { deep: true })
 watch(arpScanForm,     () => { if (activeType.value === 'arp-scan')    syncArpScanForm() },     { deep: true })
 
+watch([directFilePath, directFileContent, directFileMode, directFileBackup], () => {
+  if (activeType.value === 'direct-file') syncDirectFileForm()
+}, { deep: true })
+
+watch(directJsonGeneratorType, (newType) => {
+  if (activeType.value === 'direct-json') {
+    inputJson.value = JSON_BOILERPLATES[newType] || '{}'
+  }
+})
+
 watch(persistMode, () => { if (activeType.value && previewCommands.value.length) getPreview() })
 
 watch(() => props.nodeId, () => {
@@ -1730,6 +2132,8 @@ watch(() => props.nodeId, () => {
   ufwForm.value         = defaultUfwForm()
   nftablesForm.value    = defaultNftablesForm()
   persistMode.value     = false
+  directFileContent.value = ''
+  directFileBackup.value  = false
   
   // Refresh live interfaces telemetry when active node changes
   fetchLiveInterfaces()
@@ -1925,7 +2329,21 @@ async function fetchLiveInterfaces() {
   detectingError.value = ''
   try {
     const data = await api.readNode(props.nodeId, 'ip')
-    const rawStdout = data.results.map(r => (r.output || r.error || '')).join('\n\n').trim()
+    
+    // Check if there was any error in results
+    const errResult = data.results?.find(r => r.error)
+    if (errResult) {
+      detectingError.value = errResult.error || 'Connection or command error.'
+      detectingState.value = 'error'
+      return
+    }
+    if (!data.results || data.results.length === 0) {
+      detectingError.value = 'No telemetry data returned from node.'
+      detectingState.value = 'error'
+      return
+    }
+
+    const rawStdout = data.results.map(r => r.output || '').join('\n\n').trim()
     detectedInterfaces.value = parseIpAddr(rawStdout)
     detectingState.value = 'success'
   } catch (err: any) {
@@ -1933,6 +2351,7 @@ async function fetchLiveInterfaces() {
     detectingState.value = 'error'
   }
 }
+
 
 function parseIpAddr(stdout: string): DetectedInterface[] {
   const interfaces: DetectedInterface[] = []
@@ -2903,6 +3322,9 @@ fetchLiveInterfaces()
   font-family: var(--font-co); font-size: 12px; color: var(--textbr);
   white-space: pre-wrap; margin: 0; border: 1px solid var(--border);
   line-height: 1.5;
+  max-height: 250px;
+  overflow-y: auto;
+  padding-right: 6px;
 }
 
 /* Shell highlighter styles */
@@ -2993,6 +3415,9 @@ fetchLiveInterfaces()
 .result-out, .result-err {
   padding: 10px 12px; font-family: var(--font-co); font-size: 11px;
   border-radius: 4px; white-space: pre-wrap; margin: 0; line-height: 1.5;
+  max-height: 250px;
+  overflow-y: auto;
+  padding-right: 6px;
 }
 .result-out { background: var(--bg); color: var(--textbr); border: 1px solid var(--border); }
 .result-err { background: rgba(255, 45, 110, 0.05); color: var(--pink); border: 1px solid rgba(255, 45, 110, 0.15); margin-top: 8px; }
@@ -3128,6 +3553,9 @@ fetchLiveInterfaces()
 .live-ref-content {
   padding: 14px;
   background: rgba(8, 13, 24, 0.2);
+  max-height: 480px;
+  overflow-y: auto;
+  padding-right: 6px;
 }
 .live-ref-loading {
   display: flex;
@@ -3415,5 +3843,451 @@ fetchLiveInterfaces()
 .cyber-select:focus {
   border-color: var(--cyan) !important;
   box-shadow: var(--shadow-c) !important;
+}
+.vlan-to-delete {
+  border: 1px solid var(--pink) !important;
+  background: rgba(255, 45, 110, 0.05) !important;
+  opacity: 0.85;
+}
+.vlan-to-delete input, .vlan-to-delete select {
+  color: var(--pink) !important;
+  border-color: rgba(255, 45, 110, 0.3) !important;
+  text-decoration: line-through;
+}
+.form-actions-tip {
+  margin-top: 8px;
+  font-size: 11px;
+  color: var(--text);
+  line-height: 1.4;
+  opacity: 0.85;
+}
+.form-actions-tip .cyan-glow {
+  color: var(--cyan);
+  text-shadow: 0 0 5px rgba(0, 229, 255, 0.3);
+}
+
+/* --- Enhanced WireGuard Form Styles --- */
+.wireguard-form-container {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.key-gen-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: flex-end;
+  gap: 12px;
+}
+.input-with-actions-container {
+  display: flex;
+  flex-direction: column;
+}
+.private-key-label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.input-actions-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+.private-key-input {
+  width: 100%;
+  padding-right: 70px !important; /* Space for overlay actions */
+}
+.btn-input-action {
+  position: absolute;
+  right: 4px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: transparent;
+  border: none;
+  color: var(--text);
+  cursor: pointer;
+  padding: 4px 6px;
+  font-size: 14px;
+  opacity: 0.6;
+  transition: opacity 0.2s, transform 0.1s;
+}
+.btn-input-action:hover {
+  opacity: 1;
+}
+.btn-input-action:active {
+  transform: translateY(-50%) scale(0.9);
+}
+.btn-input-action:nth-last-child(2) {
+  right: 34px; /* Second button positioning */
+}
+.gen-keys-button-wrapper {
+  display: flex;
+}
+.btn-wg-generate {
+  background: rgba(0, 229, 255, 0.1) !important;
+  border: 1px solid var(--cyan) !important;
+  color: var(--cyan) !important;
+  padding: 8px 16px !important;
+  border-radius: 4px !important;
+  font-family: var(--font-hd) !important;
+  font-size: 11px !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.08em !important;
+  cursor: pointer !important;
+  text-transform: uppercase !important;
+  transition: all 0.25s ease !important;
+  height: 32px !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+}
+.btn-wg-generate:hover:not(:disabled) {
+  background: var(--cyan) !important;
+  color: var(--bg) !important;
+  box-shadow: var(--shadow-c) !important;
+}
+.btn-wg-generate:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Derived Local Public Key Panel */
+.derived-pubkey-panel {
+  background: rgba(0, 229, 255, 0.03);
+  border: 1px solid rgba(0, 229, 255, 0.18);
+  border-left: 3px solid var(--cyan);
+  border-radius: 4px;
+  padding: 10px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 4px;
+  animation: wg-glow-in 0.4s ease-out;
+}
+@keyframes wg-glow-in {
+  from { opacity: 0; transform: translateY(-4px); box-shadow: 0 0 0 rgba(0, 229, 255, 0); }
+  to { opacity: 1; transform: translateY(0); box-shadow: 0 0 10px rgba(0, 229, 255, 0.15); }
+}
+.derived-pubkey-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.pubkey-title-glow {
+  font-family: var(--font-hd);
+  font-size: 9px;
+  font-weight: 800;
+  color: var(--cyan);
+  letter-spacing: 0.08em;
+  text-shadow: 0 0 8px rgba(0, 229, 255, 0.35);
+}
+.btn-pubkey-copy {
+  background: rgba(0, 229, 255, 0.08);
+  border: 1px solid rgba(0, 229, 255, 0.4);
+  color: var(--cyan);
+  padding: 3px 8px;
+  border-radius: 3px;
+  font-size: 9px;
+  font-family: var(--font-hd);
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.btn-pubkey-copy:hover {
+  background: var(--cyan);
+  color: var(--bg);
+}
+.derived-pubkey-value {
+  font-family: var(--font-co);
+  font-size: 11px;
+  color: var(--green);
+  word-break: break-all;
+  user-select: all;
+  background: rgba(8, 13, 24, 0.35);
+  padding: 6px 10px;
+  border-radius: 3px;
+  border: 1px solid rgba(255, 255, 255, 0.03);
+}
+
+/* Collapsible Advanced Toggle */
+.wg-advanced-toggle {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 12px;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: 4px;
+  cursor: pointer;
+  margin: 6px 0;
+  transition: all 0.2s ease;
+}
+.wg-advanced-toggle:hover {
+  background: rgba(255, 255, 255, 0.04);
+  border-color: rgba(0, 229, 255, 0.15);
+}
+.advanced-toggle-title {
+  font-family: var(--font-hd);
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--text);
+  letter-spacing: 0.05em;
+  opacity: 0.85;
+}
+.wg-advanced-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 10px 14px;
+  background: rgba(0, 0, 0, 0.15);
+  border: 1px solid rgba(255, 255, 255, 0.03);
+  border-radius: 4px;
+  margin-bottom: 8px;
+}
+
+/* WireGuard Key History Styles */
+.wg-history-toggle {
+  border-color: rgba(0, 255, 157, 0.1) !important;
+}
+.wg-history-toggle:hover {
+  border-color: rgba(0, 255, 157, 0.3) !important;
+  background: rgba(0, 255, 157, 0.03) !important;
+}
+.wg-history-toggle .advanced-toggle-title {
+  color: var(--green) !important;
+  text-shadow: 0 0 8px rgba(0, 255, 157, 0.2);
+}
+.wg-history-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 14px;
+  background: rgba(0, 0, 0, 0.25);
+  border: 1px solid rgba(0, 255, 157, 0.08);
+  border-radius: 4px;
+  margin-bottom: 8px;
+  max-height: 350px;
+  overflow-y: auto;
+}
+.no-keys-message {
+  font-size: 11px;
+  color: var(--text);
+  text-align: center;
+  padding: 10px 0;
+  font-style: italic;
+}
+.wg-history-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.history-item-card {
+  background: rgba(8, 13, 24, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: 4px;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  transition: all 0.2s ease;
+}
+.history-item-card:hover {
+  border-color: rgba(0, 255, 157, 0.2);
+  background: rgba(8, 13, 24, 0.8);
+}
+.history-item-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+  padding-bottom: 4px;
+}
+.history-item-label {
+  font-family: var(--font-hd);
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--textwh);
+}
+.history-item-date {
+  font-size: 10px;
+  color: var(--text);
+}
+.history-keys-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.history-key-wrapper {
+  display: flex;
+  align-items: center;
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid rgba(255, 255, 255, 0.02);
+  border-radius: 3px;
+  padding: 4px 6px;
+  gap: 6px;
+}
+.key-type {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--cyan);
+  min-width: 32px;
+}
+.key-value {
+  font-size: 11px;
+  color: var(--textbr);
+  word-break: break-all;
+  flex: 1;
+}
+.btn-history-action {
+  background: transparent;
+  border: none;
+  color: var(--text);
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 2px;
+  font-size: 11px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s ease;
+}
+.btn-history-action:hover {
+  color: var(--cyan);
+  background: rgba(0, 229, 255, 0.1);
+}
+.history-card-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 4px;
+}
+.btn-history-load {
+  background: rgba(0, 255, 157, 0.1);
+  border: 1px solid rgba(0, 255, 157, 0.3);
+  border-radius: 3px;
+  color: var(--green);
+  font-family: var(--font-hd);
+  font-size: 10px;
+  padding: 4px 8px;
+  cursor: pointer;
+  font-weight: 600;
+  transition: all 0.2s ease;
+}
+.btn-history-load:hover {
+  background: var(--green);
+  color: var(--bg);
+  box-shadow: 0 0 10px rgba(0, 255, 157, 0.4);
+}
+.btn-history-remove {
+  background: rgba(255, 45, 110, 0.05);
+  border: 1px solid rgba(255, 45, 110, 0.2);
+  border-radius: 3px;
+  color: var(--pink);
+  font-size: 10px;
+  padding: 4px 8px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+.btn-history-remove:hover {
+  background: rgba(255, 45, 110, 0.2);
+  border-color: var(--pink);
+}
+
+/* Peer Rows and Responsive Grid */
+.peer-row-container {
+  position: relative;
+  background: rgba(10, 16, 32, 0.25);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 14px 44px 14px 14px !important;
+  margin-bottom: 10px;
+}
+.peer-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px 12px;
+  width: 100%;
+}
+.peer-full-width {
+  grid-column: span 2;
+}
+.btn-remove-peer {
+  position: absolute !important;
+  right: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  margin: 0 !important;
+  height: 28px !important;
+  width: 28px !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+}
+
+/* WireGuard Deletion Mode Styles */
+.wg-deletion-mode {
+  border: 1px solid rgba(255, 46, 99, 0.15) !important;
+  box-shadow: 0 0 15px rgba(255, 46, 99, 0.03) !important;
+}
+
+.action-selector-row {
+  margin-bottom: 15px;
+}
+
+.action-select {
+  background: rgba(10, 16, 32, 0.7) !important;
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+  color: var(--text) !important;
+  padding: 6px 12px;
+  border-radius: 4px;
+  font-family: var(--font-co);
+  font-size: 11px;
+  cursor: pointer;
+  width: 100%;
+  transition: all 0.25s ease;
+}
+
+.action-select:focus {
+  border-color: var(--cyan) !important;
+  outline: none;
+}
+
+.wg-deletion-mode .action-select:focus {
+  border-color: #ff2e63 !important;
+}
+
+.wg-delete-warning-box {
+  background: rgba(255, 46, 99, 0.03);
+  border: 1px solid rgba(255, 46, 99, 0.2);
+  border-left: 3px solid #ff2e63;
+  border-radius: 4px;
+  padding: 12px 16px;
+  margin-top: 10px;
+  animation: wg-pulse-warning 2s infinite alternate;
+}
+
+@keyframes wg-pulse-warning {
+  0% { box-shadow: 0 0 5px rgba(255, 46, 99, 0.05); }
+  100% { box-shadow: 0 0 12px rgba(255, 46, 99, 0.15); }
+}
+
+.warning-header {
+  font-family: var(--font-hd);
+  font-size: 10px;
+  font-weight: 800;
+  color: #ff2e63;
+  letter-spacing: 0.1em;
+  margin-bottom: 6px;
+  text-shadow: 0 0 8px rgba(255, 46, 99, 0.35);
+}
+
+.wg-delete-warning-box p {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.4;
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.highlight-wg {
+  color: #ff2e63;
+  text-shadow: 0 0 6px rgba(255, 46, 99, 0.4);
 }
 </style>

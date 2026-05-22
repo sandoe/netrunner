@@ -25,6 +25,24 @@ from ..generators.rpi import (
 router = APIRouter()
 
 
+@router.get("/wireguard/generate-keys")
+def generate_wg_keys():
+    try:
+        from cryptography.hazmat.primitives.asymmetric import x25519
+        import base64
+        priv = x25519.X25519PrivateKey.generate()
+        priv_bytes = priv.private_bytes_raw()
+        priv_b64 = base64.b64encode(priv_bytes).decode("utf-8")
+        
+        pub = priv.public_key()
+        pub_bytes = pub.public_bytes_raw()
+        pub_b64 = base64.b64encode(pub_bytes).decode("utf-8")
+        
+        return {"private_key": priv_b64, "public_key": pub_b64}
+    except Exception as e:
+        raise HTTPException(500, f"Failed to generate keypair: {str(e)}")
+
+
 @router.post("/preview")
 def api_preview(body: dict):
     t   = body.get("type")

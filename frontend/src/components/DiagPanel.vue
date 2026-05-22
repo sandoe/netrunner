@@ -47,6 +47,21 @@
           </div>
         </div>
         
+        <!-- WireGuard Quick Controls -->
+        <div v-if="activeType === 'wireguard' && !outputError && !isMissingTool && loadingType !== activeType" class="wg-quick-controls">
+          <div class="wg-control-info">
+            <span class="control-label">⚡ WIREGUARD CONTROLS (wg0):</span>
+          </div>
+          <div class="wg-control-btns">
+            <button class="btn-wg-up" :disabled="wgRunningAction" @click="runWgAction('up')">
+              🟢 WG-QUICK UP
+            </button>
+            <button class="btn-wg-down" :disabled="wgRunningAction" @click="runWgAction('down')">
+              🔴 WG-QUICK DOWN
+            </button>
+          </div>
+        </div>
+
         <div v-if="loadingType === activeType" class="loader-scanner">
           <div class="loader-grid"></div>
           <div class="loader-line"></div>
@@ -209,6 +224,45 @@ function clearOutput() {
   output.value = ''
   outputError.value = ''
   searchQuery.value = ''
+}
+
+const wgRunningAction = ref(false)
+
+async function runWgAction(action: 'up' | 'down') {
+  wgRunningAction.value = true
+  try {
+    let cmd = ''
+    if (action === 'up') {
+      // Gracefully clear any potential stale interfaces or routes first, then run wg-quick up
+      cmd = `(wg-quick down wg0 2>/dev/null || ip link delete wg0 2>/dev/null || true) && wg-quick up wg0 && echo "__SUCCESS__" || echo "__FAILED__"`
+    } else {
+      cmd = `wg-quick down wg0 && echo "__SUCCESS__" || echo "__FAILED__"`
+    }
+    const res = await api.executeNode(props.nodeId, [cmd])
+    const r = res.results?.[0]
+    
+    if (r) {
+      if (r.error) {
+        alert(`Failed to run wg-quick ${action}: ` + r.error)
+      } else {
+        const outputText = r.output || ''
+        if (outputText.includes('__FAILED__') || !outputText.includes('__SUCCESS__')) {
+          const cleanOutput = outputText
+            .replace('__FAILED__', '')
+            .replace('__SUCCESS__', '')
+            .trim()
+          alert(`Failed to run wg-quick ${action}:\n${cleanOutput || 'Unknown error'}`)
+        }
+      }
+    }
+    
+    // Always refresh the diagnostic view to show current state
+    await readType('wireguard')
+  } catch (e: any) {
+    alert(`Failed to run wg-quick ${action}: ` + (e.message || e))
+  } finally {
+    wgRunningAction.value = false
+  }
 }
 </script>
 
@@ -458,5 +512,64 @@ function clearOutput() {
   padding: 1px 2px;
   border-radius: 2px;
   text-shadow: 0 0 4px rgba(255, 190, 11, 0.5);
+}
+
+.wg-quick-controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  background: rgba(8, 13, 24, 0.4);
+  border-bottom: 1px solid var(--border);
+  backdrop-filter: blur(10px);
+}
+.wg-control-info {
+  display: flex;
+  align-items: center;
+}
+.control-label {
+  font-family: var(--font-hd);
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text);
+  letter-spacing: 0.05em;
+  text-shadow: 0 0 8px rgba(0, 229, 255, 0.2);
+}
+.wg-control-btns {
+  display: flex;
+  gap: 12px;
+}
+.btn-wg-up, .btn-wg-down {
+  padding: 6px 14px;
+  font-family: var(--font-hd);
+  font-size: 11px;
+  font-weight: 700;
+  border-radius: 4px;
+  cursor: pointer;
+  background: none;
+  transition: all 0.2s ease-in-out;
+  letter-spacing: 0.05em;
+}
+.btn-wg-up {
+  border: 1px solid var(--green);
+  color: var(--green);
+}
+.btn-wg-up:hover:not(:disabled) {
+  background: rgba(0, 255, 157, 0.1);
+  box-shadow: 0 0 10px rgba(0, 255, 157, 0.3);
+  text-shadow: 0 0 4px rgba(0, 255, 157, 0.5);
+}
+.btn-wg-down {
+  border: 1px solid var(--pink);
+  color: var(--pink);
+}
+.btn-wg-down:hover:not(:disabled) {
+  background: rgba(255, 45, 110, 0.1);
+  box-shadow: 0 0 10px rgba(255, 45, 110, 0.3);
+  text-shadow: 0 0 4px rgba(255, 45, 110, 0.5);
+}
+.btn-wg-up:disabled, .btn-wg-down:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 </style>

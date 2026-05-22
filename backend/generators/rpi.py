@@ -259,14 +259,14 @@ def gen_rpi_wifi(cfg: dict) -> list[str]:
         "# Try nmcli first (NetworkManager), fall back to wpa_supplicant",
         f"nmcli dev wifi connect {shlex.quote(ssid)}" +
         (f" password {shlex.quote(password)}" if password else "") +
-        " 2>/dev/null && echo 'Connected via nmcli' || (",
-        f"  cat > /etc/wpa_supplicant/wpa_supplicant.conf << '{marker}'",
-        wpa_conf,
-        f"  {marker}",
-        "  wpa_cli -i wlan0 reconfigure 2>/dev/null || wpa_supplicant -B -i wlan0 -c /etc/wpa_supplicant/wpa_supplicant.conf 2>/dev/null || true",
-        "  sleep 3",
-        "  ip addr show wlan0 | grep 'inet '",
-        ")",
+        f" 2>/dev/null && echo 'Connected via nmcli' || (\n"
+        f"cat > /etc/wpa_supplicant/wpa_supplicant.conf << '{marker}'\n"
+        f"{wpa_conf}\n"
+        f"{marker}\n"
+        f"wpa_cli -i wlan0 reconfigure 2>/dev/null || wpa_supplicant -B -i wlan0 -c /etc/wpa_supplicant/wpa_supplicant.conf 2>/dev/null || true\n"
+        f"sleep 3\n"
+        f"ip addr show wlan0 | grep 'inet '\n"
+        f")"
     ]
     return cmds
 

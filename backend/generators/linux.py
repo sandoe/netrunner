@@ -241,10 +241,7 @@ def gen_file_write(cfg: dict) -> list[str]:
         cmds.append(f"mkdir -p {shlex.quote(parent)}")
 
     cmds += [
-        f"cat > {shlex.quote(path)} << '{marker}'",
-        content,
-        marker,
-        f"chmod {mode} {shlex.quote(path)}",
+        f"cat > {shlex.quote(path)} << '{marker}'\n{content}\n{marker}\nchmod {mode} {shlex.quote(path)}",
     ]
     if owner:
         cmds.append(f"chown {owner} {shlex.quote(path)}")
@@ -357,11 +354,10 @@ def gen_systemd_service_unit(cfg: dict) -> list[str]:
     lines += ["", "[Install]", "WantedBy=multi-user.target"]
 
     marker = "__NETRUNNER_UNIT_EOF__"
+    lines_str = "\n".join(lines)
     cmds = [
         f"# ── Systemd unit: {name} ────────────────────────────────",
-        f"cat > {shlex.quote(unit_path)} << '{marker}'",
-        *lines,
-        marker,
+        f"cat > {shlex.quote(unit_path)} << '{marker}'\n{lines_str}\n{marker}",
         "systemctl daemon-reload",
     ]
     if enable:
