@@ -37,29 +37,364 @@
         </div>
 
         <div class="editor-body">
+          <!-- Live Telemetry Reference Panel -->
+          <div class="live-ref-panel">
+            <div class="live-ref-header" @click="liveRefExpanded = !liveRefExpanded">
+              <div class="live-ref-title">
+                <span class="live-ref-icon" :class="{ 'spinning': detectingState === 'loading' }">📡</span>
+                <span class="live-ref-text">LIVE TELEMETRY: {{ props.nodeId }}</span>
+                <span v-if="detectingState === 'loading'" class="live-ref-status-badge scanning">SCANNING</span>
+                <span v-else-if="detectingState === 'success'" class="live-ref-status-badge connected">ONLINE</span>
+                <span v-else-if="detectingState === 'error'" class="live-ref-status-badge offline">OFFLINE</span>
+              </div>
+              <div class="live-ref-actions" @click.stop>
+                <button class="btn-ref-refresh" @click="fetchLiveInterfaces" title="Refresh Live Telemetry">
+                  <span>🔄</span>
+                </button>
+                <span class="guide-chevron">{{ liveRefExpanded ? '▲' : '▼' }}</span>
+              </div>
+            </div>
+
+            <div v-if="liveRefExpanded" class="live-ref-content">
+              <div v-if="detectingState === 'loading'" class="live-ref-loading">
+                <div class="cyber-pulse-loader"></div>
+                <span>Fetching live network telemetry from target node...</span>
+              </div>
+              
+              <div v-else-if="detectingState === 'error'" class="live-ref-error">
+                <span class="err-icon">⚠️</span>
+                <div class="err-details">
+                  <div class="err-title">Failed to contact node telemetry agent</div>
+                  <div class="err-msg">{{ detectingError }}</div>
+                </div>
+                <button class="btn-ref-retry" @click="fetchLiveInterfaces">Retry Connection</button>
+              </div>
+
+              <div v-else-if="detectedInterfaces.length === 0" class="live-ref-empty">
+                No active network interfaces detected on this node.
+              </div>
+
+              <div v-else class="live-ref-wrapper">
+                <!-- RJ45 Port Panel -->
+                <div v-if="physicalInterfaces.length > 0" class="rj45-panel">
+                  <div class="rj45-panel-title">PHYSICAL PORTS FRONT PANEL</div>
+                  <div class="rj45-ports-container">
+                    <div
+                      v-for="iface in physicalInterfaces"
+                      :key="iface.name"
+                      class="rj45-port"
+                      :class="{ 'port-up': iface.status === 'UP', 'port-down': iface.status === 'DOWN' }"
+                      @click="selectPort(iface.name)"
+                      :title="`Interface: ${iface.name}\nStatus: ${iface.status}\nClick to configure`"
+                    >
+                      <div class="rj45-led-indicator"></div>
+                      <div class="rj45-clip"></div>
+                      <div class="rj45-pins">
+                        <span v-for="n in 8" :key="n" class="rj45-pin"></span>
+                      </div>
+                      <div class="rj45-label">{{ iface.name }}</div>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- VLAN & Interfaces Tree Hierarchy -->
+                <div class="live-ref-tree">
+                  <div class="tree-header">
+                    <span>INTERFACES & VLAN HIERARCHY</span>
+                    <button 
+                      class="btn-live-monitor"
+                      :class="{ 'monitor-active': liveMonitorActive }"
+                      @click.stop="toggleLiveMonitor"
+                      title="Toggle Real-time Traffic Graph & Metrics (Interval: 3s)"
+                    >
+                      <span class="monitor-dot"></span>
+                      <span class="monitor-text">LIVE MONITOR: {{ liveMonitorActive ? 'ACTIVE' : 'OFF' }}</span>
+                    </button>
+                  </div>
+                  <div v-for="node in interfaceTree" :key="node.parent.name" class="tree-node">
+                    <!-- Parent Interface Row -->
+                    <div 
+                      class="tree-parent-row"
+                      :class="{ 'iface-up': node.parent.status === 'UP', 'iface-down': node.parent.status === 'DOWN' }"
+                    >
+                      <div class="tree-toggle" @click="toggleTreeParent(node.parent.name)">
+                        <span v-if="node.children.length > 0">
+                          {{ collapsedTreeParents.has(node.parent.name) ? '▶' : '▼' }}
+                        </span>
+                        <span v-else class="tree-bullet">•</span>
+                      </div>
+                      
+                      <div class="tree-info">
+                        <span 
+                          class="ref-iface-name" 
+                          title="Click to copy interface name / Select in form"
+                          @click="selectPort(node.parent.name)"
+                        >
+                          {{ node.parent.name }}
+                        </span>
+                        <span class="ref-iface-status" :class="node.parent.status.toLowerCase()">
+                          {{ node.parent.status }}
+                        </span>
+                      </div>
+                      
+                      <!-- Live Traffic Monitor Column -->
+                      <div v-if="liveMonitorActive && interfaceTrafficData[node.parent.name]" class="tree-traffic">
+                        <div class="traffic-rates">
+                          <span class="rate-down">↓ {{ formatRate(interfaceTrafficData[node.parent.name].rxRate) }}</span>
+                          <span class="rate-up">↑ {{ formatRate(interfaceTrafficData[node.parent.name].txRate) }}</span>
+                        </div>
+                        <svg class="traffic-sparkline" width="60" height="16">
+                          <path 
+                            :d="getSparklinePath(interfaceTrafficData[node.parent.name].rxHistory)" 
+                            class="sparkpath-rx" 
+                          />
+                          <path 
+                            :d="getSparklinePath(interfaceTrafficData[node.parent.name].txHistory)" 
+                            class="sparkpath-tx" 
+                          />
+                        </svg>
+                      </div>
+                      <div v-else-if="liveMonitorActive" class="tree-traffic-loading">
+                        <span class="traffic-dot-pulse"></span>
+                        <span class="traffic-loading-lbl">MONITORING...</span>
+                      </div>
+                      
+                      <div class="tree-ips">
+                        <div v-if="node.parent.ips.length === 0" class="ref-no-ips">No IP address assigned</div>
+                        <div 
+                          v-for="ip in node.parent.ips" 
+                          :key="ip" 
+                          class="ref-ip-badge-container"
+                        >
+                          <span 
+                            class="ref-ip-badge" 
+                            title="Click to copy IP address"
+                            @click="copyToClipboard(ip)"
+                          >
+                            {{ ip }}
+                          </span>
+                          
+                          <!-- Inline Quick Ping Button -->
+                          <button 
+                            class="btn-quick-ping"
+                            :disabled="pingLoading[`${node.parent.name}-${ip}`]"
+                            @click.stop="triggerInlinePing(node.parent.name, ip)"
+                            title="Trigger Inline Quick Ping Diagnostics to 8.8.8.8"
+                          >
+                            <span v-if="pingLoading[`${node.parent.name}-${ip}`]" class="ping-spinner"></span>
+                            <span v-else>⚡</span>
+                          </button>
+                          
+                          <!-- Inline Quick Ping Badge -->
+                          <span 
+                            v-if="pingResults[`${node.parent.name}-${ip}`]" 
+                            class="ping-latency-badge"
+                            :class="{ 
+                              'ping-success': pingResults[`${node.parent.name}-${ip}`].success,
+                              'ping-fail': !pingResults[`${node.parent.name}-${ip}`].success
+                            }"
+                          >
+                            {{ pingResults[`${node.parent.name}-${ip}`].success ? pingResults[`${node.parent.name}-${ip}`].latency : 'FAIL' }}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                    
+                    <!-- Children VLAN interfaces -->
+                    <div 
+                      v-if="node.children.length > 0 && !collapsedTreeParents.has(node.parent.name)" 
+                      class="tree-children"
+                    >
+                      <div 
+                        v-for="(child, childIdx) in node.children" 
+                        :key="child.name"
+                        class="tree-child-row"
+                        :class="{ 'iface-up': child.status === 'UP', 'iface-down': child.status === 'DOWN' }"
+                      >
+                        <span class="tree-branch">
+                          {{ childIdx === node.children.length - 1 ? '└──' : '├──' }}
+                        </span>
+                        
+                        <div class="tree-info">
+                          <span 
+                            class="ref-iface-name" 
+                            title="Click to copy interface name / Select in form"
+                            @click="selectPort(child.name)"
+                          >
+                            {{ child.name }}
+                          </span>
+                          <span class="ref-iface-status" :class="child.status.toLowerCase()">
+                            {{ child.status }}
+                          </span>
+                        </div>
+                        
+                        <!-- Live Traffic Monitor Column -->
+                        <div v-if="liveMonitorActive && interfaceTrafficData[child.name]" class="tree-traffic">
+                          <div class="traffic-rates">
+                            <span class="rate-down">↓ {{ formatRate(interfaceTrafficData[child.name].rxRate) }}</span>
+                            <span class="rate-up">↑ {{ formatRate(interfaceTrafficData[child.name].txRate) }}</span>
+                          </div>
+                          <svg class="traffic-sparkline" width="60" height="16">
+                            <path 
+                              :d="getSparklinePath(interfaceTrafficData[child.name].rxHistory)" 
+                              class="sparkpath-rx" 
+                            />
+                            <path 
+                              :d="getSparklinePath(interfaceTrafficData[child.name].txHistory)" 
+                              class="sparkpath-tx" 
+                            />
+                          </svg>
+                        </div>
+                        <div v-else-if="liveMonitorActive" class="tree-traffic-loading">
+                          <span class="traffic-dot-pulse"></span>
+                          <span class="traffic-loading-lbl">MONITORING...</span>
+                        </div>
+                        
+                        <div class="tree-ips">
+                          <div v-if="child.ips.length === 0" class="ref-no-ips">No IP address assigned</div>
+                          <div 
+                            v-for="ip in child.ips" 
+                            :key="ip" 
+                            class="ref-ip-badge-container"
+                          >
+                            <span 
+                              class="ref-ip-badge" 
+                              title="Click to copy IP address"
+                              @click="copyToClipboard(ip)"
+                            >
+                              {{ ip }}
+                            </span>
+                            
+                            <!-- Inline Quick Ping Button -->
+                            <button 
+                              class="btn-quick-ping"
+                              :disabled="pingLoading[`${child.name}-${ip}`]"
+                              @click.stop="triggerInlinePing(child.name, ip)"
+                              title="Trigger Inline Quick Ping Diagnostics to 8.8.8.8"
+                            >
+                              <span v-if="pingLoading[`${child.name}-${ip}`]" class="ping-spinner"></span>
+                              <span v-else>⚡</span>
+                            </button>
+                            
+                            <!-- Inline Quick Ping Badge -->
+                            <span 
+                              v-if="pingResults[`${child.name}-${ip}`]" 
+                              class="ping-latency-badge"
+                              :class="{ 
+                                'ping-success': pingResults[`${child.name}-${ip}`].success,
+                                'ping-fail': !pingResults[`${child.name}-${ip}`].success
+                              }"
+                            >
+                              {{ pingResults[`${child.name}-${ip}`].success ? pingResults[`${child.name}-${ip}`].latency : 'FAIL' }}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div class="live-ref-footer">
+                💡 <span class="tip-highlight">Click</span> any interface name or IP badge to copy it directly to your clipboard.
+              </div>
+            </div>
+          </div>
+
+          <!-- Cyber-Guide Help Panel -->
+          <div v-if="activeGuide" class="cyber-guide">
+            <div class="guide-header" @click="guideExpanded = !guideExpanded">
+              <div class="guide-title">
+                <span class="guide-icon">⚡</span>
+                <span class="guide-text">CYBER-GUIDE: {{ activeGuide.title }}</span>
+              </div>
+              <span class="guide-chevron">{{ guideExpanded ? '▲' : '▼' }}</span>
+            </div>
+            <div v-if="guideExpanded" class="guide-content">
+              <p class="guide-desc">{{ activeGuide.description }}</p>
+              <div class="guide-grid">
+                <div class="guide-column">
+                  <div class="column-title">💾 Affected Files</div>
+                  <ul>
+                    <li v-for="file in activeGuide.files" :key="file"><code>{{ file }}</code></li>
+                  </ul>
+                </div>
+                <div class="guide-column">
+                  <div class="column-title">💡 Operational Tips</div>
+                  <ul>
+                    <li v-for="tip in activeGuide.tips" :key="tip">{{ tip }}</li>
+                  </ul>
+                </div>
+              </div>
+            </div>
+          </div>
+
           <!-- Specialized Interface Form -->
           <div v-if="activeType === 'interface'" class="specialized-form">
             <div class="form-row">
               <label>Interface
-                <input v-model="interfaceForm.interface" placeholder="eth0" />
+                <input v-model="interfaceForm.interface" placeholder="eth0" list="detected-interfaces" />
               </label>
-              <label class="check-label">
+              <label>Link State
+                <select v-model="interfaceForm.state" class="cyber-select">
+                  <option value="none">Auto (default)</option>
+                  <option value="up">Link UP</option>
+                  <option value="down">Link DOWN</option>
+                </select>
+              </label>
+              <label class="check-label" style="margin-top: 18px;">
                 <input type="checkbox" v-model="interfaceForm.dhcp" /> Enable DHCP
               </label>
             </div>
+
             <div class="section-label-sub">Static Addresses</div>
-            <div v-for="(addr, idx) in interfaceForm.addresses" :key="idx" class="form-row">
-              <input v-model="interfaceForm.addresses[idx]" placeholder="10.0.0.1/24" />
-              <button class="btn-remove" @click="interfaceForm.addresses.splice(idx, 1)">✕</button>
+            <div v-for="(addr, idx) in interfaceForm.addresses" :key="idx" class="static-addr-row">
+              <div class="form-row">
+                <input v-model="interfaceForm.addresses[idx]" placeholder="10.0.0.1/24" />
+                <button class="btn-remove" @click="interfaceForm.addresses.splice(idx, 1)">✕</button>
+              </div>
+              <div v-if="calculateSubnet(addr)" class="subnet-assistant-card">
+                <div class="subnet-stat">
+                  <span class="label">Netmask:</span>
+                  <span class="value cyan-glow">{{ calculateSubnet(addr)?.netmask }}</span>
+                </div>
+                <div class="subnet-stat">
+                  <span class="label">Network:</span>
+                  <span class="value yellow-glow">{{ calculateSubnet(addr)?.network }}</span>
+                </div>
+                <div class="subnet-stat">
+                  <span class="label">Broadcast:</span>
+                  <span class="value pink-glow">{{ calculateSubnet(addr)?.broadcast }}</span>
+                </div>
+              </div>
             </div>
             <div class="form-actions">
               <button class="btn-add-sub" @click="interfaceForm.addresses.push('')">+ Add Static IP</button>
               <label v-if="interfaceForm.addresses.length > 0">Action
                 <select v-model="interfaceForm.action">
                   <option value="add">Add Only</option>
+                  <option value="del">Remove</option>
                   <option value="flush">Flush & Add</option>
                 </select>
               </label>
+            </div>
+
+            <!-- VLAN Sub-interface Helper -->
+            <div class="vlan-helper-box">
+              <div class="helper-title">VLAN Sub-interface Helper</div>
+              <div class="helper-desc">Select a parent interface and VLAN ID to automatically set the sub-interface name (e.g. eth0.100).</div>
+              <div class="form-row" style="margin-bottom: 0;">
+                <label>Parent Interface
+                  <select v-model="interfaceForm.vlanParent" class="cyber-select">
+                    <option value="">-- Select Parent --</option>
+                    <option v-for="iface in detectedInterfaces" :key="iface.name" :value="iface.name">
+                      {{ iface.name }} ({{ iface.status }})
+                    </option>
+                  </select>
+                </label>
+                <label>VLAN ID (1-4094)
+                  <input v-model.number="interfaceForm.vlanId" type="number" min="1" max="4094" placeholder="100" />
+                </label>
+              </div>
             </div>
           </div>
 
@@ -73,7 +408,7 @@
                 <input v-model="route.via" placeholder="10.0.0.254" />
               </label>
               <label>Device
-                <input v-model="route.dev" placeholder="eth0" />
+                <input v-model="route.dev" placeholder="eth0" list="detected-interfaces" />
               </label>
               <label>Metric
                 <input v-model.number="route.metric" type="number" placeholder="100" />
@@ -110,8 +445,8 @@
           <!-- NAT Form -->
           <div v-if="activeType === 'nat'" class="specialized-form">
             <div class="form-row">
-              <label>WAN (Outbound) <input v-model="natForm.outbound_iface" /></label>
-              <label>LAN (Inbound) <input v-model="natForm.inbound_iface" /></label>
+              <label>WAN (Outbound) <input v-model="natForm.outbound_iface" list="detected-interfaces" /></label>
+              <label>LAN (Inbound) <input v-model="natForm.inbound_iface" list="detected-interfaces" /></label>
               <label>Source Subnet <input v-model="natForm.source_subnet" /></label>
             </div>
             <label class="check-label"><input type="checkbox" v-model="natForm.masquerade" /> Enable Masquerade</label>
@@ -134,7 +469,7 @@
           <!-- VLAN Router Form -->
           <div v-if="activeType === 'vlan-router'" class="specialized-form">
             <div class="form-row">
-              <label>Base Interface <input v-model="vlanRouterForm.interface" /></label>
+              <label>Base Interface <input v-model="vlanRouterForm.interface" list="detected-interfaces" /></label>
             </div>
             <div class="section-label-sub">VLAN Interfaces</div>
             <div v-for="(v, i) in vlanRouterForm.vlans" :key="i" class="form-row multi-row">
@@ -161,7 +496,7 @@
             
             <div class="section-label-sub">Port Assignments</div>
             <div v-for="(p, i) in vlanSwitchForm.ports" :key="i" class="form-row multi-row">
-              <label>Iface <input v-model="p.iface" /></label>
+              <label>Iface <input v-model="p.iface" list="detected-interfaces" /></label>
               <label>Mode
                 <select v-model="p.mode">
                   <option value="access">Access</option>
@@ -172,7 +507,7 @@
               <label v-if="p.mode === 'trunk'">Allowed (CSV) <input v-model="p.allowed" /></label>
               <button class="btn-remove" @click="vlanSwitchForm.ports.splice(i, 1)">✕</button>
             </div>
-            <button class="btn-add-sub" @click="vlanSwitchForm.ports.push({ iface: '', mode: 'access', vlan: '1', allowed: [] })">+ Add Port</button>
+            <button class="btn-add-sub" @click="vlanSwitchForm.ports.push({ iface: '', mode: 'access', vlan: '1', allowed: '' })">+ Add Port</button>
           </div>
 
           <!-- WireGuard Form -->
@@ -648,7 +983,7 @@
           <div v-if="activeType === 'wol'" class="specialized-form">
             <div class="form-row">
               <label>MAC Address <input v-model="wolForm.mac" placeholder="00:11:22:33:44:55" /></label>
-              <label>Iface <input v-model="wolForm.interface" placeholder="(optional)" /></label>
+              <label>Iface <input v-model="wolForm.interface" placeholder="(optional)" list="detected-interfaces" /></label>
             </div>
           </div>
 
@@ -656,7 +991,7 @@
           <div v-if="activeType === 'arp-scan'" class="specialized-form">
             <div class="form-row">
               <label>Target <input v-model="arpScanForm.target" placeholder="localnet | 192.168.1.0/24" /></label>
-              <label>Iface <input v-model="arpScanForm.interface" placeholder="eth0 (optional)" /></label>
+              <label>Iface <input v-model="arpScanForm.interface" placeholder="eth0 (optional)" list="detected-interfaces" /></label>
             </div>
           </div>
 
@@ -673,35 +1008,66 @@
           <div class="preview-section" v-if="previewCommands.length || previewError">
             <div class="section-label">Generated Commands</div>
             <div v-if="previewError" class="preview-error">{{ previewError }}</div>
-            <pre v-else class="preview-pre">{{ previewCommands.join('\n') }}</pre>
+            <pre v-else class="preview-pre" v-html="highlightedPreview"></pre>
           </div>
 
           <div class="results-section" v-if="results.length">
             <div class="section-label">
-              Execution Results
-              <button class="btn-clear-results" @click="results = []">clear</button>
+              <span>⚡ Telemetry Output & Execution Logs</span>
+              <button class="btn-clear-results" @click="results = []">🗑️ Clear Logs</button>
             </div>
-            <div v-for="(r, i) in results" :key="i" class="result-block">
-              <div class="result-cmd">$ {{ r.command }}</div>
-              <pre v-if="r.output" class="result-out">{{ r.output }}</pre>
-              <pre v-if="r.error" class="result-err">{{ r.error }}</pre>
-              <!-- Fix button if command not found -->
-              <div v-if="(r.output + r.error).toLowerCase().includes('not found') || (r.output + r.error).toLowerCase().includes('not installed')" class="result-fix">
-                <button class="btn-fix-inline" @click="installMissing(r.command)" :disabled="installingTool">
-                    {{ installingTool ? 'INSTALLING...' : 'INSTALL MISSING TOOL' }}
-                </button>
+            
+            <div v-for="(r, i) in results" :key="i" class="result-card" :class="{ 'card-err': r.error, 'card-ok': !r.error }">
+              <div class="result-card-header" @click="toggleResult(i)">
+                <div class="result-status-indicator">
+                  <span class="status-dot"></span>
+                  <span class="status-label">{{ r.error ? 'CRITICAL ERROR' : 'EXECUTION SUCCESS' }}</span>
+                </div>
+                <div class="result-cmd-preview"><code>$ {{ r.command }}</code></div>
+                <span class="card-chevron">{{ collapsedResults[i] ? '▼' : '▲' }}</span>
+              </div>
+              
+              <div v-if="!collapsedResults[i]" class="result-card-body">
+                <pre v-if="r.output" class="result-out">{{ r.output }}</pre>
+                <pre v-if="r.error" class="result-err">{{ r.error }}</pre>
+                
+                <!-- Fix button if command not found -->
+                <div v-if="(r.output + r.error).toLowerCase().includes('not found') || (r.output + r.error).toLowerCase().includes('not installed')" class="result-fix">
+                  <div class="fix-alert">⚡ Missing dependency detected on the target node.</div>
+                  <button class="btn-fix-inline" @click="installMissing(r.command)" :disabled="installingTool">
+                      {{ installingTool ? 'INSTALLING DEPENDENCY...' : '🛠️ INSTALL MISSING TOOL' }}
+                  </button>
+                </div>
               </div>
             </div>
-
           </div>
         </div>
       </div>
     </div>
+
+    <!-- Interface suggestions datalist -->
+    <datalist id="detected-interfaces">
+      <option v-for="iface in detectedInterfaces" :key="iface.name" :value="iface.name">
+        {{ iface.status }} — {{ iface.ips.join(', ') || 'no IP' }}
+      </option>
+    </datalist>
+
+    <!-- Glowing Cyber Toast Notification -->
+    <Transition name="toast">
+      <div v-if="showToast" class="cyber-toast">
+        <div class="toast-glow"></div>
+        <span class="toast-icon">⚡</span>
+        <div class="toast-text">
+          <span class="toast-label">COPIED TO SYSTEM CLIPBOARD</span>
+          <span class="toast-val">{{ lastCopied }}</span>
+        </div>
+      </div>
+    </Transition>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { ref, watch, computed, onUnmounted } from 'vue'
 import { api } from '@/api/client'
 import type { CommandResult } from '@/types'
 
@@ -769,6 +1135,130 @@ const CONFIG_CATEGORIES = {
 }
 
 const activeType      = ref<string | null>(null)
+
+interface GuideData {
+  title: string
+  description: string
+  files: string[]
+  tips: string[]
+}
+
+const CYBER_GUIDES: Record<string, GuideData> = {
+  interface: {
+    title: 'Network Interfaces',
+    description: 'Configure network interface IP addresses, subnets, and state.',
+    files: ['/etc/network/interfaces', '/etc/dhcpcd.conf'],
+    tips: ['Double-check CIDR notation (e.g. /24).', 'Applying this might temporarily disrupt SSH connections if configured on the active interface.']
+  },
+  routes: {
+    title: 'Static Routing',
+    description: 'Add static route configurations to target remote subnets through a specific gateway.',
+    files: ['Active routing table', '/etc/network/interfaces'],
+    tips: ['Ensure the gateway IP is reachable in your local subnet.', 'Use 0.0.0.0/0 to change the default gateway.']
+  },
+  dns: {
+    title: 'DNS Resolution',
+    description: 'Set DNS servers and domain search paths for name resolution.',
+    files: ['/etc/resolv.conf'],
+    tips: ['Set primary DNS to 1.1.1.1 or 8.8.8.8 for public internet access.', 'Add a search domain if you are using a local DNS zone.']
+  },
+  nat: {
+    title: 'NAT & Port Forwarding',
+    description: 'Establish IP masquerading (NAT) and port forward ingress traffic to private hosts.',
+    files: ['iptables rules', '/etc/sysctl.conf'],
+    tips: ['Masquerading requires IP forwarding to be enabled in sysctl.', 'Port forwarding is perfect for making internal services public.']
+  },
+  'vlan-router': {
+    title: 'VLAN Router',
+    description: 'Configure VLAN tagged sub-interfaces on routers for 802.1Q routing.',
+    files: ['/etc/network/interfaces', 'kernel 8021q module'],
+    tips: ['Ensure your physical interfaces support VLAN tag encapsulation.', 'Always specify both a parent interface (e.g., eth0) and a VLAN ID.']
+  },
+  'vlan-switch': {
+    title: 'VLAN Switch (Bridge)',
+    description: 'Configure bridge and switch ports for vlan filtering and member ports.',
+    files: ['/etc/network/interfaces', 'bridge-utils'],
+    tips: ['Define trunk ports to carry multiple VLAN tags.', 'Assign access ports for individual tag untagging.']
+  },
+  wireguard: {
+    title: 'WireGuard VPN',
+    description: 'Deploy peer-to-peer secure VPN tunnels utilizing private/public key cryptography.',
+    files: ['/etc/wireguard/wg0.conf'],
+    tips: ['Ensure UDP port 51820 (or your configured port) is open in the firewall.', 'Generate new private/public keys for security.']
+  },
+  forwarding: {
+    title: 'IP Forwarding',
+    description: 'Allow network packets to traverse between different interfaces on this node.',
+    files: ['/etc/sysctl.conf', '/proc/sys/net/ipv4/ip_forward'],
+    tips: ['Essential for routers, NAT boxes, and WireGuard gateways.', 'Changes will take effect instantly and persist across reboots.']
+  },
+  service: {
+    title: 'System Services',
+    description: 'Manage initialization and state (start/stop/enable) of system daemons.',
+    files: ['systemd system init', 'sysvinit / openrc'],
+    tips: ['Enable services so they start automatically on boot.', 'Restarting a service like sshd can drop existing active sessions.']
+  },
+  package: {
+    title: 'Package Manager',
+    description: 'Install or update binary applications on the remote node.',
+    files: ['apk, apt, or pacman configurations'],
+    tips: ['Verify package names match exactly.', 'Use diagnostic console to verify if the binary is installed.']
+  },
+  ufw: {
+    title: 'UFW Firewall',
+    description: 'Manage uncomplicated firewall rules, policies, and ports.',
+    files: ['/etc/ufw/before.rules', '/lib/ufw/user.rules'],
+    tips: ['Ensure port 22/SSH is allowed BEFORE enabling UFW to prevent lockout!', 'Always default-deny incoming and default-allow outgoing.']
+  },
+  sysctl: {
+    title: 'Sysctl Parameters',
+    description: 'Fine-tune Linux kernel parameters dynamically or persistently.',
+    files: ['/etc/sysctl.conf'],
+    tips: ['Changing sysctl values can alter system security and network behavior instantly.', 'Run sysctl -p to reload.']
+  }
+}
+
+const guideExpanded = ref(true)
+const activeGuide = computed(() => {
+  if (!activeType.value) return null
+  return CYBER_GUIDES[activeType.value] || null
+})
+
+const collapsedResults = ref<Record<number, boolean>>({})
+function toggleResult(index: number) {
+  collapsedResults.value[index] = !collapsedResults.value[index]
+}
+
+function escapeHtml(unsafe: string) {
+  return unsafe
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;")
+}
+
+function highlightPreviewCommands(text: string): string {
+  let highlighted = escapeHtml(text)
+  
+  const sysCmds = /\b(ip|rc-update|sysctl|systemctl|cat|chmod|wg-quick|wg|apk|apt|ufw|iptables|mkdir|echo|tee|touch)\b/g
+  const heredoc = /(&lt;&lt;\s*&#039;?EOF&#039;?|EOF|__NETRUNNER_EOF__)/g
+  const ipAddr = /\b(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}(?:\/\d{1,2})?)\b/g
+  const strings = /(&quot;[^&]*&quot;|&#039;[^&]*&#039;)/g
+  
+  highlighted = highlighted.replace(strings, '<span class="shell-str">$1</span>')
+  highlighted = highlighted.replace(heredoc, '<span class="shell-heredoc">$1</span>')
+  highlighted = highlighted.replace(sysCmds, '<span class="shell-cmd">$1</span>')
+  highlighted = highlighted.replace(ipAddr, '<span class="shell-ip">$1</span>')
+  highlighted = highlighted.replace(/(#[^\n&]*)/g, '<span class="shell-comment">$1</span>')
+  
+  return highlighted
+}
+
+const highlightedPreview = computed(() => {
+  if (!previewCommands.value.length) return ''
+  return highlightPreviewCommands(previewCommands.value.join('\n'))
+})
 const collapsedCats   = ref<Set<string>>(new Set())
 
 function toggleCat(key: string) {
@@ -786,12 +1276,12 @@ const loading         = ref(false)
 const installingTool  = ref(false)
 const persistMode     = ref(false)
 
-const defaultInterfaceForm    = () => ({ interface: 'eth0', addresses: [] as string[], dhcp: false, action: 'add' })
+const defaultInterfaceForm    = () => ({ interface: 'eth0', addresses: [''] as string[], dhcp: false, action: 'add', state: 'none', vlanParent: '', vlanId: undefined })
 const defaultRouteForm        = () => ({ routes: [{ dst: '10.1.0.0/24', via: '10.0.0.254', dev: '', metric: 0 }], isDelete: false })
 const defaultDnsForm          = () => ({ nameservers: ['8.8.8.8'], search: ['local'], hostname: '', domain: '', records: [{ name: '', value: '' }] })
 const defaultNatForm          = () => ({ outbound_iface: 'eth0', inbound_iface: 'eth1', source_subnet: '10.0.0.0/24', masquerade: true, port_forwards: [{ proto: 'tcp', external_port: '80', target_ip: '10.0.0.10', target_port: '80' }] })
 const defaultVlanRouterForm   = () => ({ interface: 'eth0', vlans: [{ id: '10', address: '10.0.10.1/24', description: 'Management' }] })
-const defaultVlanSwitchForm   = () => ({ bridge: 'br0', vlans: [{ id: '10', name: 'MGMT' }], ports: [{ iface: 'eth1', mode: 'access', vlan: '10', allowed: [] as string[] }] })
+const defaultVlanSwitchForm   = () => ({ bridge: 'br0', vlans: [{ id: '10', name: 'MGMT' }], ports: [{ iface: 'eth1', mode: 'access', vlan: '10', allowed: '' }] })
 const defaultWireguardForm    = () => ({ interface: 'wg0', private_key: '', address: '10.0.0.1/24', listen_port: 51820, peers: [{ public_key: '', endpoint: '', allowed_ips: '0.0.0.0/0' }] })
 const defaultForwardingForm   = () => ({ ipv4: true, ipv6: false })
 const defaultServiceForm      = () => ({ name: '', action: 'status' })
@@ -880,11 +1370,17 @@ function resetForm() {
 const interfaceForm = ref(defaultInterfaceForm())
 
 function syncInterfaceForm() {
+  // Auto-append /24 hint for addresses missing CIDR (we keep it for the warning check)
+  const validated = interfaceForm.value.addresses.filter(a => a.trim()).map(a => {
+    const trimmed = a.trim()
+    return trimmed
+  })
   inputJson.value = JSON.stringify({
     interface: interfaceForm.value.interface,
-    addresses: interfaceForm.value.addresses.filter(a => a.trim()),
+    addresses: validated,
     dhcp: interfaceForm.value.dhcp,
-    action: interfaceForm.value.action
+    action: interfaceForm.value.action,
+    state: interfaceForm.value.state
   }, null, 2)
 }
 
@@ -941,14 +1437,14 @@ function syncNatForm() {
 function syncVlanRouterForm() {
   inputJson.value = JSON.stringify({
     ...vlanRouterForm.value,
-    vlans: vlanRouterForm.value.vlans.filter(v => v.id)
+    vlans: vlanRouterForm.value.vlans
   }, null, 2)
 }
 
 function syncVlanSwitchForm() {
   inputJson.value = JSON.stringify({
     ...vlanSwitchForm.value,
-    vlans: vlanSwitchForm.value.vlans.filter(v => v.id),
+    vlans: vlanSwitchForm.value.vlans,
     ports: vlanSwitchForm.value.ports.filter(p => p.iface)
   }, null, 2)
 }
@@ -1089,7 +1585,10 @@ async function applyConfig() {
   loading.value = true
   results.value = []
   try {
-    const res = await api.executeNode(props.nodeId, previewCommands.value)
+    const cmds = persistMode.value
+      ? [previewCommands.value.join('\n')]
+      : previewCommands.value
+    const res = await api.executeNode(props.nodeId, cmds)
     results.value = res.results
   } catch (e) {
     previewError.value = `Execution failed: ${e}`
@@ -1148,6 +1647,35 @@ syncFnMap['rpi-gpio-read-all'] = () => { inputJson.value = '{}' }
 
 // Auto-update JSON as form fields change
 watch(interfaceForm,   () => { if (activeType.value === 'interface')   syncInterfaceForm() },   { deep: true })
+watch(() => [interfaceForm.value.vlanParent, interfaceForm.value.vlanId], ([parent, id]) => {
+  if (parent && id !== undefined && id !== null && String(id).trim() !== '') {
+    interfaceForm.value.interface = `${parent}.${id}`
+  }
+})
+
+// Auto-populate interface IP addresses from live telemetry
+watch(
+  () => [interfaceForm.value.interface, detectedInterfaces.value],
+  ([newVal, interfaces]) => {
+    if (!newVal || !interfaces || !interfaces.length) return
+    const cleanVal = String(newVal).trim()
+    const found = (interfaces as DetectedInterface[]).find(i => i.name.toLowerCase() === cleanVal.toLowerCase())
+    if (found) {
+      const isAddressesUntouched = 
+        interfaceForm.value.addresses.length === 0 || 
+        (interfaceForm.value.addresses.length === 1 && !interfaceForm.value.addresses[0].trim())
+      
+      if (isAddressesUntouched) {
+        if (found.ips && found.ips.length > 0) {
+          interfaceForm.value.addresses = [...found.ips]
+        } else {
+          interfaceForm.value.addresses = ['']
+        }
+      }
+    }
+  },
+  { deep: true }
+)
 watch(routeForm,       () => { if (activeType.value === 'routes')      syncRouteForm() },       { deep: true })
 watch(dnsForm,         () => { if (activeType.value === 'dns')         syncDnsForm() },         { deep: true })
 watch(natForm,         () => { if (activeType.value === 'nat')         syncNatForm() },         { deep: true })
@@ -1202,146 +1730,1690 @@ watch(() => props.nodeId, () => {
   ufwForm.value         = defaultUfwForm()
   nftablesForm.value    = defaultNftablesForm()
   persistMode.value     = false
+  
+  // Refresh live interfaces telemetry when active node changes
+  fetchLiveInterfaces()
 })
+
+// Telemetry structures
+interface DetectedInterface {
+  name: string
+  status: 'UP' | 'DOWN' | 'UNKNOWN'
+  ips: string[]
+}
+
+const detectedInterfaces = ref<DetectedInterface[]>([])
+const detectingState = ref<'idle' | 'loading' | 'success' | 'error'>('idle')
+const detectingError = ref('')
+const liveRefExpanded = ref(true)
+
+// --- Premium UI/UX Network Interface Features ---
+
+// 1. Interactive Port Panel and VLAN Tree state
+const collapsedTreeParents = ref<Set<string>>(new Set())
+
+const physicalInterfaces = computed(() => {
+  return detectedInterfaces.value.filter(iface => {
+    const name = iface.name.toLowerCase()
+    return !name.startsWith('lo') &&
+           !name.startsWith('br') &&
+           !name.startsWith('docker') &&
+           !name.startsWith('veth') &&
+           !name.startsWith('wg') &&
+           !name.includes('.')
+  })
+})
+
+const interfaceTree = computed(() => {
+  const list = detectedInterfaces.value
+  const tree: { parent: DetectedInterface; children: DetectedInterface[] }[] = []
+  
+  const parents = list.filter(i => !i.name.includes('.'))
+  const vlans = list.filter(i => i.name.includes('.'))
+  const groupedVlans = new Set<string>()
+  
+  for (const parent of parents) {
+    const children = vlans.filter(v => {
+      const parts = v.name.split('.')
+      return parts[0] === parent.name
+    })
+    children.forEach(v => groupedVlans.add(v.name))
+    tree.push({ parent, children })
+  }
+  
+  const orphanVlans = vlans.filter(v => !groupedVlans.has(v.name))
+  for (const orphan of orphanVlans) {
+    tree.push({ parent: orphan, children: [] })
+  }
+  
+  return tree
+})
+
+function selectPort(ifaceName: string) {
+  if (activeType.value !== 'interface') {
+    activeType.value = 'interface'
+  }
+  interfaceForm.value.interface = ifaceName
+  syncInterfaceForm()
+}
+
+function toggleTreeParent(name: string) {
+  if (collapsedTreeParents.value.has(name)) {
+    collapsedTreeParents.value.delete(name)
+  } else {
+    collapsedTreeParents.value.add(name)
+  }
+}
+
+// 2. Inline Quick-Ping Diagnostics state & methods
+const pingLoading = ref<Record<string, boolean>>({})
+const pingResults = ref<Record<string, { success: boolean; latency?: string; error?: string }>>({})
+
+async function triggerInlinePing(ifaceName: string, ip: string) {
+  const key = `${ifaceName}-${ip}`
+  pingLoading.value[key] = true
+  delete pingResults.value[key]
+  
+  const cleanIp = ip.split('/')[0]
+  const cmd = `ping -c 2 -W 2 -I ${cleanIp} 8.8.8.8`
+  
+  try {
+    const res = await api.executeNode(props.nodeId, [cmd])
+    const result = res.results[0]
+    const stdout = result.output || ''
+    const stderr = result.error || ''
+    
+    if (result.error || stderr.toLowerCase().includes('fail') || stderr.toLowerCase().includes('error')) {
+      pingResults.value[key] = { success: false, error: 'FAIL' }
+    } else {
+      const match = stdout.match(/(?:rtt|round-trip)\s+min\/avg\/max(?:\/mdev)?\s+=\s+[\d\.]+\/([\d\.]+)\//i)
+      if (match && match[1]) {
+        pingResults.value[key] = { success: true, latency: `${parseFloat(match[1]).toFixed(1)}ms` }
+      } else {
+        const avgMatch = stdout.match(/avg\s+=\s+([\d\.]+)/i)
+        if (avgMatch && avgMatch[1]) {
+          pingResults.value[key] = { success: true, latency: `${parseFloat(avgMatch[1]).toFixed(1)}ms` }
+        } else {
+          pingResults.value[key] = { success: false, error: 'FAIL' }
+        }
+      }
+    }
+  } catch (err) {
+    pingResults.value[key] = { success: false, error: 'FAIL' }
+  } finally {
+    pingLoading.value[key] = false
+  }
+}
+
+// 3. Real-time CIDR Subnet Assistant calculations
+interface SubnetInfo {
+  ip: string
+  cidr: number
+  netmask: string
+  network: string
+  broadcast: string
+}
+
+function longToIp(long: number): string {
+  return [
+    (long >>> 24) & 255,
+    (long >>> 16) & 255,
+    (long >>> 8) & 255,
+    long & 255
+  ].join('.')
+}
+
+function calculateSubnet(ipWithCidr: string): SubnetInfo | null {
+  if (!ipWithCidr || !ipWithCidr.includes('/')) return null
+  const [ipPart, cidrPart] = ipWithCidr.split('/')
+  const cidr = parseInt(cidrPart, 10)
+  if (isNaN(cidr) || cidr < 0 || cidr > 32) return null
+  
+  const ipReg = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/
+  const match = ipPart.match(ipReg)
+  if (!match) return null
+  
+  const octets = match.slice(1, 5).map(Number)
+  if (octets.some(o => o > 255)) return null
+  
+  const ipLong = ((octets[0] << 24) | (octets[1] << 16) | (octets[2] << 8) | octets[3]) >>> 0
+  const maskLong = cidr === 0 ? 0 : (0xFFFFFFFF << (32 - cidr)) >>> 0
+  const netmask = longToIp(maskLong)
+  
+  const netLong = (ipLong & maskLong) >>> 0
+  const network = longToIp(netLong)
+  
+  const broadLong = (netLong | ~maskLong) >>> 0
+  const broadcast = longToIp(broadLong)
+  
+  return {
+    ip: ipPart,
+    cidr,
+    netmask,
+    network,
+    broadcast
+  }
+}
+
+// --- End of Premium UI/UX Network Interface Features ---
+
+// Toast notifications for premium clipboard interaction
+const showToast = ref(false)
+const lastCopied = ref('')
+let toastTimeout: any = null
+
+function triggerToast(text: string) {
+  lastCopied.value = text
+  showToast.value = true
+  if (toastTimeout) clearTimeout(toastTimeout)
+  toastTimeout = setTimeout(() => {
+    showToast.value = false
+  }, 2000)
+}
+
+function copyToClipboard(text: string) {
+  navigator.clipboard.writeText(text).then(() => {
+    triggerToast(text)
+  }).catch(err => {
+    console.error('Failed to copy text: ', err)
+  })
+}
+
+async function fetchLiveInterfaces() {
+  if (!props.nodeId) return
+  detectingState.value = 'loading'
+  detectingError.value = ''
+  try {
+    const data = await api.readNode(props.nodeId, 'ip')
+    const rawStdout = data.results.map(r => (r.output || r.error || '')).join('\n\n').trim()
+    detectedInterfaces.value = parseIpAddr(rawStdout)
+    detectingState.value = 'success'
+  } catch (err: any) {
+    detectingError.value = String(err.message || err)
+    detectingState.value = 'error'
+  }
+}
+
+function parseIpAddr(stdout: string): DetectedInterface[] {
+  const interfaces: DetectedInterface[] = []
+  let currentIface: DetectedInterface | null = null
+
+  const lines = stdout.split('\n')
+  for (const line of lines) {
+    const trimmed = line.trim()
+    
+    // Match interface start line: e.g. "2: eth0: <BROADCAST,..." or "3: eth0.100@eth0: <..."
+    const ifaceMatch = trimmed.match(/^\d+:\s+([^:@]+)(?:@[^\s:]+)?:\s+<([^>]+)>/)
+    if (ifaceMatch) {
+      if (currentIface) {
+        interfaces.push(currentIface)
+      }
+      const name = ifaceMatch[1]
+      const flags = ifaceMatch[2]
+      let status: 'UP' | 'DOWN' | 'UNKNOWN' = 'UNKNOWN'
+      const stateMatch = trimmed.match(/state\s+(UP|DOWN|UNKNOWN)/i)
+      if (stateMatch) {
+        status = stateMatch[1].toUpperCase() as any
+      }
+      if (status === 'UNKNOWN' && (flags.includes('UP') || flags.includes('LOWER_UP'))) {
+        status = 'UP'
+      }
+
+      currentIface = {
+        name,
+        status,
+        ips: []
+      }
+      continue
+    }
+
+    if (currentIface) {
+      const ipMatch = trimmed.match(/^inet\s+([0-9a-fA-F\.\/:]+)/)
+      if (ipMatch) {
+        currentIface.ips.push(ipMatch[1])
+      } else {
+        const ip6Match = trimmed.match(/^inet6\s+([0-9a-fA-F\.\/:]+)/)
+        if (ip6Match) {
+          currentIface.ips.push(ip6Match[1])
+        }
+      }
+    }
+  }
+
+  if (currentIface) {
+    interfaces.push(currentIface)
+  }
+
+  return interfaces
+}
+
+// 4. Real-time Cyberpunk Network Traffic Monitor & Animated Sparklines
+interface InterfaceTraffic {
+  rxRate: number      // Current RX rate in Bytes/sec
+  txRate: number      // Current TX rate in Bytes/sec
+  rxHistory: number[] // Last 10 data points for RX rate
+  txHistory: number[] // Last 10 data points for TX rate
+  lastRxBytes: number
+  lastTxBytes: number
+  lastTime: number
+}
+
+const liveMonitorActive = ref(false)
+const interfaceTrafficData = ref<Record<string, InterfaceTraffic>>({})
+let monitorInterval: any = null
+
+function parseIpLinkStats(stdout: string): Record<string, { rxBytes: number; txBytes: number }> {
+  const stats: Record<string, { rxBytes: number; txBytes: number }> = {}
+  const lines = stdout.split('\n')
+  
+  let currentIface = ''
+  let expectingRx = false
+  let expectingTx = false
+  
+  for (const line of lines) {
+    const trimmed = line.trim()
+    if (!trimmed) continue
+    
+    // Match interface start line, e.g. "2: eth0: <BROADCAST..." or "3: eth0.100@eth0: <..."
+    const ifaceMatch = trimmed.match(/^\d+:\s+([^:@]+)(?:@[^\s:]+)?:\s+<([^>]+)>/)
+    if (ifaceMatch) {
+      currentIface = ifaceMatch[1]
+      expectingRx = false
+      expectingTx = false
+      continue
+    }
+    
+    if (!currentIface) continue
+    
+    if (trimmed.startsWith('RX:')) {
+      expectingRx = true
+      expectingTx = false
+      continue
+    }
+    
+    if (trimmed.startsWith('TX:')) {
+      expectingTx = true
+      expectingRx = false
+      continue
+    }
+    
+    if (expectingRx) {
+      const tokens = trimmed.split(/\s+/)
+      if (tokens.length >= 1) {
+        const bytes = parseInt(tokens[0], 10)
+        if (!isNaN(bytes)) {
+          if (!stats[currentIface]) stats[currentIface] = { rxBytes: 0, txBytes: 0 }
+          stats[currentIface].rxBytes = bytes
+        }
+      }
+      expectingRx = false
+    } else if (expectingTx) {
+      const tokens = trimmed.split(/\s+/)
+      if (tokens.length >= 1) {
+        const bytes = parseInt(tokens[0], 10)
+        if (!isNaN(bytes)) {
+          if (!stats[currentIface]) stats[currentIface] = { rxBytes: 0, txBytes: 0 }
+          stats[currentIface].txBytes = bytes
+        }
+      }
+      expectingTx = false
+    }
+  }
+  
+  return stats
+}
+
+async function pollTrafficStats() {
+  if (!props.nodeId || !liveMonitorActive.value) return
+  
+  try {
+    const data = await api.readNode(props.nodeId, 'if-stats')
+    const stdout = data.results.map(r => r.output || '').join('\n')
+    
+    const parsedStats = parseIpLinkStats(stdout)
+    const now = Date.now()
+    
+    for (const [ifaceName, stats] of Object.entries(parsedStats)) {
+      if (!interfaceTrafficData.value[ifaceName]) {
+        interfaceTrafficData.value[ifaceName] = {
+          rxRate: 0,
+          txRate: 0,
+          rxHistory: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+          txHistory: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+          lastRxBytes: stats.rxBytes,
+          lastTxBytes: stats.txBytes,
+          lastTime: now
+        }
+      } else {
+        const entry = interfaceTrafficData.value[ifaceName]
+        const elapsed = (now - entry.lastTime) / 1000
+        
+        if (elapsed > 0) {
+          const rxDiff = stats.rxBytes - entry.lastRxBytes
+          const txDiff = stats.txBytes - entry.lastTxBytes
+          
+          const rxRate = rxDiff >= 0 ? rxDiff / elapsed : 0
+          const txRate = txDiff >= 0 ? txDiff / elapsed : 0
+          
+          entry.rxRate = rxRate
+          entry.txRate = txRate
+          
+          entry.rxHistory.push(rxRate)
+          if (entry.rxHistory.length > 10) entry.rxHistory.shift()
+          
+          entry.txHistory.push(txRate)
+          if (entry.txHistory.length > 10) entry.txHistory.shift()
+          
+          entry.lastRxBytes = stats.rxBytes
+          entry.lastTxBytes = stats.txBytes
+          entry.lastTime = now
+        }
+      }
+    }
+  } catch (err) {
+    console.error('Failed to poll traffic statistics:', err)
+  }
+}
+
+function startLiveMonitor() {
+  stopLiveMonitor()
+  pollTrafficStats()
+  monitorInterval = setInterval(pollTrafficStats, 3000)
+}
+
+function stopLiveMonitor() {
+  if (monitorInterval) {
+    clearInterval(monitorInterval)
+    monitorInterval = null
+  }
+}
+
+function toggleLiveMonitor() {
+  liveMonitorActive.value = !liveMonitorActive.value
+  if (liveMonitorActive.value) {
+    startLiveMonitor()
+  } else {
+    stopLiveMonitor()
+  }
+}
+
+function formatRate(bytesPerSec: number): string {
+  if (bytesPerSec === 0) return '0 B/s'
+  const k = 1024
+  const sizes = ['B/s', 'KB/s', 'MB/s', 'GB/s']
+  const i = Math.floor(Math.log(bytesPerSec) / Math.log(k))
+  return `${(bytesPerSec / Math.pow(k, i)).toFixed(1)} ${sizes[i]}`
+}
+
+function getSparklinePath(history: number[] | undefined): string {
+  if (!history || history.length < 2) return 'M 0 14 L 60 14'
+  const maxVal = Math.max(...history, 1024) // base scale at 1KB/s
+  return history.map((val, idx) => {
+    const x = (idx / (history.length - 1)) * 60
+    const y = 14 - (Math.min(val, maxVal) / maxVal) * 12
+    return `${idx === 0 ? 'M' : 'L'} ${x.toFixed(1)} ${y.toFixed(1)}`
+  }).join(' ')
+}
+
+// Watch nodeId changes to clean up or restart the monitor
+watch(() => props.nodeId, () => {
+  interfaceTrafficData.value = {}
+  if (liveMonitorActive.value) {
+    startLiveMonitor()
+  } else {
+    stopLiveMonitor()
+  }
+})
+
+onUnmounted(() => {
+  stopLiveMonitor()
+})
+
+// Initial fetch on mount
+fetchLiveInterfaces()
 </script>
 
 <style scoped>
-.config-panel { display: flex; height: 100%; overflow: hidden; }
-.config-sidebar {
-  width: 180px; min-width: 180px; overflow-y: auto;
-  border-right: 1px solid #30363d; padding: 8px 0;
+/* --- Premium RJ45 Front Panel Styles --- */
+.rj45-panel {
+  background: rgba(13, 20, 38, 0.9);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 14px;
+  margin-bottom: 16px;
+  box-shadow: inset 0 0 15px rgba(0, 229, 255, 0.05);
 }
-.cat-group { margin-bottom: 8px; }
+.rj45-panel-title {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--text);
+  font-family: var(--font-hd);
+  letter-spacing: 0.12em;
+  margin-bottom: 12px;
+  opacity: 0.75;
+}
+.rj45-ports-container {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.rj45-port {
+  position: relative;
+  width: 72px;
+  height: 60px;
+  background: #060913;
+  border: 2px solid #202b46;
+  border-radius: 4px;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  padding-bottom: 4px;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  user-select: none;
+}
+.rj45-port::before {
+  content: '';
+  position: absolute;
+  top: 10px;
+  width: 48px;
+  height: 26px;
+  background: #111827;
+  border: 1px solid #273556;
+  border-radius: 2px;
+  box-shadow: inset 0 2px 5px rgba(0,0,0,0.8);
+}
+.rj45-clip {
+  position: absolute;
+  top: 22px;
+  width: 20px;
+  height: 12px;
+  background: #1e293b;
+  border: 1px solid #334155;
+  border-radius: 1px;
+  z-index: 2;
+}
+.rj45-pins {
+  position: absolute;
+  top: 12px;
+  display: flex;
+  gap: 2px;
+  z-index: 1;
+}
+.rj45-pin {
+  width: 2px;
+  height: 8px;
+  background: #fbbf24; /* Golden pins */
+  opacity: 0.85;
+}
+.rj45-led-indicator {
+  position: absolute;
+  top: 4px;
+  right: 6px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #1e293b;
+  box-shadow: inset 0 1px 2px rgba(0,0,0,0.5);
+  transition: all 0.3s ease;
+}
+.rj45-port.port-up {
+  border-color: rgba(16, 185, 129, 0.4);
+}
+.rj45-port.port-up .rj45-led-indicator {
+  background: #10b981;
+  box-shadow: 0 0 8px #10b981, 0 0 15px rgba(16, 185, 129, 0.6);
+  animation: led-blink 1.5s infinite alternate;
+}
+.rj45-port.port-down {
+  border-color: rgba(249, 115, 22, 0.4);
+}
+.rj45-port.port-down .rj45-led-indicator {
+  background: #f97316;
+  box-shadow: 0 0 6px #f97316;
+}
+.rj45-port:hover {
+  border-color: var(--cyan);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 229, 255, 0.15);
+}
+.rj45-port:hover::before {
+  border-color: var(--cyan);
+}
+.rj45-label {
+  font-size: 9px;
+  font-weight: 600;
+  color: var(--textbr);
+  font-family: var(--font-hd);
+  z-index: 3;
+  margin-top: 18px;
+}
+@keyframes led-blink {
+  0% { opacity: 0.6; }
+  100% { opacity: 1; }
+}
+
+/* --- VLAN/Interfaces Tree Hierarchy Styles --- */
+.live-ref-wrapper {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.live-ref-tree {
+  background: rgba(10, 16, 32, 0.4);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 14px;
+}
+.tree-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--text);
+  font-family: var(--font-hd);
+  letter-spacing: 0.12em;
+  margin-bottom: 12px;
+  opacity: 0.75;
+  border-bottom: 1px solid rgba(0, 229, 255, 0.1);
+  padding-bottom: 6px;
+}
+
+/* --- Premium Live Monitor and Traffic Sparklines --- */
+.btn-live-monitor {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(0, 229, 255, 0.05);
+  border: 1px solid rgba(0, 229, 255, 0.2);
+  border-radius: 4px;
+  padding: 3px 8px;
+  font-size: 9px;
+  font-weight: bold;
+  color: var(--cyan);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  font-family: var(--font-mono, monospace);
+  line-height: 1;
+}
+.btn-live-monitor:hover {
+  background: rgba(0, 229, 255, 0.15);
+  border-color: var(--cyan);
+  box-shadow: 0 0 8px rgba(0, 229, 255, 0.2);
+}
+.btn-live-monitor.monitor-active {
+  background: rgba(16, 185, 129, 0.12);
+  border-color: #10b981;
+  color: #10b981;
+  box-shadow: 0 0 10px rgba(16, 185, 129, 0.2);
+}
+.monitor-dot {
+  width: 6px;
+  height: 6px;
+  background-color: currentColor;
+  border-radius: 50%;
+  transition: all 0.2s ease;
+}
+.btn-live-monitor.monitor-active .monitor-dot {
+  animation: monitor-pulse-green 1.5s infinite;
+}
+
+@keyframes monitor-pulse-green {
+  0% {
+    box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7);
+  }
+  70% {
+    box-shadow: 0 0 0 6px rgba(16, 185, 129, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(16, 185, 129, 0);
+  }
+}
+
+.tree-traffic {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-left: 12px;
+  margin-right: 12px;
+  animation: fade-in-scale 0.25s ease-out;
+}
+.traffic-rates {
+  display: flex;
+  flex-direction: column;
+  font-family: var(--font-mono, monospace);
+  font-size: 8.5px;
+  line-height: 1.2;
+  text-align: right;
+  min-width: 60px;
+}
+.rate-down {
+  color: #00e5ff;
+  text-shadow: 0 0 4px rgba(0, 229, 255, 0.25);
+}
+.rate-up {
+  color: #f43f5e;
+  text-shadow: 0 0 4px rgba(244, 63, 94, 0.25);
+}
+.traffic-sparkline {
+  background: rgba(0, 0, 0, 0.25);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: 3px;
+  overflow: visible;
+  padding: 0;
+}
+.sparkpath-rx {
+  fill: none;
+  stroke: #00e5ff;
+  stroke-width: 1.25;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  filter: drop-shadow(0px 0px 2px rgba(0, 229, 255, 0.5));
+  transition: d 0.3s ease;
+}
+.sparkpath-tx {
+  fill: none;
+  stroke: #f43f5e;
+  stroke-width: 1.25;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  filter: drop-shadow(0px 0px 2px rgba(244, 63, 94, 0.5));
+  transition: d 0.3s ease;
+}
+
+.tree-traffic-loading {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 8.5px;
+  font-family: var(--font-mono, monospace);
+  color: rgba(0, 229, 255, 0.4);
+  margin-left: 12px;
+  margin-right: 12px;
+  animation: fade-in-scale 0.25s ease-out;
+}
+.traffic-dot-pulse {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background-color: var(--cyan);
+  animation: traffic-pulse 1s infinite alternate;
+}
+@keyframes traffic-pulse {
+  0% { opacity: 0.3; transform: scale(0.8); }
+  100% { opacity: 1; transform: scale(1.2); }
+}
+@keyframes fade-in-scale {
+  0% { opacity: 0; transform: scale(0.95); }
+  100% { opacity: 1; transform: scale(1); }
+}
+.tree-node {
+  margin-bottom: 8px;
+}
+.tree-parent-row, .tree-child-row {
+  display: flex;
+  align-items: center;
+  padding: 8px 12px;
+  background: rgba(15, 23, 42, 0.6);
+  border: 1px solid rgba(255,255,255,0.03);
+  border-radius: 4px;
+  margin-bottom: 2px;
+  transition: all 0.15s ease;
+}
+.tree-parent-row:hover, .tree-child-row:hover {
+  background: rgba(15, 23, 42, 0.9);
+  border-color: rgba(0, 229, 255, 0.15);
+}
+.tree-toggle {
+  width: 20px;
+  cursor: pointer;
+  color: var(--cyan);
+  font-size: 10px;
+  display: flex;
+  align-items: center;
+  user-select: none;
+}
+.tree-bullet {
+  color: var(--text);
+  opacity: 0.35;
+}
+.tree-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 140px;
+}
+.tree-branch {
+  font-family: monospace;
+  color: rgba(0, 229, 255, 0.35);
+  margin-right: 8px;
+  font-size: 12px;
+  letter-spacing: -1px;
+}
+.tree-children {
+  padding-left: 20px;
+  margin-top: 2px;
+}
+.tree-ips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  flex-grow: 1;
+  justify-content: flex-end;
+}
+.ref-ip-badge-container {
+  display: inline-flex;
+  align-items: center;
+  background: rgba(0, 229, 255, 0.04);
+  border: 1px solid rgba(0, 229, 255, 0.1);
+  border-radius: 4px;
+  padding: 2px 2px 2px 6px;
+  transition: all 0.2s;
+}
+.ref-ip-badge-container:hover {
+  border-color: rgba(0, 229, 255, 0.3);
+  background: rgba(0, 229, 255, 0.08);
+}
+.ref-ip-badge-container .ref-ip-badge {
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  font-size: 11px;
+}
+.btn-quick-ping {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--cyan);
+  font-size: 10px;
+  padding: 0 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0.65;
+  transition: all 0.2s;
+  height: 14px;
+  width: 14px;
+  margin-left: 4px;
+}
+.btn-quick-ping:hover {
+  opacity: 1;
+  transform: scale(1.2);
+}
+.btn-quick-ping:disabled {
+  cursor: not-allowed;
+}
+.ping-spinner {
+  width: 8px;
+  height: 8px;
+  border: 1px solid var(--cyan);
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: ping-spin 0.6s linear infinite;
+}
+@keyframes ping-spin {
+  to { transform: rotate(360deg); }
+}
+.ping-latency-badge {
+  font-size: 9px;
+  font-weight: 700;
+  padding: 1px 4px;
+  border-radius: 2px;
+  margin-left: 6px;
+  font-family: monospace;
+}
+.ping-latency-badge.ping-success {
+  background: rgba(16, 185, 129, 0.15);
+  color: #10b981;
+  border: 1px solid rgba(16, 185, 129, 0.3);
+  text-shadow: 0 0 6px rgba(16, 185, 129, 0.4);
+}
+.ping-latency-badge.ping-fail {
+  background: rgba(239, 68, 68, 0.15);
+  color: #ef4444;
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  text-shadow: 0 0 6px rgba(239, 68, 68, 0.4);
+}
+
+/* --- Subnet Assistant Styles --- */
+.static-addr-row {
+  margin-bottom: 12px;
+  background: rgba(13, 20, 38, 0.3);
+  border: 1px solid rgba(255,255,255,0.02);
+  border-radius: 6px;
+  padding: 8px 8px 10px 8px;
+}
+.static-addr-row .form-row {
+  margin-bottom: 0;
+}
+.subnet-assistant-card {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px dashed rgba(0, 229, 255, 0.08);
+}
+.subnet-stat {
+  display: flex;
+  flex-direction: column;
+  background: rgba(6, 9, 19, 0.8);
+  border: 1px solid rgba(255, 255, 255, 0.03);
+  border-radius: 4px;
+  padding: 4px 8px;
+}
+.subnet-stat .label {
+  font-size: 8px;
+  text-transform: uppercase;
+  color: var(--text);
+  opacity: 0.6;
+  font-family: var(--font-hd);
+  letter-spacing: 0.08em;
+  margin-bottom: 2px;
+}
+.subnet-stat .value {
+  font-size: 11px;
+  font-weight: 600;
+  font-family: monospace;
+}
+.cyan-glow {
+  color: var(--cyan);
+  text-shadow: 0 0 6px rgba(0, 229, 255, 0.3);
+}
+.yellow-glow {
+  color: var(--yellow);
+  text-shadow: 0 0 6px rgba(255, 190, 11, 0.3);
+}
+.pink-glow {
+  color: var(--pink);
+  text-shadow: 0 0 6px rgba(255, 45, 110, 0.3);
+}
+
+.config-panel { display: flex; height: 100%; overflow: hidden; background: var(--bg2); }
+.config-sidebar {
+  width: 200px; min-width: 200px; overflow-y: auto;
+  border-right: 1px solid var(--border); padding: 12px 0;
+  background: rgba(8, 13, 24, 0.5);
+  backdrop-filter: blur(10px);
+}
+.cat-group { margin-bottom: 12px; }
 .cat-label {
-  padding: 6px 12px; font-size: 11px; font-weight: 600;
-  color: #6e7681; text-transform: uppercase;
+  padding: 8px 16px; font-size: 11px; font-weight: 700;
+  color: var(--text); text-transform: uppercase;
+  font-family: var(--font-hd); letter-spacing: .08em;
   cursor: pointer; display: flex; justify-content: space-between; align-items: center;
   user-select: none; transition: color .2s;
 }
-.cat-label:hover { color: #c9d1d9; }
+.cat-label:hover { color: var(--cyan); text-shadow: 0 0 8px rgba(0, 229, 255, 0.4); }
 .cat-chevron { font-size: 10px; transition: transform .3s; }
 .cat-chevron.collapsed { transform: rotate(180deg); }
+.cat-items { padding: 4px 8px; }
 .type-btn {
-  display: block; width: 100%; padding: 5px 14px; text-align: left;
-  background: none; border: none; color: #8b949e;
-  font-size: 12px; cursor: pointer;
+  display: block; width: 100%; padding: 6px 16px; text-align: left;
+  background: none; border: none; color: var(--textbr);
+  font-size: 12px; cursor: pointer; border-radius: 4px;
+  margin-bottom: 2px; transition: all .2s;
+  font-family: var(--font-ui);
 }
-.type-btn:hover { background: #161b22; color: #c9d1d9; }
-.type-btn.active { background: #1c2128; color: #58a6ff; }
+.type-btn:hover { background: rgba(0, 229, 255, 0.05); color: var(--cyan); }
+.type-btn.active { 
+  background: rgba(0, 229, 255, 0.1); 
+  color: var(--cyan); 
+  border-left: 2px solid var(--cyan);
+  box-shadow: inset 2px 0 8px rgba(0, 229, 255, 0.05);
+}
 
 .config-main { flex: 1; overflow: hidden; display: flex; flex-direction: column; }
-.placeholder { color: #6e7681; font-size: 13px; padding: 24px; }
+.placeholder { 
+  color: var(--text); 
+  font-size: 14px; 
+  padding: 32px; 
+  font-family: var(--font-hd);
+  letter-spacing: 1px;
+}
 .config-editor { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
 .editor-header {
   display: flex; align-items: center; justify-content: space-between;
-  padding: 8px 12px; border-bottom: 1px solid #30363d;
+  padding: 10px 16px; border-bottom: 1px solid var(--border);
+  background: var(--bg3);
 }
-.type-name { font-size: 14px; font-weight: 600; color: #e6edf3; }
+.type-name { 
+  font-size: 14px; font-weight: 700; color: var(--cyan); 
+  font-family: var(--font-hd); letter-spacing: 1px;
+  text-shadow: 0 0 8px rgba(0, 229, 255, 0.3);
+}
 .header-actions { display: flex; gap: 8px; }
 .btn-preview, .btn-apply, .btn-clear-form {
-  padding: 4px 10px; font-size: 12px; border-radius: 4px;
-  cursor: pointer; border: 1px solid #30363d;
+  padding: 5px 12px; font-size: 11px; border-radius: 4px;
+  cursor: pointer; border: 1px solid var(--border);
+  font-family: var(--font-ui); transition: all 0.2s;
 }
-.btn-preview { background: #21262d; color: #c9d1d9; }
-.btn-clear-form { background: #21262d; color: #8b949e; }
-.btn-clear-form:hover { color: #f85149; border-color: rgba(248, 81, 73, 0.4); }
-.btn-apply { background: #238636; color: #fff; border-color: #2ea043; }
-.btn-apply:disabled { opacity: 0.5; cursor: not-allowed; }
+.btn-preview { 
+  background: var(--bg4); color: var(--textbr); 
+}
+.btn-preview:hover {
+  background: var(--border); color: var(--cyan); border-color: var(--cyan);
+  box-shadow: 0 0 10px rgba(0, 229, 255, 0.1);
+}
+.btn-clear-form { 
+  background: var(--bg4); color: var(--text); 
+}
+.btn-clear-form:hover { 
+  color: var(--pink); border-color: var(--pink); 
+  box-shadow: 0 0 10px rgba(255, 45, 110, 0.1);
+}
+.btn-apply { 
+  background: var(--green); color: var(--bg); border-color: var(--green);
+  font-family: var(--font-hd); font-weight: 600; letter-spacing: 0.5px;
+}
+.btn-apply:hover:not(:disabled) { 
+  box-shadow: var(--shadow-g); 
+}
+.btn-apply:disabled { opacity: 0.4; cursor: not-allowed; }
 .persist-toggle {
-  display: flex; align-items: center; gap: 5px;
-  font-size: 11px; color: #8b949e; cursor: pointer;
-  padding: 4px 8px; border: 1px solid #30363d; border-radius: 4px;
-  background: #0d1117; user-select: none;
+  display: flex; align-items: center; gap: 6px;
+  font-size: 11px; color: var(--text); cursor: pointer;
+  padding: 4px 10px; border: 1px solid var(--border); border-radius: 4px;
+  background: var(--bg); user-select: none; transition: all 0.2s;
+  font-family: var(--font-ui);
 }
-.persist-toggle:has(input:checked) { color: #d29922; border-color: #4a3818; background: #1f1500; }
+.persist-toggle:has(input:checked) { 
+  color: var(--yellow); border-color: var(--yellow); 
+  background: rgba(255, 190, 11, 0.05); 
+  box-shadow: 0 0 10px rgba(255, 190, 11, 0.1);
+}
 .persist-toggle input { margin: 0; cursor: pointer; }
 
-.specialized-form {
-  background: #1c2128; padding: 12px; border-radius: 6px;
-  border: 1px solid #30363d; margin-bottom: 8px;
+/* Cyber-Guide Styling */
+.cyber-guide {
+  background: rgba(8, 13, 24, 0.6);
+  border: 1px dashed var(--cyan);
+  border-radius: var(--r);
+  padding: 10px 14px;
+  margin-bottom: 8px;
+  box-shadow: inset 0 0 12px rgba(0, 229, 255, 0.03);
 }
-.form-row { display: flex; gap: 12px; margin-bottom: 10px; }
-.form-row label { flex: 1; display: flex; flex-direction: column; gap: 4px; font-size: 11px; color: #8b949e; }
+.guide-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  cursor: pointer;
+  user-select: none;
+}
+.guide-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.guide-icon {
+  color: var(--cyan);
+  text-shadow: 0 0 8px var(--cyan);
+  animation: pulse-guide 1.5s infinite alternate;
+}
+@keyframes pulse-guide {
+  from { opacity: 0.6; }
+  to { opacity: 1; }
+}
+.guide-text {
+  font-family: var(--font-hd);
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--textwh);
+  letter-spacing: 0.5px;
+}
+.guide-chevron {
+  font-size: 10px;
+  color: var(--text);
+}
+.guide-content {
+  margin-top: 10px;
+  border-top: 1px solid rgba(0, 229, 255, 0.1);
+  padding-top: 10px;
+}
+.guide-desc {
+  font-size: 12px;
+  color: var(--textbr);
+  margin-bottom: 12px;
+  line-height: 1.5;
+}
+.guide-grid {
+  display: flex;
+  gap: 20px;
+}
+.guide-column {
+  flex: 1;
+}
+.column-title {
+  font-family: var(--font-hd);
+  font-size: 10px;
+  color: var(--cyan);
+  margin-bottom: 6px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.guide-column ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+.guide-column li {
+  font-size: 11px;
+  color: var(--text);
+  margin-bottom: 4px;
+  line-height: 1.4;
+  position: relative;
+  padding-left: 12px;
+}
+.guide-column li::before {
+  content: '▸';
+  position: absolute;
+  left: 0;
+  color: var(--cyan);
+}
+.guide-column li code {
+  background: var(--bg);
+  color: var(--yellow);
+  padding: 1px 4px;
+  border-radius: 3px;
+  font-family: var(--font-co);
+}
+
+.specialized-form {
+  background: var(--bg3); padding: 16px; border-radius: var(--r2);
+  border: 1px solid var(--border); margin-bottom: 8px;
+}
+.form-row { display: flex; gap: 12px; margin-bottom: 12px; }
+.form-row label { flex: 1; display: flex; flex-direction: column; gap: 6px; font-size: 11px; color: var(--text); }
 .form-row input, .form-row select {
-  background: #0d1117; border: 1px solid #30363d; border-radius: 4px;
-  color: #e6edf3; padding: 5px 8px; font-size: 12px;
+  background: var(--bg); border: 1px solid var(--border); border-radius: 4px;
+  color: var(--textwh); padding: 6px 10px; font-size: 12px; outline: none;
+  transition: all 0.2s;
+}
+.form-row input:focus, .form-row select:focus {
+  border-color: var(--cyan);
+  box-shadow: var(--shadow-c);
 }
 .btn-sync {
-  width: 100%; padding: 4px; font-size: 11px; background: #21262d;
-  border: 1px solid #30363d; border-radius: 4px; color: #8b949e; cursor: pointer;
+  width: 100%; padding: 6px; font-size: 11px; background: var(--bg4);
+  border: 1px solid var(--border); border-radius: 4px; color: var(--textbr); cursor: pointer;
+  font-family: var(--font-ui); transition: all 0.2s;
 }
-.btn-sync:hover { background: #30363d; color: #c9d1d9; }
+.btn-sync:hover { background: var(--border); color: var(--cyan); border-color: var(--cyan); }
 
 .section-label-sub {
-  font-size: 10px; font-weight: 600; color: #484f58;
-  text-transform: uppercase; margin: 12px 0 6px;
-  border-bottom: 1px solid #21262d; padding-bottom: 2px;
+  font-size: 10px; font-weight: 700; color: var(--text);
+  text-transform: uppercase; margin: 16px 0 8px;
+  border-bottom: 1px solid var(--border); padding-bottom: 4px;
+  font-family: var(--font-hd); letter-spacing: 0.5px;
 }
 .warning-box {
-  background: #331c00; border: 1px solid #d29922; border-radius: 6px;
-  padding: 10px; color: #d29922; font-size: 12px; margin-bottom: 10px;
+  background: rgba(255, 190, 11, 0.05); border: 1px solid var(--yellow); border-radius: 6px;
+  padding: 10px 14px; color: var(--yellow); font-size: 12px; margin-bottom: 12px;
+  box-shadow: 0 0 10px rgba(255, 190, 11, 0.05);
 }
 
-.multi-row { align-items: flex-end; border-bottom: 1px solid #30363d; padding-bottom: 10px; }
+.multi-row { align-items: flex-end; border-bottom: 1px dashed var(--border); padding-bottom: 12px; }
 .btn-remove {
-  background: none; border: none; color: #f85149; cursor: pointer;
-  padding: 5px; font-size: 14px; margin-bottom: 3px;
+  background: none; border: none; color: var(--pink); cursor: pointer;
+  padding: 6px; font-size: 14px; margin-bottom: 2px; transition: color 0.15s;
 }
-.btn-remove:hover { color: #ff7b72; }
-.form-actions { display: flex; align-items: center; gap: 16px; margin-top: 10px; }
+.btn-remove:hover { color: #ff5e97; }
+.form-actions { display: flex; align-items: center; gap: 16px; margin-top: 12px; }
 .btn-add-sub {
-  background: #21262d; border: 1px solid #30363d; color: #c9d1d9;
-  padding: 4px 10px; border-radius: 4px; font-size: 11px; cursor: pointer;
+  background: var(--bg4); border: 1px solid var(--border); color: var(--textbr);
+  padding: 5px 12px; border-radius: 4px; font-size: 11px; cursor: pointer;
+  transition: all 0.2s; font-family: var(--font-ui);
 }
-.btn-add-sub:hover { background: #30363d; }
-.check-label { display: flex; align-items: center; gap: 6px; font-size: 12px; color: #8b949e; cursor: pointer; flex: 1; }
+.btn-add-sub:hover { background: var(--border); color: var(--cyan); border-color: var(--cyan); }
+.check-label { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--textbr); cursor: pointer; flex: 1; user-select: none; }
 .fw-rule {
-  background: #0d1117; border: 1px solid #30363d; border-radius: 6px;
-  padding: 8px 10px; margin-bottom: 8px;
+  background: var(--bg); border: 1px solid var(--border); border-radius: var(--r);
+  padding: 10px 12px; margin-bottom: 10px;
 }
-.fw-rule .form-row { margin-bottom: 6px; }
+.fw-rule .form-row { margin-bottom: 8px; }
 .fw-rule .form-row:last-child { margin-bottom: 0; }
-.hint { font-size: 11px; color: #6e7681; margin-top: 6px; font-style: italic; }
+.hint { font-size: 11px; color: var(--text); margin-top: 6px; font-style: italic; }
 
-.editor-body { flex: 1; overflow-y: auto; padding: 12px; display: flex; flex-direction: column; gap: 16px; }
+.editor-body { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 20px; }
 .section-label { 
-  font-size: 11px; font-weight: 600; color: #6e7681; 
-  text-transform: uppercase; margin-bottom: 6px; 
+  font-size: 11px; font-weight: 700; color: var(--textbr); 
+  text-transform: uppercase; margin-bottom: 8px; 
   display: flex; justify-content: space-between; align-items: center;
+  font-family: var(--font-hd); letter-spacing: 0.5px;
 }
 .btn-clear-results {
-  background: none; border: 1px solid #30363d; color: #6e7681;
-  font-size: 10px; padding: 1px 6px; border-radius: 3px; cursor: pointer;
+  background: var(--bg4); border: 1px solid var(--border); color: var(--text);
+  font-size: 10px; padding: 2px 8px; border-radius: 3px; cursor: pointer;
+  transition: all 0.2s; font-family: var(--font-ui);
 }
-.btn-clear-results:hover { color: #f85149; border-color: #f85149; }
-.auto-label { font-weight: 400; text-transform: none; color: #484f58; }
+.btn-clear-results:hover { color: var(--pink); border-color: var(--pink); box-shadow: 0 0 8px rgba(255, 45, 110, 0.1); }
+.auto-label { font-weight: 400; text-transform: none; color: var(--text); }
 .json-textarea {
-  width: 100%; height: 120px; background: #0d1117; border: 1px solid #30363d;
-  border-radius: 6px; color: #c9d1d9; font-family: monospace; font-size: 12px;
-  padding: 8px; resize: vertical;
+  width: 100%; height: 120px; background: var(--bg); border: 1px solid var(--border);
+  border-radius: 6px; color: var(--textwh); font-family: var(--font-co); font-size: 12px;
+  padding: 10px; resize: vertical; outline: none; transition: border-color 0.2s;
 }
+.json-textarea:focus { border-color: var(--cyan); box-shadow: var(--shadow-c); }
+
 .preview-pre {
-  background: #161b22; padding: 10px; border-radius: 6px;
-  font-family: monospace; font-size: 12px; color: #d29922;
-  white-space: pre-wrap; margin: 0;
+  background: var(--bg); padding: 14px; border-radius: var(--r);
+  font-family: var(--font-co); font-size: 12px; color: var(--textbr);
+  white-space: pre-wrap; margin: 0; border: 1px solid var(--border);
+  line-height: 1.5;
 }
-.preview-error { color: #f85149; font-size: 12px; margin-bottom: 8px; }
 
-.result-block { margin-bottom: 8px; }
-.result-cmd { font-family: monospace; font-size: 11px; color: #58a6ff; margin-bottom: 2px; }
+/* Shell highlighter styles */
+:deep(.shell-str) { color: var(--yellow); }
+:deep(.shell-heredoc) { color: var(--pink); font-weight: 600; text-shadow: 0 0 6px rgba(255, 45, 110, 0.3); }
+:deep(.shell-cmd) { color: var(--cyan); font-weight: 600; text-shadow: 0 0 4px rgba(0, 229, 255, 0.3); }
+:deep(.shell-ip) { color: var(--green); }
+:deep(.shell-comment) { color: var(--text); font-style: italic; }
+
+.preview-error { color: var(--pink); font-size: 12px; margin-bottom: 8px; }
+
+/* Premium Terminal Result Cards */
+.result-card {
+  border-radius: var(--r);
+  border: 1px solid var(--border);
+  background: var(--bg);
+  margin-bottom: 12px;
+  overflow: hidden;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+  transition: all 0.25s ease;
+}
+.result-card.card-ok {
+  border-left: 3px solid var(--green);
+}
+.result-card.card-err {
+  border-left: 3px solid var(--pink);
+}
+.result-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  background: var(--bg3);
+  cursor: pointer;
+  user-select: none;
+  gap: 12px;
+}
+.result-card-header:hover {
+  background: rgba(24, 33, 53, 0.4);
+}
+.result-status-indicator {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 140px;
+}
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+.card-ok .status-dot {
+  background: var(--green);
+  box-shadow: 0 0 8px var(--green);
+}
+.card-err .status-dot {
+  background: var(--pink);
+  box-shadow: 0 0 8px var(--pink);
+}
+.status-label {
+  font-family: var(--font-hd);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+}
+.card-ok .status-label { color: var(--green); }
+.card-err .status-label { color: var(--pink); }
+
+.result-cmd-preview {
+  flex: 1;
+  font-family: var(--font-co);
+  font-size: 11px;
+  color: var(--textwh);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  opacity: 0.85;
+}
+.card-chevron {
+  font-size: 10px;
+  color: var(--text);
+}
+.result-card-body {
+  padding: 12px;
+  border-top: 1px solid var(--border);
+  background: var(--bg2);
+}
 .result-out, .result-err {
-  padding: 6px 8px; font-family: monospace; font-size: 11px;
-  border-radius: 4px; white-space: pre-wrap;
+  padding: 10px 12px; font-family: var(--font-co); font-size: 11px;
+  border-radius: 4px; white-space: pre-wrap; margin: 0; line-height: 1.5;
 }
-.result-out { background: #0d1117; color: #c9d1d9; }
-.result-err { background: #1a0a0a; color: #f85149; }
+.result-out { background: var(--bg); color: var(--textbr); border: 1px solid var(--border); }
+.result-err { background: rgba(255, 45, 110, 0.05); color: var(--pink); border: 1px solid rgba(255, 45, 110, 0.15); margin-top: 8px; }
 
-.result-fix { margin-top: 6px; }
+.result-fix { 
+  margin-top: 12px; 
+  padding: 10px 14px; 
+  background: rgba(255, 45, 110, 0.03); 
+  border: 1px dashed var(--pink); 
+  border-radius: var(--r); 
+}
+.fix-alert {
+  font-size: 11px;
+  color: var(--pink);
+  margin-bottom: 8px;
+  font-family: var(--font-hd);
+  letter-spacing: 0.5px;
+}
 .btn-fix-inline {
-    padding: 4px 12px; background: none; border: 1px solid var(--green);
+    padding: 6px 14px; background: none; border: 1px solid var(--green);
     color: var(--green); border-radius: 4px; font-size: 10px;
     font-family: var(--font-hd); cursor: pointer; transition: all 0.2s;
+    letter-spacing: 0.5px;
 }
 .btn-fix-inline:hover:not(:disabled) { background: var(--green); color: var(--bg); box-shadow: var(--shadow-g); }
 .btn-fix-inline:disabled { opacity: 0.5; cursor: wait; }
+
+/* Transitions */
+.list-enter-active,
+.list-leave-active {
+  transition: all 0.25s ease;
+}
+.list-enter-from,
+.list-leave-to {
+  opacity: 0;
+  transform: translateX(-15px);
+}
+
+/* Live Telemetry Reference Panel */
+.live-ref-panel {
+  background: rgba(8, 13, 24, 0.45);
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  margin-bottom: 12px;
+  overflow: hidden;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
+  transition: all 0.25s ease;
+}
+.live-ref-panel:hover {
+  border-color: rgba(0, 229, 255, 0.35);
+  box-shadow: 0 4px 24px rgba(0, 229, 255, 0.05);
+}
+.live-ref-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 14px;
+  background: rgba(16, 26, 44, 0.6);
+  cursor: pointer;
+  user-select: none;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+}
+.live-ref-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.live-ref-icon {
+  font-size: 14px;
+  transition: transform 0.3s ease;
+}
+.live-ref-icon.spinning {
+  display: inline-block;
+  animation: spin-ref 1.5s linear infinite;
+}
+@keyframes spin-ref {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+.live-ref-text {
+  font-family: var(--font-hd);
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--textwh);
+  letter-spacing: 0.8px;
+}
+.live-ref-status-badge {
+  font-size: 9px;
+  font-family: var(--font-hd);
+  font-weight: 600;
+  padding: 2px 6px;
+  border-radius: 3px;
+  letter-spacing: 0.5px;
+}
+.live-ref-status-badge.scanning {
+  background: rgba(255, 190, 11, 0.1);
+  color: var(--yellow);
+  border: 1px solid rgba(255, 190, 11, 0.25);
+  box-shadow: 0 0 8px rgba(255, 190, 11, 0.08);
+}
+.live-ref-status-badge.connected {
+  background: rgba(0, 229, 255, 0.1);
+  color: var(--cyan);
+  border: 1px solid rgba(0, 229, 255, 0.25);
+  box-shadow: 0 0 8px rgba(0, 229, 255, 0.08);
+}
+.live-ref-status-badge.offline {
+  background: rgba(255, 45, 110, 0.1);
+  color: var(--pink);
+  border: 1px solid rgba(255, 45, 110, 0.25);
+  box-shadow: 0 0 8px rgba(255, 45, 110, 0.08);
+}
+.live-ref-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.btn-ref-refresh {
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+}
+.btn-ref-refresh:hover {
+  background: rgba(255, 255, 255, 0.05);
+  transform: rotate(45deg);
+}
+.live-ref-content {
+  padding: 14px;
+  background: rgba(8, 13, 24, 0.2);
+}
+.live-ref-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 20px 0;
+  color: var(--textbr);
+  font-size: 12px;
+  font-family: var(--font-ui);
+}
+.cyber-pulse-loader {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--cyan);
+  box-shadow: 0 0 10px var(--cyan);
+  animation: pulse-loader 1s ease-in-out infinite alternate;
+}
+@keyframes pulse-loader {
+  from { transform: scale(0.6); opacity: 0.4; }
+  to { transform: scale(1.1); opacity: 1; }
+}
+.live-ref-error {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  background: rgba(255, 45, 110, 0.04);
+  border: 1px dashed rgba(255, 45, 110, 0.25);
+  border-radius: 4px;
+}
+.err-icon {
+  font-size: 20px;
+}
+.err-details {
+  flex: 1;
+}
+.err-title {
+  font-family: var(--font-hd);
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--pink);
+  margin-bottom: 2px;
+}
+.err-msg {
+  font-family: var(--font-co);
+  font-size: 10px;
+  color: var(--textbr);
+  word-break: break-all;
+}
+.btn-ref-retry {
+  padding: 5px 12px;
+  background: rgba(255, 45, 110, 0.1);
+  border: 1px solid var(--pink);
+  color: var(--pink);
+  border-radius: 4px;
+  font-size: 10px;
+  font-family: var(--font-hd);
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.btn-ref-retry:hover {
+  background: var(--pink);
+  color: var(--bg);
+  box-shadow: 0 0 12px rgba(255, 45, 110, 0.3);
+}
+.live-ref-empty {
+  text-align: center;
+  padding: 16px 0;
+  color: var(--textbr);
+  font-size: 12px;
+  font-family: var(--font-ui);
+}
+.live-ref-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.live-ref-card {
+  background: rgba(16, 26, 44, 0.4);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  transition: all 0.2s;
+}
+.live-ref-card:hover {
+  background: rgba(16, 26, 44, 0.7);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.15);
+}
+.live-ref-card.iface-up {
+  border-left: 2px solid var(--green);
+}
+.live-ref-card.iface-down {
+  border-left: 2px solid var(--pink);
+}
+.ref-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.ref-iface-name {
+  font-family: var(--font-hd);
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--textwh);
+  cursor: pointer;
+  transition: color 0.15s;
+}
+.ref-iface-name:hover {
+  color: var(--cyan);
+  text-shadow: 0 0 8px rgba(0, 229, 255, 0.4);
+}
+.ref-iface-status {
+  font-size: 8px;
+  font-family: var(--font-hd);
+  font-weight: 600;
+  padding: 1px 4px;
+  border-radius: 2px;
+}
+.ref-iface-status.up {
+  background: rgba(106, 190, 48, 0.15);
+  color: var(--green);
+}
+.ref-iface-status.down {
+  background: rgba(255, 45, 110, 0.15);
+  color: var(--pink);
+}
+.ref-iface-status.unknown {
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--textbr);
+}
+.ref-card-ips {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.ref-no-ips {
+  font-size: 10px;
+  color: var(--text);
+  font-style: italic;
+}
+.ref-ip-badge {
+  background: rgba(0, 229, 255, 0.04);
+  border: 1px solid rgba(0, 229, 255, 0.1);
+  border-radius: 3px;
+  padding: 2px 6px;
+  font-family: var(--font-co);
+  font-size: 10px;
+  color: var(--cyan);
+  cursor: pointer;
+  transition: all 0.15s;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: inline-block;
+  max-width: 100%;
+}
+.ref-ip-badge:hover {
+  background: rgba(0, 229, 255, 0.15);
+  border-color: var(--cyan);
+  color: var(--textwh);
+  box-shadow: 0 0 8px rgba(0, 229, 255, 0.2);
+}
+.live-ref-footer {
+  font-size: 10px;
+  color: var(--text);
+  border-top: 1px solid rgba(255, 255, 255, 0.03);
+  padding-top: 8px;
+  margin-top: 8px;
+}
+.tip-highlight {
+  color: var(--cyan);
+  font-weight: 600;
+}
+
+/* Glowing Cyber Toast Notification */
+.cyber-toast {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  z-index: 9999;
+  background: rgba(8, 13, 24, 0.9);
+  border: 1px solid var(--green);
+  box-shadow: 0 0 20px rgba(106, 190, 48, 0.25), inset 0 0 10px rgba(106, 190, 48, 0.1);
+  border-radius: 4px;
+  padding: 10px 16px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  backdrop-filter: blur(10px);
+  min-width: 260px;
+  max-width: 380px;
+}
+.toast-glow {
+  position: absolute;
+  top: 0; left: 0; right: 0; bottom: 0;
+  border-radius: 4px;
+  box-shadow: 0 0 30px rgba(106, 190, 48, 0.1);
+  pointer-events: none;
+}
+.toast-icon {
+  font-size: 16px;
+  color: var(--green);
+  animation: pulse-toast 1s ease-in-out infinite alternate;
+}
+@keyframes pulse-toast {
+  from { opacity: 0.6; filter: drop-shadow(0 0 1px var(--green)); }
+  to { opacity: 1; filter: drop-shadow(0 0 6px var(--green)); }
+}
+.toast-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.toast-label {
+  font-family: var(--font-hd);
+  font-size: 9px;
+  font-weight: 700;
+  color: var(--text);
+  letter-spacing: 0.8px;
+}
+.toast-val {
+  font-family: var(--font-co);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--textwh);
+  word-break: break-all;
+}
+
+/* Toast Transition */
+.toast-enter-active {
+  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.toast-leave-active {
+  transition: all 0.25s cubic-bezier(0.7, 0, 0.84, 0);
+}
+.toast-enter-from {
+  opacity: 0;
+  transform: translateY(20px) scale(0.95);
+}
+.toast-leave-to {
+  opacity: 0;
+  transform: translateY(-10px) scale(0.95);
+}
+/* VLAN Helper & Cyber Select Styles */
+.vlan-helper-box {
+  background: rgba(0, 229, 255, 0.02);
+  border: 1px dashed rgba(0, 229, 255, 0.3);
+  border-radius: 6px;
+  padding: 12px;
+  margin-top: 16px;
+  box-shadow: inset 0 0 10px rgba(0, 229, 255, 0.02);
+}
+.vlan-helper-box .helper-title {
+  font-family: var(--font-hd);
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--cyan);
+  text-shadow: 0 0 8px rgba(0, 229, 255, 0.3);
+  margin-bottom: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.vlan-helper-box .helper-desc {
+  font-size: 11px;
+  color: var(--text);
+  margin-bottom: 12px;
+  line-height: 1.4;
+}
+.cyber-select {
+  background: var(--bg) !important;
+  border: 1px solid var(--border) !important;
+  border-radius: 4px !important;
+  color: var(--textwh) !important;
+  padding: 6px 10px !important;
+  font-size: 12px !important;
+  outline: none !important;
+  transition: all 0.2s !important;
+}
+.cyber-select:focus {
+  border-color: var(--cyan) !important;
+  box-shadow: var(--shadow-c) !important;
+}
 </style>

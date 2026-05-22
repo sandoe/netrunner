@@ -59,7 +59,7 @@ async def _node_public(nid: str, node: dict) -> dict:
 async def _get_node_with_creds(nid: str, nodes: dict) -> dict:
     node = dict(nodes[nid])
     username, password = await load_credentials(nid)
-    node["username"] = username
+    node["username"] = username or "root"
     node["password"] = password
     return node
 
@@ -755,7 +755,7 @@ async def api_node_install_tool(nid: str, body: dict):
         if err: return ""
         return res[0].get("output", "") if res else ""
 
-    mgr = detect_package_manager(_run)
+    mgr = await detect_package_manager(_run)
     
     commands = []
     if mgr == "apt":

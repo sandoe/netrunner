@@ -33,6 +33,9 @@ def _safe_name(value: str, fallback: str = "config") -> str:
 
 def gen_ip(iface: str, addrs: list[str], action: str = "add") -> list[str]:
     cmds = []
+    for a in addrs:
+        if a.strip() and '/' not in a:
+            cmds.append(f"# WARNING: Address '{a}' has no CIDR prefix (e.g. /24). This may fail.")
     if action == "flush":
         cmds.append(f"ip addr flush dev {iface}")
         for a in addrs:
@@ -52,6 +55,16 @@ def gen_interface(cfg: dict) -> list[str]:
     iface = (cfg.get("interface") or "eth0").strip() or "eth0"
     cmds = [f"# ── Interface Setup: {iface} ──────────────────────────"]
     
+    # Auto-create VLAN sub-interface if "." is in the name (e.g. eth0.100)
+    if "." in iface:
+        parts = iface.split(".", 1)
+        if len(parts) == 2 and parts[1].isdigit():
+            parent, vid = parts[0], parts[1]
+            cmds.append(f"modprobe 8021q 2>/dev/null || true")
+            cmds.append(f"ip link set {parent} up")
+            cmds.append(f"ip link add link {parent} name {iface} type vlan id {vid} 2>/dev/null || true")
+            cmds.append(f"ip link set {iface} up")
+    
     # Static IPs
     addrs = _split_csvish(cfg.get("addresses"))
     if addrs:
@@ -62,8 +75,15 @@ def gen_interface(cfg: dict) -> list[str]:
     if cfg.get("dhcp"):
         cmds.extend(gen_dhcp(iface, "renew"))
     
-    if not addrs and not cfg.get("dhcp"):
+    # Explicit link state override or default up
+    state = cfg.get("state")
+    if state == "up":
         cmds.append(f"ip link set {iface} up")
+    elif state == "down":
+        cmds.append(f"ip link set {iface} down")
+    elif not state or state == "none":
+        if not addrs and not cfg.get("dhcp"):
+            cmds.append(f"ip link set {iface} up")
         
     return cmds
 

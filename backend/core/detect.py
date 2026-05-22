@@ -49,7 +49,7 @@ def detect_device_type(host: str, port: int, username: str = "root", password: s
     return "unknown"
 
 
-def detect_package_manager(run_fn) -> str:
+async def detect_package_manager(run_fn) -> str:
     """Detect package manager by running probe commands via a callable."""
     for cmd, mgr in [
         ("command -v apt-get", "apt"),
@@ -60,7 +60,7 @@ def detect_package_manager(run_fn) -> str:
         ("command -v zypper", "zypper"),
     ]:
         try:
-            out = run_fn(cmd)
+            out = await run_fn(cmd)
             if out and out.strip() and "not found" not in out:
                 return mgr
         except Exception:

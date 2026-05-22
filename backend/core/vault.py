@@ -64,14 +64,14 @@ async def load_credentials(node_id: str) -> Tuple[str, str]:
     if not entry.get("encrypted"):
         try:
             blob = json.loads(entry["data"])
-            return blob.get("username", "root"), blob.get("password", "")
+            return blob.get("username") or "root", blob.get("password") or ""
         except:
             return "root", ""
 
     try:
         f = _fernet()
         blob = json.loads(f.decrypt(entry["data"].encode()))
-        return blob.get("username", "root"), blob.get("password", "")
+        return blob.get("username") or "root", blob.get("password") or ""
     except Exception:
         return "root", ""
 

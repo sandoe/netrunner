@@ -260,7 +260,7 @@ class SessionManager:
         # Use a thread for the blocking connection part
         def _do_connect():
             if transport == "ssh":
-                cl = SshClient(node["host"], node["port"], node.get("username", "root"), node.get("password", ""))
+                cl = SshClient(node["host"], node["port"], node.get("username") or "root", node.get("password", ""))
                 try:
                     cl.connect()
                     return cl, None
