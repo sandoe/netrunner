@@ -534,6 +534,39 @@
 
             <!-- Standard creation/update inputs -->
             <div v-if="wireguardForm.action !== 'delete'" class="wg-form-body">
+              <div class="wg-profile-panel">
+                <div class="wg-profile-header">
+                  <div>
+                    <div class="wg-profile-title">Saved WireGuard Profile</div>
+                    <div class="wg-profile-subtitle">Save the editable form, load it later, or hydrate it from the node's live config.</div>
+                  </div>
+                  <button
+                    type="button"
+                    class="btn-wg-node-load"
+                    :disabled="wgLoadingFromNode"
+                    @click="loadWireguardFromNode"
+                  >
+                    {{ wgLoadingFromNode ? 'Loading...' : 'Load from node' }}
+                  </button>
+                </div>
+                <div class="wg-profile-grid">
+                  <label>Profile Name <input v-model="wgProfileName" placeholder="e.g. edge-router wg0" /></label>
+                  <label>Load Saved Profile
+                    <select v-model="wgSelectedProfileId" class="action-select">
+                      <option value="">Select saved profile...</option>
+                      <option v-for="profile in currentWgProfiles" :key="profile.id" :value="profile.id">
+                        {{ profile.name }} — {{ profile.interface }}
+                      </option>
+                    </select>
+                  </label>
+                  <div class="wg-profile-actions">
+                    <button type="button" class="btn-wg-profile-save" @click="saveWireguardProfile">Save profile</button>
+                    <button type="button" class="btn-wg-profile-load" :disabled="!wgSelectedProfileId" @click="loadWireguardProfile">Load selected</button>
+                    <button type="button" class="btn-wg-profile-delete" :disabled="!wgSelectedProfileId" @click="deleteWireguardProfile">Delete</button>
+                  </div>
+                </div>
+              </div>
+
               <div class="form-row">
                 <label>Interface <input v-model="wireguardForm.interface" placeholder="wg0" /></label>
                 <label>Address <input v-model="wireguardForm.address" placeholder="10.0.0.1/24" /></label>
@@ -1624,6 +1657,9 @@ const generatedPublicKey = ref('')
 const hidePrivateKey = ref(true)
 const wgAdvancedExpanded = ref(false)
 const generatingKeys = ref(false)
+const wgLoadingFromNode = ref(false)
+const wgProfileName = ref('')
+const wgSelectedProfileId = ref('')
 
 interface WireguardKeyItem {
   id: string
@@ -1634,8 +1670,196 @@ interface WireguardKeyItem {
   hidePrivate?: boolean
 }
 
+interface WireguardProfile {
+  id: string
+  nodeId: string
+  name: string
+  interface: string
+  updatedAt: string
+  data: ReturnType<typeof defaultWireguardForm>
+  publicKey?: string
+}
+
 const keyHistory = ref<WireguardKeyItem[]>([])
 const wgHistoryExpanded = ref(false)
+const wgProfiles = ref<WireguardProfile[]>([])
+const currentWgProfiles = computed(() => wgProfiles.value.filter(p => p.nodeId === props.nodeId))
+
+function cloneWireguardForm(): ReturnType<typeof defaultWireguardForm> {
+  return JSON.parse(JSON.stringify(wireguardForm.value))
+}
+
+function normalizeWireguardForm(data: any): ReturnType<typeof defaultWireguardForm> {
+  const defaults = defaultWireguardForm()
+  const peers = Array.isArray(data?.peers) && data.peers.length
+    ? data.peers.map((peer: any) => ({
+        public_key: peer.public_key || peer.PublicKey || '',
+        preshared_key: peer.preshared_key || peer.PresharedKey || '',
+        endpoint: peer.endpoint || peer.Endpoint || '',
+        allowed_ips: Array.isArray(peer.allowed_ips) ? peer.allowed_ips.join(', ') : (peer.allowed_ips || peer.AllowedIPs || ''),
+        persistent_keepalive: peer.persistent_keepalive || peer.PersistentKeepalive || ''
+      }))
+    : defaults.peers
+
+  return {
+    ...defaults,
+    ...data,
+    address: data?.address || (Array.isArray(data?.addresses) ? data.addresses[0] : defaults.address),
+    listen_port: Number(data?.listen_port || data?.ListenPort || defaults.listen_port),
+    peers
+  }
+}
+
+function loadWgProfiles() {
+  try {
+    const raw = localStorage.getItem('nr_wg_profiles_v1')
+    wgProfiles.value = raw ? JSON.parse(raw) : []
+  } catch (e) {
+    console.error('Failed to load WireGuard profiles:', e)
+    wgProfiles.value = []
+  }
+}
+
+function saveWgProfiles() {
+  try {
+    localStorage.setItem('nr_wg_profiles_v1', JSON.stringify(wgProfiles.value))
+  } catch (e) {
+    console.error('Failed to save WireGuard profiles:', e)
+  }
+}
+
+function saveWireguardProfile() {
+  const now = new Date().toISOString()
+  const iface = wireguardForm.value.interface || 'wg0'
+  const name = (wgProfileName.value || `${props.nodeId} ${iface}`).trim()
+  const data = cloneWireguardForm()
+  const existing = wgProfiles.value.find(p => p.id === wgSelectedProfileId.value)
+
+  if (existing) {
+    existing.name = name
+    existing.interface = iface
+    existing.updatedAt = now
+    existing.data = data
+    existing.publicKey = generatedPublicKey.value
+  } else {
+    const profile: WireguardProfile = {
+      id: `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      nodeId: props.nodeId,
+      name,
+      interface: iface,
+      updatedAt: now,
+      data,
+      publicKey: generatedPublicKey.value
+    }
+    wgProfiles.value.unshift(profile)
+    wgSelectedProfileId.value = profile.id
+  }
+
+  wgProfileName.value = name
+  saveWgProfiles()
+}
+
+function loadWireguardProfile() {
+  const profile = wgProfiles.value.find(p => p.id === wgSelectedProfileId.value)
+  if (!profile) return
+  wireguardForm.value = normalizeWireguardForm(profile.data)
+  generatedPublicKey.value = profile.publicKey || ''
+  wgProfileName.value = profile.name
+  syncWireguardForm()
+}
+
+function deleteWireguardProfile() {
+  const profile = wgProfiles.value.find(p => p.id === wgSelectedProfileId.value)
+  if (!profile) return
+  if (!confirm(`Delete saved WireGuard profile "${profile.name}"?`)) return
+  wgProfiles.value = wgProfiles.value.filter(p => p.id !== profile.id)
+  wgSelectedProfileId.value = ''
+  wgProfileName.value = ''
+  saveWgProfiles()
+}
+
+function parseWireguardConfig(conf: string, iface: string): ReturnType<typeof defaultWireguardForm> {
+  const parsed = defaultWireguardForm()
+  parsed.interface = iface
+  parsed.peers = []
+
+  let section = ''
+  let currentPeer: any = null
+
+  for (const rawLine of conf.split(/\r?\n/)) {
+    const line = rawLine.trim()
+    if (!line || line.startsWith('#')) continue
+
+    if (/^\[interface\]$/i.test(line)) {
+      section = 'interface'
+      currentPeer = null
+      continue
+    }
+    if (/^\[peer\]$/i.test(line)) {
+      section = 'peer'
+      currentPeer = { public_key: '', preshared_key: '', endpoint: '', allowed_ips: '', persistent_keepalive: '' }
+      parsed.peers.push(currentPeer)
+      continue
+    }
+
+    const idx = line.indexOf('=')
+    if (idx === -1) continue
+    const key = line.slice(0, idx).trim().toLowerCase()
+    const value = line.slice(idx + 1).trim()
+
+    if (section === 'interface') {
+      if (key === 'privatekey') parsed.private_key = value
+      else if (key === 'address') parsed.address = value
+      else if (key === 'listenport') parsed.listen_port = Number(value) || parsed.listen_port
+      else if (key === 'dns') parsed.dns = value
+      else if (key === 'mtu') parsed.mtu = value
+      else if (key === 'postup') parsed.post_up = value
+      else if (key === 'postdown') parsed.post_down = value
+    } else if (section === 'peer' && currentPeer) {
+      if (key === 'publickey') currentPeer.public_key = value
+      else if (key === 'presharedkey') currentPeer.preshared_key = value
+      else if (key === 'endpoint') currentPeer.endpoint = value
+      else if (key === 'allowedips') currentPeer.allowed_ips = value
+      else if (key === 'persistentkeepalive') currentPeer.persistent_keepalive = Number(value) || value
+    }
+  }
+
+  if (!parsed.peers.length) parsed.peers = defaultWireguardForm().peers
+  return parsed
+}
+
+function safeWireguardInterfaceName(value: string): string {
+  const iface = (value || 'wg0').trim()
+  if (!/^wg[a-zA-Z0-9_.-]*$/.test(iface)) {
+    throw new Error('WireGuard interface must start with "wg" and contain only letters, numbers, underscore, dot, or dash.')
+  }
+  return iface
+}
+
+async function loadWireguardFromNode() {
+  wgLoadingFromNode.value = true
+  try {
+    const iface = safeWireguardInterfaceName(wireguardForm.value.interface)
+    const res = await api.executeNode(props.nodeId, [
+      `cat /etc/wireguard/${iface}.conf 2>/dev/null || echo "__NR_WG_CONF_NOT_FOUND__"`,
+      `cat /etc/wireguard/publickey 2>/dev/null || true`
+    ])
+    const conf = res.results?.[0]?.output || ''
+    if (!conf.trim() || conf.includes('__NR_WG_CONF_NOT_FOUND__')) {
+      alert(`No WireGuard config found at /etc/wireguard/${iface}.conf`)
+      return
+    }
+
+    wireguardForm.value = parseWireguardConfig(conf, iface)
+    generatedPublicKey.value = (res.results?.[1]?.output || '').trim()
+    wgProfileName.value = `${props.nodeId} ${iface}`
+    syncWireguardForm()
+  } catch (e: any) {
+    alert(`Failed to load WireGuard config from node: ${e.message || e}`)
+  } finally {
+    wgLoadingFromNode.value = false
+  }
+}
 
 function loadKeyHistory() {
   try {
@@ -1691,6 +1915,7 @@ function loadKeyIntoForm(item: WireguardKeyItem) {
 
 // Initial load
 loadKeyHistory()
+loadWgProfiles()
 const forwardingForm  = ref(defaultForwardingForm())
 const serviceForm     = ref(defaultServiceForm())
 const packageForm     = ref(defaultPackageForm())
@@ -3872,6 +4097,96 @@ fetchLiveInterfaces()
   flex-direction: column;
   gap: 16px;
 }
+.wg-profile-panel {
+  background: rgba(0, 229, 255, 0.035);
+  border: 1px solid rgba(0, 229, 255, 0.16);
+  border-left: 3px solid var(--cyan);
+  border-radius: 4px;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.wg-profile-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.wg-profile-title {
+  font-family: var(--font-hd);
+  font-size: 11px;
+  font-weight: 800;
+  color: var(--cyan);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.wg-profile-subtitle {
+  color: var(--text);
+  font-size: 11px;
+  margin-top: 3px;
+  opacity: 0.78;
+}
+.wg-profile-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr auto;
+  align-items: flex-end;
+  gap: 10px;
+}
+.wg-profile-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.btn-wg-node-load,
+.btn-wg-profile-save,
+.btn-wg-profile-load,
+.btn-wg-profile-delete {
+  border-radius: 4px;
+  font-family: var(--font-hd);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  cursor: pointer;
+  padding: 7px 10px;
+  text-transform: uppercase;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+}
+.btn-wg-node-load,
+.btn-wg-profile-load {
+  background: rgba(0, 229, 255, 0.08);
+  border: 1px solid rgba(0, 229, 255, 0.35);
+  color: var(--cyan);
+}
+.btn-wg-profile-save {
+  background: rgba(0, 255, 157, 0.08);
+  border: 1px solid rgba(0, 255, 157, 0.35);
+  color: var(--green);
+}
+.btn-wg-profile-delete {
+  background: rgba(255, 45, 110, 0.06);
+  border: 1px solid rgba(255, 45, 110, 0.28);
+  color: var(--pink);
+}
+.btn-wg-node-load:hover:not(:disabled),
+.btn-wg-profile-load:hover:not(:disabled) {
+  background: var(--cyan);
+  color: var(--bg);
+}
+.btn-wg-profile-save:hover:not(:disabled) {
+  background: var(--green);
+  color: var(--bg);
+}
+.btn-wg-profile-delete:hover:not(:disabled) {
+  background: rgba(255, 45, 110, 0.22);
+}
+.btn-wg-node-load:disabled,
+.btn-wg-profile-load:disabled,
+.btn-wg-profile-delete:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
 .key-gen-row {
   display: grid;
   grid-template-columns: 1fr auto;
@@ -4289,5 +4604,16 @@ fetchLiveInterfaces()
 .highlight-wg {
   color: #ff2e63;
   text-shadow: 0 0 6px rgba(255, 46, 99, 0.4);
+}
+
+@media (max-width: 900px) {
+  .wg-profile-header,
+  .wg-profile-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .wg-profile-grid {
+    grid-template-columns: 1fr;
+  }
 }
 </style>
