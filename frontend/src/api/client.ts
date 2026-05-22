@@ -141,7 +141,7 @@ export const api = {
 
   // Preview
   preview: (type: string, data: unknown) => req<{ commands: string[] }>('POST', '/preview', { type, data }),
-  generateWireguardKeys: () => req<{ private_key: string; public_key: string }>('GET', '/wireguard/generate-keys'),
+  generateWireguardKeys: () => req<{ private_key: string; public_key: string }>('GET', `/wireguard/generate-keys?_=${Date.now()}`),
 
   // Configs
   listConfigs: () => req<SavedConfig[]>('GET', '/configs'),

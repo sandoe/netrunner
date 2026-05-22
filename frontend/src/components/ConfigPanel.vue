@@ -635,15 +635,15 @@
 
               <!-- Key History Collapsible Toggle -->
               <div class="wg-advanced-toggle wg-history-toggle" @click="wgHistoryExpanded = !wgHistoryExpanded">
-                <span class="advanced-toggle-title">🔑 Key History / Nøglering ({{ keyHistory.length }})</span>
+                <span class="advanced-toggle-title">🔑 Key History / Nøglering ({{ currentKeyHistory.length }})</span>
                 <span class="guide-chevron">{{ wgHistoryExpanded ? '▲' : '▼' }}</span>
               </div>
 
               <!-- Key History List -->
               <div v-if="wgHistoryExpanded" class="wg-history-fields">
-                <div v-if="!keyHistory.length" class="no-keys-message">Ingen genererede nøgler i historikken.</div>
+                <div v-if="!currentKeyHistory.length" class="no-keys-message">Ingen genererede nøgler for denne node.</div>
                 <div v-else class="wg-history-list">
-                  <div v-for="item in keyHistory" :key="item.id" class="history-item-card">
+                  <div v-for="item in currentKeyHistory" :key="item.id" class="history-item-card">
                     <div class="history-item-header">
                       <span class="history-item-label">{{ item.label }}</span>
                       <span class="history-item-date">{{ item.timestamp }}</span>
@@ -1663,6 +1663,8 @@ const wgSelectedProfileId = ref('')
 
 interface WireguardKeyItem {
   id: string
+  nodeId: string
+  interface: string
   timestamp: string
   privateKey: string
   publicKey: string
@@ -1684,6 +1686,7 @@ const keyHistory = ref<WireguardKeyItem[]>([])
 const wgHistoryExpanded = ref(false)
 const wgProfiles = ref<WireguardProfile[]>([])
 const currentWgProfiles = computed(() => wgProfiles.value.filter(p => p.nodeId === props.nodeId))
+const currentKeyHistory = computed(() => keyHistory.value.filter(k => k.nodeId === props.nodeId))
 
 function cloneWireguardForm(): ReturnType<typeof defaultWireguardForm> {
   return JSON.parse(JSON.stringify(wireguardForm.value))
@@ -1867,6 +1870,8 @@ function loadKeyHistory() {
     if (raw) {
       keyHistory.value = JSON.parse(raw).map((item: any) => ({
         ...item,
+        nodeId: item.nodeId || '',
+        interface: item.interface || 'wg0',
         hidePrivate: item.hidePrivate !== false
       }))
     }
@@ -1886,13 +1891,16 @@ function saveKeyHistory() {
 function addKeyToHistory(privateKey: string, publicKey: string) {
   const now = new Date()
   const timestamp = now.toLocaleString('da-DK', { hour12: false })
+  const iface = wireguardForm.value.interface || 'wg0'
   
   const newItem: WireguardKeyItem = {
     id: Math.random().toString(36).substring(2, 9),
+    nodeId: props.nodeId,
+    interface: iface,
     timestamp,
     privateKey,
     publicKey,
-    label: `Key for ${wireguardForm.value.interface || 'wg0'}`,
+    label: `Key for ${props.nodeId} ${iface}`,
     hidePrivate: true
   }
   
@@ -2357,6 +2365,10 @@ watch(() => props.nodeId, () => {
   ufwForm.value         = defaultUfwForm()
   nftablesForm.value    = defaultNftablesForm()
   persistMode.value     = false
+  generatedPublicKey.value = ''
+  wgProfileName.value = ''
+  wgSelectedProfileId.value = ''
+  wgHistoryExpanded.value = false
   directFileContent.value = ''
   directFileBackup.value  = false
   
