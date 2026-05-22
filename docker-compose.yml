@@ -1,0 +1,15 @@
+version: '3.8'
+
+services:
+  netrunner:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: netrunner-platform
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data:/app/data
+    environment:
+      - DATABASE_URL=sqlite+aiosqlite:///app/data/netrunner.db
+    restart: unless-stopped
