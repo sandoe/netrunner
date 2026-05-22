@@ -7,6 +7,7 @@ import re
 import shlex
 import time
 import zipfile
+from collections import Counter
 from datetime import datetime
 from pathlib import Path
 
@@ -514,6 +515,77 @@ async def api_capture_download(nid: str, cap_id: str):
     fname = f"{_safe_name(cap_id)}.pcap"
     (local_dir / fname).write_bytes(raw)
     return FileResponse(local_dir / fname, filename=fname, media_type="application/octet-stream")
+
+
+@router.get("/nodes/{nid}/capture/{cap_id}/analyze")
+async def api_capture_analyze(nid: str, cap_id: str):
+    nodes = await load_nodes()
+    if nid not in nodes:
+        raise HTTPException(404, "Not found")
+        
+    local_dir = _capture_local_dir(nid)
+    fname = f"{_safe_name(cap_id)}.pcap"
+    pcap_path = local_dir / fname
+    
+    # Auto-download if not present locally
+    if not pcap_path.exists():
+        meta = _captures.get(f"{nid}:{cap_id}")
+        if not meta:
+            raise HTTPException(404, "Capture not found and not downloaded locally")
+        paths = meta["paths"]
+        dl_script = (
+            f"if [ ! -f {shlex.quote(paths['pcap'])} ]; then echo __MISSING__; "
+            f"else base64 {shlex.quote(paths['pcap'])} 2>/dev/null || busybox base64 {shlex.quote(paths['pcap'])}; fi"
+        )
+        node = await _get_node_with_creds(nid, nodes)
+        results, err = await session_manager.run(nid, node, [f"sh -lc {shlex.quote(dl_script)}"])
+        if err:
+            raise HTTPException(500, err)
+        output = (results[0].get("output") or "").strip() if results else ""
+        if "__MISSING__" in output:
+            raise HTTPException(404, "Remote capture file not found")
+        try:
+            raw = base64.b64decode("".join(output.splitlines()))
+            pcap_path.write_bytes(raw)
+        except Exception as e:
+            raise HTTPException(500, f"Failed to decode capture: {e}")
+
+    try:
+        from scapy.all import rdpcap, IP, TCP, UDP, ICMP, DNS
+        import asyncio
+        # rdpcap is synchronous and blocking, wrap in to_thread
+        packets = await asyncio.to_thread(rdpcap, str(pcap_path))
+    except Exception as e:
+        raise HTTPException(500, f"Failed to parse pcap via scapy: {e}")
+
+    src_ips = Counter()
+    dst_ips = Counter()
+    protocols = Counter()
+    
+    for pkt in packets:
+        if IP in pkt:
+            src_ips[pkt[IP].src] += 1
+            dst_ips[pkt[IP].dst] += 1
+            if TCP in pkt:
+                protocols["TCP"] += 1
+            elif UDP in pkt:
+                if DNS in pkt:
+                    protocols["DNS"] += 1
+                else:
+                    protocols["UDP"] += 1
+            elif ICMP in pkt:
+                protocols["ICMP"] += 1
+            else:
+                protocols["Other IP"] += 1
+        else:
+            protocols["Non-IP"] += 1
+
+    return {
+        "total_packets": len(packets),
+        "top_sources": [{"ip": k, "count": v} for k, v in src_ips.most_common(5)],
+        "top_destinations": [{"ip": k, "count": v} for k, v in dst_ips.most_common(5)],
+        "protocols": [{"name": k, "count": v} for k, v in protocols.items()]
+    }
 
 
 # ---------------------------------------------------------------------------

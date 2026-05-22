@@ -18,6 +18,17 @@
           </div>
         </div>
 
+        <div class="section-title">CYBER THREAT INTELLIGENCE (CTI)</div>
+        <div class="form-group">
+          <label>ALIENVAULT OTX API KEY</label>
+          <div class="input-with-hint">
+            <input v-model="alienvaultKey" type="password" placeholder="Enter API Key to disable Demo Mode" class="form-input" />
+            <div class="hint" v-if="currentAlienvaultMasked">
+              Current: <span class="masked-text">{{ currentAlienvaultMasked }}</span>
+            </div>
+          </div>
+        </div>
+
         <div class="section-title">GNS3 INTEGRATION</div>
         <div class="form-group">
           <label>SERVER URL</label>
@@ -105,6 +116,8 @@ const emit = defineEmits(['close', 'saved'])
 const apiKey = ref('')
 const gns3Url = ref('http://127.0.0.1:3080')
 const currentKeyMasked = ref('')
+const alienvaultKey = ref('')
+const currentAlienvaultMasked = ref('')
 const saving = ref(false)
 const restarting = ref(false)
 const hasChanges = ref(false)
@@ -149,6 +162,7 @@ async function load() {
   try {
     const res = await api.getSettings()
     if (res.openai_api_key_set) currentKeyMasked.value = res.masked_key
+    if (res.alienvault_api_key_set) currentAlienvaultMasked.value = res.masked_alienvault_key
     if (res.gns3_server_url) gns3Url.value = res.gns3_server_url
     
     if (res.database_url) {
@@ -216,6 +230,7 @@ async function save() {
         database_url: computedDbUrl.value 
     }
     if (apiKey.value) payload.openai_api_key = apiKey.value
+    if (alienvaultKey.value) payload.alienvault_api_key = alienvaultKey.value
     await api.updateSettings(payload)
     hasChanges.value = true
     emit('saved')

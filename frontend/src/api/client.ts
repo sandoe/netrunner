@@ -3,15 +3,32 @@ import type { NrNode, NrLink, CommandResult, SavedConfig, CaptureMeta } from '@/
 const BASE = '/api'
 
 async function req<T>(method: string, path: string, body?: unknown): Promise<T> {
-  const opts: RequestInit = { method, headers: { 'Content-Type': 'application/json' } }
-  if (body !== undefined) opts.body = JSON.stringify(body)
-  const res = await fetch(BASE + path, opts)
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+  const token = localStorage.getItem('nr_token')
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`
+  }
+
+  const res = await fetch(BASE + path, {
+    method,
+    headers,
+    body: body ? JSON.stringify(body) : undefined
+  })
+  if (res.status === 401 || res.status === 403) {
+    localStorage.removeItem('nr_token')
+    localStorage.removeItem('nr_role')
+    window.dispatchEvent(new Event('auth-expired'))
+    throw new Error('Unauthorized')
+  }
   const data = await res.json().catch(() => ({}))
   if (!res.ok) throw new Error(data.detail || data.error || `HTTP ${res.status}`)
   return data as T
 }
 
 export const api = {
+  // Auth
+  login: (creds: any) => req<any>('POST', '/auth/login', creds),
+
   // Nodes
   listNodes: () => req<Record<string, NrNode>>('GET', '/nodes'),
   createNode: (n: Partial<NrNode> & { password?: string }) => req<NrNode>('POST', '/nodes', n),
@@ -21,6 +38,15 @@ export const api = {
   disconnectNode: (id: string) => req<{ ok: boolean }>('POST', `/nodes/${id}/disconnect`),
   listConnections: () => req<Record<string, { connected: boolean }>>('GET', '/nodes/connections'),
   detectDevice: (id: string) => req<{ device_type: string }>('POST', `/nodes/${id}/detect`),
+  defenseScan: (id: string) => req<{ output: string }>('POST', `/nodes/${id}/defense/scan`),
+  isolateNode: (id: string, action: 'isolate' | 'restore') => 
+    req<{ status: string }>('POST', `/nodes/${id}/defense/isolate`, { action }),
+  enforceZeroTrust: (id: string) => 
+    req<{ status: string, message: string }>('POST', `/nodes/${id}/defense/zero-trust`),
+  installMonitoring: (id: string) =>
+    req<{ status: string, message: string }>('POST', `/nodes/${id}/monitoring/install`),
+  removeMonitoring: (id: string) =>
+    req<{ status: string, message: string }>('POST', `/nodes/${id}/monitoring/remove`),
 
   // Links
   listLinks: () => req<NrLink[]>('GET', '/links'),
@@ -41,6 +67,8 @@ export const api = {
   getSettings: () => req<{ 
     openai_api_key_set: boolean; 
     masked_key: string; 
+    alienvault_api_key_set: boolean;
+    masked_alienvault_key: string;
     gns3_server_url: string;
     database_url: string;
   }>('GET', '/settings'),
@@ -85,6 +113,27 @@ export const api = {
     req<{ ok: boolean }>('DELETE', `/nodes/${id}/capture/${capId}`),
   captureDownloadUrl: (id: string, capId: string) =>
     `${BASE}/nodes/${id}/capture/${capId}/download`,
+  captureAnalyze: async (id: string, capId: string) => {
+    const r = await fetch(`${BASE}/nodes/${id}/capture/${capId}/analyze`)
+    if (!r.ok) {
+      const err = await r.json().catch(() => ({}))
+      throw new Error(err.detail || 'Analyze failed')
+    }
+    return r.json()
+  },
+
+  // System
+  systemState: () => req<{ autopilot: boolean, chaos: boolean }>('GET', '/system/state'),
+  updateSystemState: (body: { autopilot?: boolean, chaos?: boolean }) => req<{ autopilot: boolean, chaos: boolean }>('POST', '/system/state', body),
+  systemLogs: () => req<{ logs: any[] }>('GET', '/system/logs'),
+  triggerAttack: (body: {
+    node_id: string
+    attack_type: string
+    attacker_ip: string
+    username?: string
+    port?: number
+    path_query?: string
+  }) => req<{ status: string; message: string; real_file_write: boolean }>('POST', '/chaos/attack', body),
 
   // Preview
   preview: (type: string, data: unknown) => req<{ commands: string[] }>('POST', '/preview', { type, data }),

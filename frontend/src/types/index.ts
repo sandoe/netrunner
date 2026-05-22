@@ -9,6 +9,7 @@ export interface NrNode {
   has_password: boolean
   created: string
   tags: string[]
+  threat_monitoring?: boolean
 }
 
 export interface NrLink {

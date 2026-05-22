@@ -81,11 +81,15 @@
           </div>
           <div class="cap-row-actions">
             <button v-if="cap.state === 'running'" @click="stop(cap.id)" class="btn-row btn-stop" :disabled="busy[cap.id]">STOP</button>
+            <button v-if="cap.state === 'stopped' && cap.size" @click="analyze(cap.id)" class="btn-row btn-analyze" :disabled="busy[cap.id]">
+              {{ dpiLoading[cap.id] ? 'ANALYZING...' : 'ANALYZE (DPI)' }}
+            </button>
             <a v-if="cap.size" :href="downloadUrl(cap.id)" :download="cap.id + '.pcap'" class="btn-row btn-dl">DOWNLOAD</a>
             <button @click="del(cap.id)" class="btn-row btn-del" :disabled="busy[cap.id]">✕</button>
           </div>
         </div>
-        <pre v-if="cap.tail" class="cap-tail">{{ cap.tail }}</pre>
+        <DpiDashboard v-if="dpiResults[cap.id]" :data="dpiResults[cap.id]" />
+        <pre v-if="cap.tail && !dpiResults[cap.id]" class="cap-tail">{{ cap.tail }}</pre>
       </div>
     </div>
   </div>
@@ -95,6 +99,7 @@
 import { ref, reactive, watch, onMounted, onUnmounted } from 'vue'
 import { api } from '@/api/client'
 import type { CaptureMeta } from '@/types'
+import DpiDashboard from './DpiDashboard.vue'
 
 type CaptureRow = CaptureMeta & { state?: 'running' | 'stopped'; size?: number; tail?: string }
 
@@ -103,6 +108,8 @@ const props = defineProps<{ nodeId: string }>()
 const form = reactive({ interface: 'eth0', filter: '', packet_limit: 0, id: '' })
 const captures  = ref<CaptureRow[]>([])
 const busy      = reactive<Record<string, boolean>>({})
+const dpiLoading = reactive<Record<string, boolean>>({})
+const dpiResults = reactive<Record<string, any>>({})
 const starting  = ref(false)
 const loading   = ref(false)
 const error     = ref('')
@@ -237,9 +244,23 @@ async function del(capId: string) {
   }
 }
 
+async function analyze(capId: string) {
+  dpiLoading[capId] = true
+  error.value = ''
+  try {
+    const res = await api.captureAnalyze(props.nodeId, capId)
+    dpiResults[capId] = res
+  } catch (e) {
+    error.value = String(e)
+  } finally {
+    dpiLoading[capId] = false
+  }
+}
+
 watch(() => props.nodeId, () => {
   captures.value = []
   error.value    = ''
+  for (const k in dpiResults) delete dpiResults[k]
   if (pollTimer) { clearInterval(pollTimer); pollTimer = null }
   refresh()
 })
@@ -328,11 +349,14 @@ onUnmounted(() => { if (pollTimer) clearInterval(pollTimer) })
   padding: 6px 12px; font-family: var(--font-hd); font-size: 8px; letter-spacing: 1px; border-radius: 4px;
   background: var(--bg3); border: 1px solid var(--border); color: var(--textwh); cursor: pointer; text-decoration: none;
 }
-.btn-row:hover { border-color: var(--cyan); color: var(--cyan); }
+.btn-row:hover:not(:disabled) { border-color: var(--cyan); color: var(--cyan); }
+.btn-row:disabled { opacity: 0.5; cursor: not-allowed; }
 .btn-stop { border-color: var(--yellow); color: var(--yellow); }
-.btn-stop:hover { background: rgba(255, 190, 11, 0.1); }
+.btn-stop:hover:not(:disabled) { background: rgba(255, 190, 11, 0.1); }
+.btn-analyze { border-color: var(--green); color: var(--green); }
+.btn-analyze:hover:not(:disabled) { background: rgba(0, 255, 157, 0.1); box-shadow: 0 0 10px rgba(0, 255, 157, 0.2); }
 .btn-del { border-color: var(--pink); color: var(--pink); }
-.btn-del:hover { background: rgba(255, 45, 110, 0.1); }
+.btn-del:hover:not(:disabled) { background: rgba(255, 45, 110, 0.1); }
 
 .cap-tail {
   margin-top: 12px; padding: 10px; background: var(--bg); border: 1px solid var(--border); border-radius: 4px;

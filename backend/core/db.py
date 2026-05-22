@@ -8,7 +8,7 @@ from typing import Any, Optional
 
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
-from sqlalchemy import String, Integer, Text, Boolean, ForeignKey, select, delete
+from sqlalchemy import String, Integer, Text, Boolean, ForeignKey, select, delete, text
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -40,6 +40,8 @@ class NodeModel(Base):
     created: Mapped[Optional[str]] = mapped_column(String(50))
     tags: Mapped[Optional[str]] = mapped_column(Text)  # JSON list
     metadata_json: Mapped[Optional[str]] = mapped_column("metadata", Text)  # JSON dict
+    threat_monitoring: Mapped[Optional[bool]] = mapped_column(Boolean, default=False)
+
 
 
 class LinkModel(Base):
@@ -67,6 +69,19 @@ class VaultModel(Base):
 async def init_db():
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        
+    # Dynamically adapt table to add threat_monitoring if it doesn't exist
+    async with engine.connect() as conn:
+        try:
+            # Check if column exists by querying it
+            await conn.execute(select(NodeModel.threat_monitoring).limit(1))
+        except Exception:
+            # If query fails, the column doesn't exist in the SQLite database.
+            # Add the column dynamically using ALTER TABLE
+            print("[DB] threat_monitoring column not found. Running SQLite table migration...")
+            await conn.execute(text("ALTER TABLE nodes ADD COLUMN threat_monitoring BOOLEAN DEFAULT 0"))
+            await conn.commit()
+            print("[DB] SQLite table migration completed successfully.")
 
 
 async def get_db():
@@ -91,7 +106,8 @@ async def load_nodes_db() -> dict:
                 "device_type": row.device_type,
                 "created": row.created,
                 "tags": json.loads(row.tags) if row.tags else [],
-                "metadata": json.loads(row.metadata_json) if row.metadata_json else {}
+                "metadata": json.loads(row.metadata_json) if row.metadata_json else {},
+                "threat_monitoring": bool(row.threat_monitoring)
             }
             nodes[row.id] = n
         return nodes
@@ -109,7 +125,8 @@ async def save_node_db(node: dict):
             device_type=node.get("device_type", "unknown"),
             created=node.get("created"),
             tags=json.dumps(node.get("tags", [])),
-            metadata_json=json.dumps(node.get("metadata", {}))
+            metadata_json=json.dumps(node.get("metadata", {})),
+            threat_monitoring=node.get("threat_monitoring", False)
         )
         await session.merge(n)
         await session.commit()
