@@ -12,7 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from .routers import ai, configs, gns3, links, nodes, preview, terminal, settings
+from .routers import ai, configs, gns3, links, nodes, preview, terminal, settings, threats, defense, system, chaos, auth
 from .routers.settings import load_settings
 from .core.db import init_db
 
@@ -34,7 +34,19 @@ async def lifespan(app: FastAPI):
     if s.get("openai_api_key"):
         os.environ["OPENAI_API_KEY"] = s["openai_api_key"]
 
+    # Start background tasks for threats and chaos explicitly since lifespan bypasses on_event("startup")
+    import asyncio
+    from .routers import threats, chaos
+    threats._threat_task = asyncio.create_task(threats.broadcast_threats())
+    chaos._chaos_task = asyncio.create_task(chaos.chaos_loop())
+
     yield
+    # Cleanup background tasks
+    if threats._threat_task:
+        threats._threat_task.cancel()
+    if chaos._chaos_task:
+        chaos._chaos_task.cancel()
+
     from .core.session import session_manager
     session_manager.close_all()
 
@@ -55,12 +67,27 @@ app.include_router(ai.router,       prefix="/api")
 app.include_router(settings.router, prefix="/api")
 app.include_router(configs.router,  prefix="/api")
 app.include_router(preview.router,  prefix="/api")
+app.include_router(defense.router,  prefix="/api")
+app.include_router(threats.router)
+app.include_router(system.router,   prefix="/api")
+app.include_router(chaos.router,    prefix="/api")
+app.include_router(auth.router,     prefix="/api")
 app.include_router(terminal.router)
+
+class NoCacheStaticFiles(StaticFiles):
+    def is_not_modified(self, response_headers, request_headers) -> bool:
+        return False
+    def file_response(self, *args, **kwargs):
+        resp = super().file_response(*args, **kwargs)
+        resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+        resp.headers["Pragma"] = "no-cache"
+        resp.headers["Expires"] = "0"
+        return resp
 
 if FRONTEND_DIST.exists():
     assets = FRONTEND_DIST / "assets"
     if assets.exists():
-        app.mount("/assets", StaticFiles(directory=assets), name="assets")
+        app.mount("/assets", NoCacheStaticFiles(directory=assets), name="assets")
 
     @app.get("/", include_in_schema=False)
     @app.get("/{full_path:path}", include_in_schema=False)
@@ -69,7 +96,13 @@ if FRONTEND_DIST.exists():
         if full_path.startswith(("api/", "ws/")):
             from fastapi import HTTPException
             raise HTTPException(404)
-        return FileResponse(FRONTEND_DIST / "index.html")
+        
+        from fastapi.responses import FileResponse
+        resp = FileResponse(FRONTEND_DIST / "index.html")
+        resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+        resp.headers["Pragma"] = "no-cache"
+        resp.headers["Expires"] = "0"
+        return resp
 else:
     @app.get("/", include_in_schema=False)
     async def root():

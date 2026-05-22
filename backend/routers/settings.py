@@ -13,6 +13,7 @@ router = APIRouter()
 
 class Settings(BaseModel):
     openai_api_key: str = ""
+    alienvault_api_key: str = ""
     gns3_server_url: str = "http://127.0.0.1"
     gns3_local_projects_path: str = "/home/aso/GNS3/projects"
 
@@ -30,11 +31,16 @@ async def get_settings():
     key = s.get("openai_api_key", "")
     masked = f"{key[:8]}..." if len(key) > 8 else key
     
+    otx_key = s.get("alienvault_api_key", "")
+    masked_otx = f"{otx_key[:8]}..." if len(otx_key) > 8 else otx_key
+    
     from ..core.db import DATABASE_URL
     
     return {
         "openai_api_key_set": bool(key), 
         "masked_key": masked,
+        "alienvault_api_key_set": bool(otx_key),
+        "masked_alienvault_key": masked_otx,
         "gns3_server_url": s.get("gns3_server_url", "http://127.0.0.1:3080"),
         "database_url": DATABASE_URL
     }
@@ -46,6 +52,10 @@ async def update_settings(settings: dict):
         s["openai_api_key"] = settings["openai_api_key"]
         await save_setting_db("openai_api_key", settings["openai_api_key"])
         os.environ["OPENAI_API_KEY"] = settings["openai_api_key"]
+        
+    if "alienvault_api_key" in settings:
+        s["alienvault_api_key"] = settings["alienvault_api_key"]
+        await save_setting_db("alienvault_api_key", settings["alienvault_api_key"])
     
     if "gns3_server_url" in settings:
         s["gns3_server_url"] = settings["gns3_server_url"]

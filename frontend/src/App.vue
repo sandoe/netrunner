@@ -1,5 +1,6 @@
 <template>
-  <div class="app">
+  <LoginView v-if="!loggedIn" @authenticated="onAuthenticated" />
+  <div v-else class="app">
     <div class="scanline"></div>
     <!-- Sidebar -->
     <aside class="sidebar">
@@ -25,18 +26,12 @@
         </div>
       </div>
 
-      <div class="sidebar-nav">
-        <button 
-          class="btn-nav" 
-          :class="{ active: viewMode === 'node' }" 
-          @click="viewMode = 'node'"
-        >NODES</button>
-        <button 
-          class="btn-nav" 
-          :class="{ active: viewMode === 'topology' }" 
-          @click="viewMode = 'topology'"
-        >TOPOLOGY</button>
-      </div>
+      <nav class="nav-menu">
+        <button :class="{ active: viewMode === 'node' }" @click="viewMode = 'node'">NODES</button>
+        <button :class="{ active: viewMode === 'topology' }" @click="viewMode = 'topology'">TOPOLOGY</button>
+        <button :class="{ active: viewMode === 'threat' }" @click="viewMode = 'threat'">THREAT MAP</button>
+        <button class="btn-warroom" :class="{ active: viewMode === 'warroom' }" @click="viewMode = 'warroom'">🚨 WAR ROOM</button>
+      </nav>
 
       <div v-if="store.loading" class="sidebar-info">SCANNING NEURAL LINK...</div>
       <div v-if="store.error" class="sidebar-error">{{ store.error }}</div>
@@ -85,59 +80,74 @@
 
     <!-- Main content -->
     <main class="main">
-      <TopologyView v-if="viewMode === 'topology'" />
-      
-      <div v-else-if="!store.selected" class="welcome">
-        <div class="welcome-inner">
-          <div class="welcome-logo">NETRUNNER</div>
-          <div class="welcome-sub">AWAITING NEURAL CONNECTION...</div>
+      <!-- Background Layer -->
+      <div class="main-bg" :class="{ 'is-topology': viewMode === 'topology', 'is-threat': viewMode === 'threat' }">
+        <TopologyView v-if="viewMode === 'topology'" />
+        <ThreatMap v-else-if="viewMode === 'threat'" />
+        <WarRoomDashboard 
+          v-else-if="viewMode === 'warroom'" 
+          :autopilotActive="systemState.autopilot"
+          :chaosActive="systemState.chaos"
+          @toggle-autopilot="toggleAutopilot"
+          @toggle-chaos="toggleChaos"
+        />
+        
+        <div v-else-if="!store.selected" class="welcome">
+          <div class="welcome-inner">
+            <div class="welcome-logo">NETRUNNER</div>
+            <div class="welcome-sub">AWAITING NEURAL CONNECTION...</div>
+          </div>
         </div>
       </div>
 
-      <template v-else>
-        <!-- Node header bar -->
-        <div class="node-header">
-          <div class="node-title">
-            <div class="node-dot-lg" :class="{ connected: store.isConnected(store.selected.id) }"></div>
-            <div>
-              <div class="node-title-name">{{ store.selected.name }}</div>
-              <div class="node-title-sub">
-                {{ store.selected.host }}:{{ store.selected.port }} · {{ store.selected.transport }}
-                <span class="device-badge" :class="store.selected.device_type">{{ store.selected.device_type }}</span>
+      <!-- Foreground Layer: Glass Panel -->
+      <transition name="slide-panel">
+        <div v-if="store.selected && viewMode === 'node'" class="glass-panel" :class="{ 'is-overlay': viewMode === 'topology' }">
+          <!-- Node header bar -->
+          <div class="node-header">
+            <div class="node-title">
+              <div class="node-dot-lg" :class="{ connected: store.isConnected(store.selected.id) }"></div>
+              <div>
+                <div class="node-title-name">{{ store.selected.name }}</div>
+                <div class="node-title-sub">
+                  {{ store.selected.host }}:{{ store.selected.port }} · {{ store.selected.transport }}
+                  <span class="device-badge" :class="store.selected.device_type">{{ store.selected.device_type }}</span>
+                </div>
               </div>
             </div>
+            <div class="header-actions">
+              <button v-if="!store.isConnected(store.selected.id)" @click="doConnect" class="btn-action" :disabled="connBusy">CONNECT</button>
+              <button v-else @click="doDisconnect" class="btn-action" :disabled="connBusy">DISCONNECT</button>
+              <button @click="detectType" class="btn-action">DETECT</button>
+              <button @click="doBackup"   class="btn-action">BACKUP</button>
+              <button @click="doRollback" class="btn-action">ROLLBACK</button>
+              <button v-if="userRole === 'admin'" @click="deleteNode" class="btn-action btn-danger">NUKE CONFIG</button>
+            </div>
           </div>
-          <div class="header-actions">
-            <button v-if="!store.isConnected(store.selected.id)" @click="doConnect" class="btn-action" :disabled="connBusy">CONNECT</button>
-            <button v-else @click="doDisconnect" class="btn-action" :disabled="connBusy">DISCONNECT</button>
-            <button @click="detectType" class="btn-action">DETECT</button>
-            <button @click="doBackup"   class="btn-action">BACKUP</button>
-            <button @click="doRollback" class="btn-action">ROLLBACK</button>
-            <button @click="deleteNode" class="btn-action btn-danger">NUKE CONFIG</button>
+
+          <!-- Tab bar -->
+          <div class="tab-bar">
+            <button
+              v-for="tab in tabs"
+              :key="tab.id"
+              class="tab"
+              :class="{ active: activeTab === tab.id }"
+              @click="activeTab = tab.id"
+            >{{ tab.label }}</button>
+          </div>
+
+          <!-- Tab content -->
+          <div class="tab-content">
+            <OverviewPanel v-if="activeTab === 'overview'" :node-id="store.selected.id" />
+            <DiagPanel    v-if="activeTab === 'diag'"     :node-id="store.selected.id" />
+            <ConfigPanel  v-if="activeTab === 'config'"   :node-id="store.selected.id" />
+            <ExecPanel    v-if="activeTab === 'exec'"     :node-id="store.selected.id" />
+            <ActiveDefensePanel v-if="activeTab === 'defense'" :node-id="store.selected.id" />
+            <CapturePanel v-if="activeTab === 'capture'"  :node-id="store.selected.id" />
+            <Terminal     v-if="activeTab === 'terminal'" :node="store.selected" />
           </div>
         </div>
-
-        <!-- Tab bar -->
-        <div class="tab-bar">
-          <button
-            v-for="tab in tabs"
-            :key="tab.id"
-            class="tab"
-            :class="{ active: activeTab === tab.id }"
-            @click="activeTab = tab.id"
-          >{{ tab.label }}</button>
-        </div>
-
-        <!-- Tab content -->
-        <div class="tab-content">
-          <OverviewPanel v-if="activeTab === 'overview'" :node-id="store.selected.id" />
-          <DiagPanel    v-if="activeTab === 'diag'"     :node-id="store.selected.id" />
-          <ConfigPanel  v-if="activeTab === 'config'"   :node-id="store.selected.id" />
-          <ExecPanel    v-if="activeTab === 'exec'"     :node-id="store.selected.id" />
-          <CapturePanel v-if="activeTab === 'capture'"  :node-id="store.selected.id" />
-          <Terminal     v-if="activeTab === 'terminal'" :node="store.selected" />
-        </div>
-      </template>
+      </transition>
     </main>
 
     <!-- Modals -->
@@ -152,6 +162,20 @@
 
     <!-- AI Sidebar -->
     <AiChatSidebar />
+
+    <!-- Global Error Diagnostics Console -->
+    <div v-if="globalErrors.length > 0" class="global-error-console">
+      <div class="console-header">
+        <span class="console-indicator">⚠️ DIAGNOSTICS: RUNTIME DISRUPTION</span>
+        <button class="btn-console-clear" @click="globalErrors = []">DISMISS</button>
+      </div>
+      <div class="console-body">
+        <div v-for="err in globalErrors" :key="err.id" class="console-item">
+          <div class="console-msg">{{ err.message }}</div>
+          <div v-if="err.stack" class="console-stack">{{ err.stack }}</div>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -167,19 +191,61 @@ import OverviewPanel from './components/OverviewPanel.vue'
 import Terminal  from './components/Terminal.vue'
 import NodeForm  from './components/NodeForm.vue'
 import TopologyView from './components/TopologyView.vue'
+import ThreatMap from './components/ThreatMap.vue'
+import ActiveDefensePanel from './components/ActiveDefensePanel.vue'
 import AiChatSidebar from './components/AiChatSidebar.vue'
 import SettingsModal from './components/SettingsModal.vue'
+import LoginView from './components/LoginView.vue'
+import WarRoomDashboard from './components/WarRoomDashboard.vue'
 import type { NrNode } from '@/types'
+import { provide } from 'vue'
+
+const loggedIn = ref(!!localStorage.getItem('nr_token'))
+const userRole = ref(localStorage.getItem('nr_role') || 'analyst')
+provide('userRole', userRole)
+
+function onAuthenticated(role: string) {
+  userRole.value = role
+  loggedIn.value = true
+  store.refresh()
+  pollSystem()
+}
+
+// Automatically logout when token expires
+window.addEventListener('auth-expired', () => {
+  loggedIn.value = false
+  userRole.value = 'analyst'
+})
 
 const store       = useNodesStore()
-const viewMode    = ref<'node' | 'topology'>('node')
-const activeTab   = ref<'overview' | 'diag' | 'config' | 'exec' | 'capture' | 'terminal'>('overview')
+const viewMode    = ref<'node' | 'topology' | 'threat' | 'warroom'>('node')
+const activeTab   = ref<'overview' | 'diag' | 'config' | 'exec' | 'defense' | 'capture' | 'terminal'>('overview')
 const showAddForm = ref(false)
 const showEdit    = ref(false)
 const showSettings = ref(false)
 const searchQuery = ref('')
 const connBusy    = ref(false)
 const exporting   = ref(false)
+
+const systemState = ref({ autopilot: false, chaos: false })
+let lastLogCount = 0
+
+// Global error tracking for remote diagnostics
+const globalErrors = ref<{ id: number; message: string; stack?: string }[]>([])
+let nextErrorId = 0
+
+function logGlobalError(message: string, stack?: string) {
+  const id = nextErrorId++
+  globalErrors.value.push({ id, message, stack })
+}
+
+const handleWindowError = (event: ErrorEvent) => {
+  logGlobalError(event.message || 'Uncaught JavaScript Error', event.filename ? `${event.filename}:${event.lineno}` : undefined)
+}
+
+const handleUnhandledRejection = (event: PromiseRejectionEvent) => {
+  logGlobalError(`Unhandled Promise Rejection: ${String(event.reason)}`, event.reason?.stack)
+}
 
 const filteredNodes = computed(() => {
   const q = searchQuery.value.toLowerCase().trim()
@@ -223,6 +289,7 @@ const tabs = [
   { id: 'diag',     label: 'DIAGNOSTICS' },
   { id: 'config',   label: 'CONFIG' },
   { id: 'exec',     label: 'EXECUTE' },
+  { id: 'defense',  label: 'ACTIVE DEFENSE' },
   { id: 'capture',  label: 'CAPTURE' },
   { id: 'terminal', label: 'TERMINAL' },
 ] as const
@@ -332,12 +399,69 @@ watch(() => store.selectedId, () => {
   store.refreshConnections()
 })
 
+async function toggleAutopilot() {
+  try {
+    const newState = !systemState.value.autopilot
+    const res = await api.updateSystemState({ autopilot: newState })
+    systemState.value.autopilot = res.autopilot
+    flash(res.autopilot ? 'AI Autopilot ACTIVATED' : 'AI Autopilot DEACTIVATED', res.autopilot ? 'ok' : 'err')
+  } catch(e) { flash(String(e), 'err') }
+}
+
+async function toggleChaos() {
+  try {
+    const newState = !systemState.value.chaos
+    const res = await api.updateSystemState({ chaos: newState })
+    systemState.value.chaos = res.chaos
+    flash(res.chaos ? 'CHAOS MODE UNLEASHED' : 'Chaos Mode disabled', res.chaos ? 'err' : 'ok')
+    if (res.chaos) {
+      document.body.classList.add('chaos-active')
+    } else {
+      document.body.classList.remove('chaos-active')
+    }
+  } catch(e) { flash(String(e), 'err') }
+}
+
+async function pollSystem() {
+  try {
+    const st = await api.systemState()
+    systemState.value = st
+    if (st.chaos) document.body.classList.add('chaos-active')
+    else document.body.classList.remove('chaos-active')
+
+    const res = await api.systemLogs()
+    const logs = res.logs || []
+    if (logs.length > lastLogCount && lastLogCount > 0) {
+      // New logs arrived
+      const newLogs = logs.slice(0, logs.length - lastLogCount)
+      for (const lg of newLogs) {
+        flash(lg.message, 'ok')
+      }
+    }
+    lastLogCount = logs.length
+  } catch(e) {}
+}
+
 let connTimer: ReturnType<typeof setInterval> | null = null
+let sysTimer: ReturnType<typeof setInterval> | null = null
 onMounted(() => {
-  store.refresh()
-  connTimer = setInterval(() => store.refreshConnections(), 4000)
+  window.addEventListener('error', handleWindowError)
+  window.addEventListener('unhandledrejection', handleUnhandledRejection)
+
+  if (loggedIn.value) {
+    store.refresh()
+    pollSystem()
+  }
+  connTimer = setInterval(() => { if (loggedIn.value) store.refreshConnections() }, 4000)
+  sysTimer  = setInterval(() => { if (loggedIn.value) pollSystem() }, 2000)
 })
-onUnmounted(() => { if (connTimer) clearInterval(connTimer) })
+onUnmounted(() => { 
+  window.removeEventListener('error', handleWindowError)
+  window.removeEventListener('unhandledrejection', handleUnhandledRejection)
+
+  if (connTimer) clearInterval(connTimer)
+  if (sysTimer) clearInterval(sysTimer)
+})
 </script>
 
 <style scoped>
@@ -365,10 +489,51 @@ onUnmounted(() => { if (connTimer) clearInterval(connTimer) })
 .stat-value { margin-top: 4px; font-family: var(--font-co); font-size: 16px; color: var(--textwh); }
 .text-green { color: var(--green); text-shadow: 0 0 8px var(--green); }
 
-.sidebar-nav { display: grid; grid-template-columns: 1fr 1fr; gap: 1px; background: var(--border); padding: 1px; border-bottom: 1px solid var(--border); }
-.btn-nav { background: var(--bg2); border: none; color: var(--text); padding: 10px; font-family: var(--font-hd); font-size: 9px; letter-spacing: 1.5px; cursor: pointer; transition: all .2s; }
-.btn-nav:hover { color: var(--textwh); background: var(--bg3); }
-.btn-nav.active { color: var(--cyan); background: var(--bg3); box-shadow: inset 0 0 10px rgba(0, 229, 255, 0.05); }
+.nav-menu button {
+  display: block;
+  width: 100%;
+  padding: 15px;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid var(--border);
+  color: var(--text);
+  font-family: var(--font-hd);
+  font-size: 11px;
+  text-align: center;
+  cursor: pointer;
+  letter-spacing: 2px;
+  transition: all 0.3s;
+}
+
+.nav-menu button:hover {
+  background: var(--bg3);
+  color: var(--cyan);
+}
+
+.nav-menu button.active {
+  background: var(--cyan);
+  color: var(--bg);
+  box-shadow: 0 0 10px rgba(0, 229, 255, 0.4);
+}
+
+.btn-warroom {
+  margin-top: 20px;
+  border-top: 1px solid var(--pink) !important;
+  border-bottom: 1px solid var(--pink) !important;
+  color: var(--pink) !important;
+  font-weight: bold;
+}
+
+.btn-warroom:hover {
+  background: rgba(255, 45, 110, 0.1) !important;
+  box-shadow: 0 0 15px rgba(255, 45, 110, 0.3);
+}
+
+.btn-warroom.active {
+  background: var(--pink) !important;
+  color: #fff !important;
+  box-shadow: 0 0 20px rgba(255, 45, 110, 0.6) !important;
+}
 
 .sidebar-search { padding: 12px 14px; }
 .search-input { width: 100%; padding: 10px 12px; background: var(--bg3); border: 1px solid var(--border); border-radius: var(--r); color: var(--textwh); font-family: var(--font-co); font-size: 11px; outline: none; }
@@ -412,11 +577,41 @@ onUnmounted(() => { if (connTimer) clearInterval(connTimer) })
 /* Main */
 .main { flex: 1; display: flex; flex-direction: column; overflow: hidden; background: var(--bg); position: relative; }
 
+.main-bg { flex: 1; display: flex; flex-direction: column; position: absolute; inset: 0; z-index: 1; }
+.main-bg.is-topology, .main-bg.is-threat { background: transparent; }
+
+.glass-panel {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  z-index: 2;
+  background: var(--bg);
+}
+
+.glass-panel.is-overlay {
+  position: absolute;
+  top: 20px;
+  right: 20px;
+  bottom: 20px;
+  width: 600px;
+  background: var(--glass-bg);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--r2);
+  box-shadow: var(--glass-shadow);
+  overflow: hidden;
+}
+
+.slide-panel-enter-active, .slide-panel-leave-active { transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1); }
+.slide-panel-enter-from, .slide-panel-leave-to { transform: translateX(120%); opacity: 0; }
+
 .welcome { flex: 1; display: flex; align-items: center; justify-content: center; }
 .welcome-logo { font-family: var(--font-hd); font-size: 42px; font-weight: 900; letter-spacing: 8px; color: var(--green); text-shadow: 0 0 20px var(--green); margin-bottom: 10px; }
 .welcome-sub { font-family: var(--font-co); font-size: 11px; letter-spacing: 3px; color: var(--text); }
 
-.node-header { padding: 16px 24px; background: var(--bg2); border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; }
+.node-header { padding: 16px 24px; background: rgba(8, 13, 24, 0.4); border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; }
 .node-title { display: flex; align-items: center; gap: 14px; }
 .node-dot-lg { width: 12px; height: 12px; border-radius: 50%; background: var(--border2); }
 .node-dot-lg.connected { background: var(--green); box-shadow: 0 0 12px var(--green); }
@@ -428,8 +623,8 @@ onUnmounted(() => { if (connTimer) clearInterval(connTimer) })
 .device-badge.gns3 { color: var(--cyan); border-color: var(--cyan); }
 
 .header-actions { display: flex; gap: 8px; }
-.btn-action { background: var(--bg3); border: 1px solid var(--border); color: var(--textwh); padding: 6px 12px; border-radius: var(--r); font-family: var(--font-hd); font-size: 9px; letter-spacing: 1px; cursor: pointer; transition: all .2s; }
-.btn-action:hover:not(:disabled) { border-color: var(--cyan); color: var(--cyan); box-shadow: var(--shadow-c); }
+.btn-action { background: rgba(12, 18, 32, 0.6); border: 1px solid var(--border); color: var(--textwh); padding: 6px 12px; border-radius: var(--r); font-family: var(--font-hd); font-size: 9px; letter-spacing: 1px; cursor: pointer; transition: all .2s; }
+.btn-action:hover:not(:disabled) { border-color: var(--cyan); color: var(--cyan); box-shadow: var(--shadow-c); background: rgba(0, 229, 255, 0.1); }
 .btn-action:disabled { opacity: .4; cursor: not-allowed; }
 
 .btn-danger { border-color: var(--pink); color: var(--pink); }
@@ -441,17 +636,101 @@ onUnmounted(() => { if (connTimer) clearInterval(connTimer) })
   text-shadow: 0 0 5px #ff0055;
 }
 
-.tab-bar { background: var(--bg2); border-bottom: 1px solid var(--border); display: flex; padding: 0 14px; }
-.tab { background: none; border: none; padding: 12px 18px; font-family: var(--font-hd); font-size: 10px; letter-spacing: 2px; color: var(--text); cursor: pointer; position: relative; transition: color .2s; }
+.tab-bar { background: rgba(8, 13, 24, 0.4); border-bottom: 1px solid var(--border); display: flex; padding: 0 14px; overflow-x: auto; }
+.tab { white-space: nowrap; background: none; border: none; padding: 12px 18px; font-family: var(--font-hd); font-size: 10px; letter-spacing: 2px; color: var(--text); cursor: pointer; position: relative; transition: color .2s; }
 .tab:hover { color: var(--textwh); }
 .tab.active { color: var(--cyan); }
 .tab.active::after { content: ''; position: absolute; bottom: -1px; left: 0; width: 100%; height: 2px; background: var(--cyan); box-shadow: 0 0 8px var(--cyan); }
 
-.tab-content { flex: 1; overflow: hidden; position: relative; }
+.tab-content { flex: 1; overflow: hidden; position: relative; background: rgba(5, 8, 15, 0.3); }
 
 .flash-stack { position: fixed; bottom: 24px; right: 24px; display: flex; flex-direction: column; gap: 10px; z-index: 1000; }
 .flash { padding: 14px 20px; border-radius: var(--r); font-family: var(--font-co); font-size: 12px; border: 1px solid var(--border); min-width: 240px; box-shadow: 0 8px 32px rgba(0,0,0,.5); backdrop-filter: blur(8px); animation: slide-in .3s ease-out; }
 @keyframes slide-in { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
 .flash.ok { background: rgba(0,255,157,.1); border-color: var(--green); color: var(--green); }
 .flash.err { background: rgba(255,45,110,.1); border-color: var(--pink); color: var(--pink); }
+
+.global-error-console {
+  position: fixed;
+  bottom: 24px;
+  left: 24px;
+  width: 480px;
+  max-width: 90vw;
+  background: rgba(18, 2, 2, 0.95);
+  border: 2px solid #ff2d6e;
+  box-shadow: 0 0 25px rgba(255, 45, 110, 0.4);
+  border-radius: var(--r);
+  z-index: 9999;
+  font-family: monospace;
+  overflow: hidden;
+  backdrop-filter: blur(10px);
+}
+
+.console-header {
+  background: rgba(255, 45, 110, 0.15);
+  border-bottom: 1px solid rgba(255, 45, 110, 0.3);
+  padding: 8px 12px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.console-indicator {
+  color: #ff2d6e;
+  font-size: 11px;
+  font-weight: bold;
+  letter-spacing: 1px;
+  text-shadow: 0 0 8px #ff2d6e;
+}
+
+.btn-console-clear {
+  background: transparent;
+  border: 1px solid #ff2d6e;
+  color: #ff2d6e;
+  padding: 2px 8px;
+  font-size: 9px;
+  cursor: pointer;
+  border-radius: 4px;
+  font-weight: bold;
+  transition: all 0.2s;
+}
+
+.btn-console-clear:hover {
+  background: #ff2d6e;
+  color: #fff;
+  box-shadow: 0 0 10px #ff2d6e;
+}
+
+.console-body {
+  padding: 10px;
+  max-height: 180px;
+  overflow-y: auto;
+  font-size: 11px;
+}
+
+.console-item {
+  margin-bottom: 8px;
+  border-bottom: 1px dashed rgba(255, 45, 110, 0.2);
+  padding-bottom: 8px;
+}
+
+.console-item:last-child {
+  margin-bottom: 0;
+  border-bottom: none;
+  padding-bottom: 0;
+}
+
+.console-msg {
+  color: #ff2d6e;
+  font-weight: bold;
+}
+
+.console-stack {
+  color: #a0a0a0;
+  font-size: 10px;
+  margin-top: 4px;
+  white-space: pre-wrap;
+  max-height: 80px;
+  overflow-y: auto;
+}
 </style>
