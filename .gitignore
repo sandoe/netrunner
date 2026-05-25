@@ -4,6 +4,8 @@ __pycache__/
 .venv/
 venv/
 .env
+*.log
+backend.log
 
 # Vault key — never commit
 data/.vault_key
@@ -11,6 +13,8 @@ data/.vault_key
 # Data (node data, captures, exports — user-specific)
 data/nodes.json
 data/vault.json
+data/netrunner.db
+data/*.db
 data/configs/
 data/captures/
 data/exports/

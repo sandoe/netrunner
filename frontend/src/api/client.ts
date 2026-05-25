@@ -125,6 +125,8 @@ export const api = {
     }
     return r.json()
   },
+  captureInject: (id: string, body: { target_ip: string; port: number; protocol: string; payload: string }) =>
+    req<{ status: string; output: string }>('POST', `/nodes/${id}/capture/inject`, body),
 
   // System
   systemState: () => req<{ autopilot: boolean, chaos: boolean }>('GET', '/system/state'),
@@ -138,6 +140,22 @@ export const api = {
     port?: number
     path_query?: string
   }) => req<{ status: string; message: string; real_file_write: boolean }>('POST', '/chaos/attack', body),
+  deployRedTeamPayload: (body: {
+    node_id: string
+    tool_name: string
+    target_ip?: string
+    target_path?: string
+    port?: number
+  }) => req<{ status: string; message: string; real_file_write: boolean }>('POST', '/redteam/deploy', body),
+
+  // Deception
+  deployMirageHoneypot: (nid: string, body: { persona: string; port: number; aggressiveness: string }) => 
+    req<{ status: string; message: string }>('POST', `/nodes/${nid}/deception/deploy`, body),
+
+
+  // Metrics
+  nodeMetricsHistory: (nid: string) => req<{ status: string; history: { time: number; cpu: number; ram: number; net_tx: number; net_rx: number }[] }>('GET', `/nodes/${nid}/metrics/history`),
+
 
   // Preview
   preview: (type: string, data: unknown) => req<{ commands: string[] }>('POST', '/preview', { type, data }),

@@ -5,7 +5,7 @@ export interface NrNode {
   port: number
   username: string
   transport: 'ssh' | 'telnet'
-  device_type: 'gns3' | 'linux' | 'rpi' | 'unknown'
+  device_type: 'gns3' | 'linux' | 'rpi' | 'windows' | 'unknown'
   has_password: boolean
   created: string
   tags: string[]

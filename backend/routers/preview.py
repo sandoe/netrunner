@@ -13,8 +13,13 @@ from ..generators.firewall import gen_iptables, gen_ufw, gen_nftables
 from ..generators.linux import (
     gen_service, gen_package, gen_user, gen_cron, gen_sysctl,
     gen_file_write, gen_hostname, gen_ssh_hardening, gen_authorized_key,
-    gen_systemd_service_unit,
+    gen_systemd_service_unit, gen_remote_desktop,
 )
+from ..generators.windows import (
+    gen_win_ip, gen_win_route, gen_win_service,
+    gen_win_feature, gen_win_hostname, gen_win_file,
+)
+from ..generators.docker import gen_docker
 from ..generators.rpi import (
     gen_rpi_config_set, gen_rpi_config_section, gen_rpi_gpio,
     gen_rpi_gpio_read_all, gen_rpi_i2c, gen_rpi_i2c_enable, gen_rpi_spi,
@@ -120,6 +125,24 @@ def api_preview(body: dict):
             cmds = gen_authorized_key(cfg)
         elif t == "systemd-unit":
             cmds = gen_systemd_service_unit(cfg)
+        elif t == "remote-desktop":
+            cmds = gen_remote_desktop(cfg)
+
+        # ── Windows ────────────────────────────────────────────────
+        elif t == "win-ip":
+            cmds = gen_win_ip(cfg)
+        elif t == "win-route":
+            cmds = gen_win_route(cfg)
+        elif t == "win-service":
+            cmds = gen_win_service(cfg)
+        elif t == "win-feature":
+            cmds = gen_win_feature(cfg)
+        elif t == "win-hostname":
+            cmds = gen_win_hostname(cfg)
+        elif t == "win-file":
+            cmds = gen_win_file(cfg)
+        elif t == "docker":
+            cmds = gen_docker(cfg)
 
         # ── Raspberry Pi ───────────────────────────────────────────
         elif t == "rpi-config-set":

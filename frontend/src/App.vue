@@ -10,6 +10,9 @@
           <span class="logo-sub">OS v1.0.0</span>
         </div>
         <div class="header-tools">
+          <button class="btn-icon" @click="toggleGlobalFullscreen" :title="isGlobalFullscreen ? 'Exit Fullscreen' : 'Fullscreen'">
+            {{ isGlobalFullscreen ? '📺' : '🖥️' }}
+          </button>
           <button class="btn-icon" @click="showSettings = true" title="Settings">⚙️</button>
           <button class="btn-add" @click="showAddForm = true" title="Add node">+</button>
         </div>
@@ -144,6 +147,8 @@
             <OverviewPanel v-if="activeTab === 'overview'" :node-id="store.selected.id" />
             <Gns3Panel    v-if="activeTab === 'gns3-api'" :node-id="store.selected.id" />
             <DiagPanel    v-if="activeTab === 'diag'"     :node-id="store.selected.id" />
+            <DockerPanel  v-if="activeTab === 'docker'"   :node-id="store.selected.id" />
+            <DatabasePanel v-if="activeTab === 'database'" :node-id="store.selected.id" />
             <ConfigPanel  v-if="activeTab === 'config'"   :node-id="store.selected.id" />
             <ExecPanel    v-if="activeTab === 'exec'"     :node-id="store.selected.id" />
             <ActiveDefensePanel v-if="activeTab === 'defense'" :node-id="store.selected.id" />
@@ -265,6 +270,8 @@ import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useNodesStore } from '@/stores/nodes'
 import { api } from '@/api/client'
 import DiagPanel from './components/DiagPanel.vue'
+import DockerPanel from './components/DockerPanel.vue'
+import DatabasePanel from './components/DatabasePanel.vue'
 import ExecPanel from './components/ExecPanel.vue'
 import ConfigPanel from './components/ConfigPanel.vue'
 import CapturePanel from './components/CapturePanel.vue'
@@ -285,6 +292,25 @@ import { provide } from 'vue'
 const loggedIn = ref(!!localStorage.getItem('nr_token'))
 const userRole = ref(localStorage.getItem('nr_role') || 'analyst')
 provide('userRole', userRole)
+
+const isGlobalFullscreen = ref(false)
+
+function toggleGlobalFullscreen() {
+  isGlobalFullscreen.value = !isGlobalFullscreen.value
+  if (isGlobalFullscreen.value) {
+    if (document.documentElement.requestFullscreen) {
+      document.documentElement.requestFullscreen().catch(() => {})
+    }
+  } else {
+    if (document.exitFullscreen) {
+      document.exitFullscreen().catch(() => {})
+    }
+  }
+}
+
+function handleGlobalNativeFullscreenChange() {
+  isGlobalFullscreen.value = !!document.fullscreenElement
+}
 
 function onAuthenticated(role: string) {
   userRole.value = role
@@ -381,6 +407,8 @@ const dynamicTabs = computed(() => {
   }
   list.push(
     { id: 'diag',     label: 'DIAGNOSTICS' },
+    { id: 'docker',   label: 'DOCKER' },
+    { id: 'database', label: 'DATABASE' },
     { id: 'config',   label: 'CONFIG' },
     { id: 'exec',     label: 'EXECUTE' },
     { id: 'defense',  label: 'ACTIVE DEFENSE' },
@@ -522,7 +550,12 @@ async function deleteNode() {
 }
 
 watch(() => store.selectedId, () => {
-  activeTab.value = 'overview'
+  // Keep the active tab persistent across node switches.
+  // Fallback to overview if moving away from GNS3 control to a non-GNS3 device.
+  const isGns3 = store.selected?.device_type === 'gns3'
+  if (activeTab.value === 'gns3-api' && !isGns3) {
+    activeTab.value = 'overview'
+  }
   store.refreshConnections()
 })
 
@@ -574,6 +607,7 @@ let sysTimer: ReturnType<typeof setInterval> | null = null
 onMounted(() => {
   window.addEventListener('error', handleWindowError)
   window.addEventListener('unhandledrejection', handleUnhandledRejection)
+  document.addEventListener('fullscreenchange', handleGlobalNativeFullscreenChange)
 
   if (loggedIn.value) {
     store.refresh()
@@ -585,6 +619,7 @@ onMounted(() => {
 onUnmounted(() => { 
   window.removeEventListener('error', handleWindowError)
   window.removeEventListener('unhandledrejection', handleUnhandledRejection)
+  document.removeEventListener('fullscreenchange', handleGlobalNativeFullscreenChange)
 
   if (connTimer) clearInterval(connTimer)
   if (sysTimer) clearInterval(sysTimer)

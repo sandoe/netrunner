@@ -3,6 +3,8 @@
     <div class="ov-toolbar">
       <button class="btn-secondary" @click="refreshAll" :disabled="anyLoading || !connected">RE-SCAN</button>
       <button class="btn-secondary btn-clear" @click="clearAll" :disabled="anyLoading">CLEAR ALL</button>
+      <button class="btn-secondary btn-blue" @click="openRDP" title="Launch Remote Desktop Protocol">🖥️ RDP</button>
+      <button class="btn-secondary btn-cyan" @click="openVNC" title="Launch Virtual Network Computing">🖥️ VNC</button>
       <label class="auto-toggle">
         <input type="checkbox" v-model="autoRefresh" :disabled="!connected" />
         <span>AUTO-UPDATE</span>
@@ -23,6 +25,19 @@
     </div>
 
     <div v-else class="ov-content">
+      <!-- LIVE METRICS DASHBOARDS -->
+      <div class="metrics-grid" v-if="metricsHistory.length > 0">
+        <div class="metric-card">
+          <MetricsChart title="CPU Usage (%)" color="rgb(0, 255, 157)" :dataPoints="cpuData" />
+        </div>
+        <div class="metric-card">
+          <MetricsChart title="RAM Usage (%)" color="rgb(255, 170, 0)" :dataPoints="ramData" />
+        </div>
+        <div class="metric-card">
+          <MetricsChart title="Network Tx/Rx (bps)" color="rgb(0, 200, 255)" :dataPoints="netData" />
+        </div>
+      </div>
+
       <div v-for="(group, catId) in groupedTiles" :key="catId" class="ov-section">
         <div class="ov-section-head" @click="toggleCat(catId as string)">
           <span class="ov-section-title">{{ getCatLabel(catId as string) }}</span>
@@ -76,6 +91,7 @@ import { ref, watch, onMounted, onUnmounted, computed } from 'vue'
 import { api } from '@/api/client'
 import { useNodesStore } from '@/stores/nodes'
 import type { ReadType } from '@/types'
+import MetricsChart from './MetricsChart.vue'
 
 interface Tile {
   key: string
@@ -99,6 +115,34 @@ const connected = computed(() => store.isConnected(props.nodeId))
 const connecting = ref(false)
 const connectError = ref('')
 const collapsedCats = ref<Set<string>>(new Set())
+
+// Remote Desktop
+const selectedNodeHost = computed(() => store.nodes[props.nodeId]?.host || '127.0.0.1')
+function openRDP() {
+  window.location.href = `rdp://${selectedNodeHost.value}`
+}
+function openVNC() {
+  window.location.href = `vnc://${selectedNodeHost.value}`
+}
+
+// Metrics
+const metricsHistory = ref<{ time: number; cpu: number; ram: number; net_tx: number; net_rx: number }[]>([])
+let metricsTimer: any = null
+
+const cpuData = computed(() => metricsHistory.value.map(m => ({ time: m.time, value: m.cpu })))
+const ramData = computed(() => metricsHistory.value.map(m => ({ time: m.time, value: m.ram })))
+const netData = computed(() => metricsHistory.value.map(m => ({ time: m.time, value: m.net_tx + m.net_rx })))
+
+async function fetchMetrics() {
+  if (!connected.value) return
+  try {
+    const res = await api.nodeMetricsHistory(props.nodeId)
+    metricsHistory.value = res.history
+  } catch (e) {
+    console.error('Failed to fetch metrics', e)
+  }
+}
+
 
 const groupedTiles = computed(() => {
   const groups: Record<string, Tile[]> = {}
@@ -502,9 +546,21 @@ watch(() => props.nodeId, () => {
 })
 
 onMounted(() => {
-  if (connected.value) refreshAll()
+  if (connected.value) {
+    refreshAll()
+    fetchMetrics()
+  }
+  timer = setInterval(() => {
+    if (autoRefresh.value && connected.value) refreshAll()
+  }, 10000)
+  metricsTimer = setInterval(() => {
+    if (connected.value) fetchMetrics()
+  }, 2000)
 })
-onUnmounted(() => { if (timer) clearInterval(timer) })
+onUnmounted(() => { 
+  if (timer) clearInterval(timer)
+  if (metricsTimer) clearInterval(metricsTimer)
+})
 </script>
 
 <style scoped>
@@ -557,6 +613,20 @@ onUnmounted(() => { if (timer) clearInterval(timer) })
 }
 .btn-primary:hover:not(:disabled) { background: var(--cyan); color: var(--bg); box-shadow: var(--shadow-c); }
 .dc-error { margin-top: 16px; padding: 8px; background: rgba(255,45,110,.1); border: 1px solid var(--pink); border-radius: var(--r); color: var(--pink); font-size: 11px; font-family: var(--font-co); }
+
+.metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 20px;
+  margin-bottom: 20px;
+}
+.metric-card {
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  padding: 16px;
+  height: 200px;
+}
 
 .tile-grid {
   flex: 1; overflow-y: auto; padding: 20px;

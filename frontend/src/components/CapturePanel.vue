@@ -49,9 +49,28 @@
         <div class="tg-controls">
           <input v-model="pingForm.target" placeholder="TARGET IP..." class="cyber-input-sm" @keyup.enter="runPing" />
           <input v-model.number="pingForm.count" type="number" class="cyber-input-xs" title="COUNT" />
-          <button @click="runPing" :disabled="pingBusy" class="btn-tiny-neon">GENERATE PACKETS</button>
+          <button @click="runPing" :disabled="pingBusy" class="btn-tiny-neon">GENERATE PING</button>
         </div>
         <div v-if="pingOutput" class="tg-output">{{ pingOutput }}</div>
+      </div>
+
+      <!-- Packet Forger Section -->
+      <div class="traffic-generator packet-forger" style="margin-top: 10px; border-color: var(--pink);">
+        <div class="tg-label" style="color: var(--pink);">
+          PACKET FORGER (RAW INJECTOR)
+          <button v-if="forgeOutput" @click="forgeOutput = ''" class="btn-clear-tg">CLEAR</button>
+        </div>
+        <div class="tg-controls" style="gap: 6px;">
+          <input v-model="forgeForm.target_ip" placeholder="TARGET IP..." class="cyber-input-sm" />
+          <input v-model.number="forgeForm.port" type="number" placeholder="PORT" class="cyber-input-xs" style="width: 70px;" />
+          <select v-model="forgeForm.protocol" class="cyber-input-xs" style="width: 65px; height: 26px; border: 1px solid var(--pink); color: var(--pink);">
+            <option>UDP</option>
+            <option>TCP</option>
+          </select>
+          <input v-model="forgeForm.payload" placeholder="HEX OR STRING PAYLOAD..." class="cyber-input-sm" style="flex: 1;" @keyup.enter="runForge" />
+          <button @click="runForge" :disabled="forgeBusy" class="btn-tiny-neon" style="color: var(--pink); border-color: var(--pink);">INJECT PACKET</button>
+        </div>
+        <div v-if="forgeOutput" class="tg-output" style="color: var(--pink);">{{ forgeOutput }}</div>
       </div>
 
       <div v-if="error" class="cap-error">
@@ -130,6 +149,24 @@ async function runPing() {
     pingOutput.value = `ERROR: ${e}`
   } finally {
     pingBusy.value = false
+  }
+}
+
+const forgeForm = reactive({ target_ip: '', port: 80, protocol: 'UDP', payload: '' })
+const forgeBusy = ref(false)
+const forgeOutput = ref('')
+
+async function runForge() {
+  if (!forgeForm.target_ip.trim() || !forgeForm.port) return
+  forgeBusy.value = true
+  forgeOutput.value = `INJECTING ${forgeForm.protocol} PACKET TO ${forgeForm.target_ip}:${forgeForm.port}...`
+  try {
+    const res = await api.captureInject(props.nodeId, forgeForm)
+    forgeOutput.value = (res.output || res.status || 'NO RESPONSE').trim()
+  } catch (e) {
+    forgeOutput.value = `ERROR: ${e}`
+  } finally {
+    forgeBusy.value = false
   }
 }
 

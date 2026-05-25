@@ -367,3 +367,219 @@ def gen_systemd_service_unit(cfg: dict) -> list[str]:
             f"systemctl status {name} --no-pager",
         ]
     return cmds
+
+
+def gen_remote_desktop(cfg: dict) -> list[str]:
+    """Install, configure, start, or uninstall RDP/VNC remote desktop servers or Remmina client."""
+    action = str(cfg.get("action", "install")).strip()
+    protocol = str(cfg.get("protocol", "rdp")).lower().strip()
+    username = str(cfg.get("username", "root")).strip() or "root"
+    password = str(cfg.get("password", "")).strip()
+    desktop = str(cfg.get("desktop", "xfce")).lower().strip()
+    resolution = str(cfg.get("resolution", "1280x720")).strip() or "1280x720"
+    
+    if protocol == "remmina":
+        cmds = [f"# ── Remote Desktop Client: {action.upper()} REMMINA ───────────────────"]
+        if action == "uninstall":
+            cmds += [
+                "# Purge packages",
+                "apt-get purge -y remmina remmina-plugin-rdp remmina-plugin-vnc 2>/dev/null || true",
+                "apk del remmina 2>/dev/null || true",
+                "echo 'Remmina client uninstalled successfully.'"
+            ]
+        else:
+            cmds += [
+                "# Install Remmina client packages",
+                "apt-get update -qq && apt-get install -y remmina remmina-plugin-rdp remmina-plugin-vnc dbus-x11 2>/dev/null || "
+                "apk add remmina 2>/dev/null || "
+                "echo 'Package installation complete/skipped'",
+                "echo 'Remmina client configuration applied!'"
+            ]
+        return cmds
+
+    # Default ports
+    default_port = 3389 if protocol == "rdp" else 5901
+    try:
+        port = int(cfg.get("port", default_port))
+    except (ValueError, TypeError):
+        port = default_port
+
+    cmds = [f"# ── Remote Desktop: {action.upper()} {protocol.upper()} on port {port} ───────────────────"]
+
+    if action == "uninstall":
+        # Firewall removal
+        cmds += [
+            f"ufw delete allow {port}/tcp 2>/dev/null || ufw delete allow {port} 2>/dev/null || true",
+            f"iptables -D INPUT -p tcp --dport {port} -j ACCEPT 2>/dev/null || true"
+        ]
+        
+        if protocol == "rdp":
+            cmds += [
+                "# Stop and disable services",
+                "systemctl stop xrdp xrdp-sesman 2>/dev/null || true",
+                "systemctl disable xrdp xrdp-sesman 2>/dev/null || true",
+                "rc-service xrdp stop 2>/dev/null || true",
+                "rc-update del xrdp default 2>/dev/null || true",
+                "# Purge packages",
+                "apt-get purge -y xrdp xorgxrdp 2>/dev/null || true",
+                "apk del xrdp 2>/dev/null || true",
+                "# Remove config files",
+                "rm -rf /etc/xrdp",
+                f"rm -f /home/{username}/.xsession /home/{username}/.xsessionrc /root/.xsession /root/.xsessionrc 2>/dev/null",
+                "echo 'RDP uninstalled successfully.'"
+            ]
+        else:  # vnc
+            display_num = max(1, port - 5900)
+            home_dir = "/root" if username == "root" else f"/home/{username}"
+            cmds += [
+                "# Kill active VNC servers",
+                f"su - {username} -c \"vncserver -kill :{display_num} 2>/dev/null\" || pkill Xvnc 2>/dev/null || true",
+                "# Purge packages",
+                "apt-get purge -y tightvncserver tigervnc-standalone-server 2>/dev/null || true",
+                "apk del tigervnc 2>/dev/null || true",
+                "# Remove VNC configurations",
+                f"rm -rf {home_dir}/.vnc",
+                "echo 'VNC uninstalled successfully.'"
+            ]
+        return cmds
+
+    # --- INSTALL/CONFIGURE ACTION ---
+    
+    # 1. User Password setup (critical for remote login authentication)
+    if password:
+        cmds += [
+            "# Setup user password for authentication",
+            f"echo {shlex.quote(username + ':' + password)} | chpasswd"
+        ]
+
+    # 2. Desktop Environment selection & packages
+    deb_desktop_pkgs = []
+    apk_desktop_pkgs = []
+    if desktop == "xfce":
+        deb_desktop_pkgs = ["xfce4", "xfce4-goodies"]
+        apk_desktop_pkgs = ["xfce4", "xfce4-terminal"]
+    elif desktop == "lxde":
+        deb_desktop_pkgs = ["lxde-core"]
+        apk_desktop_pkgs = ["lxde-desktop"]
+
+    # 3. Protocol packages & configuration
+    home_dir = "/root" if username == "root" else f"/home/{username}"
+    desktop_start_cmd = "startxfce4" if desktop == "xfce" else ("startlxde" if desktop == "lxde" else "xterm")
+
+    if protocol == "rdp":
+        # Installation
+        deb_pkgs = ["xrdp", "xorgxrdp", "dbus-x11"] + deb_desktop_pkgs
+        apk_pkgs = ["xrdp", "dbus"] + apk_desktop_pkgs
+        
+        deb_pkg_str = " ".join(deb_pkgs)
+        apk_pkg_str = " ".join(apk_pkgs)
+        
+        cmds += [
+            "# Install Remote Desktop packages",
+            f"apt-get update -qq && apt-get install -y {deb_pkg_str} 2>/dev/null || "
+            f"apk add {apk_pkg_str} 2>/dev/null || "
+            f"echo 'Package installation complete/skipped'"
+        ]
+        
+        # Configure Port
+        cmds += [
+            "# Configure RDP port",
+            f"if [ -f /etc/xrdp/xrdp.ini ]; then sed -i 's/^port=3389/port={port}/' /etc/xrdp/xrdp.ini; fi"
+        ]
+
+        # Configure session startup for the user
+        session_content = f"#!/bin/sh\nexport DISPLAY=:1\nexport DBUS_SESSION_BUS_ADDRESS=\nexec {desktop_start_cmd}"
+        marker = "__NETRUNNER_RDP_EOF__"
+        
+        cmds += [
+            "# Setup user .xsession file",
+            f"mkdir -p {home_dir}",
+            f"cat > {home_dir}/.xsession << '{marker}'\n{session_content}\n{marker}",
+            f"cp {home_dir}/.xsession {home_dir}/.xsessionrc 2>/dev/null || true",
+            f"chmod +x {home_dir}/.xsession {home_dir}/.xsessionrc 2>/dev/null || true",
+            f"chown -R {username}:{username} {home_dir}/.xsession {home_dir}/.xsessionrc 2>/dev/null || true"
+        ]
+
+        # Start services
+        cmds += [
+            "# Start RDP services",
+            "systemctl daemon-reload 2>/dev/null || true",
+            "systemctl enable xrdp xrdp-sesman 2>/dev/null && systemctl restart xrdp xrdp-sesman 2>/dev/null || "
+            "rc-update add xrdp default 2>/dev/null && rc-service xrdp restart 2>/dev/null || "
+            "echo '(failed to start system xrdp service)'"
+        ]
+
+    else:  # protocol == "vnc"
+        # Installation
+        deb_pkgs = ["tightvncserver", "dbus-x11"] + deb_desktop_pkgs
+        apk_pkgs = ["tigervnc", "dbus"] + apk_desktop_pkgs
+        
+        deb_pkg_str = " ".join(deb_pkgs)
+        apk_pkg_str = " ".join(apk_pkgs)
+
+        cmds += [
+            "# Install VNC packages",
+            f"apt-get update -qq && (apt-get install -y {deb_pkg_str} || apt-get install -y tigervnc-standalone-server dbus-x11 {deb_pkg_str}) 2>/dev/null || "
+            f"apk add {apk_pkg_str} 2>/dev/null || "
+            f"echo 'Package installation complete/skipped'"
+        ]
+
+        # VNC Passwd encryption & config directory setup
+        if password:
+            vnc_passwd_setup = (
+                f"mkdir -p {home_dir}/.vnc && "
+                f"chmod 700 {home_dir}/.vnc && "
+                f"echo {shlex.quote(password)} | vncpasswd -f > {home_dir}/.vnc/passwd 2>/dev/null || "
+                f"(echo {shlex.quote(password)}; echo {shlex.quote(password)}) | vncpasswd {home_dir}/.vnc/passwd 2>/dev/null && "
+                f"chmod 600 {home_dir}/.vnc/passwd && "
+                f"chown -R {username}:{username} {home_dir}/.vnc 2>/dev/null || true"
+            )
+        else:
+            # Fallback password is "netrunner" if none given
+            vnc_passwd_setup = (
+                f"mkdir -p {home_dir}/.vnc && "
+                f"chmod 700 {home_dir}/.vnc && "
+                f"echo 'netrunner' | vncpasswd -f > {home_dir}/.vnc/passwd 2>/dev/null || "
+                f"(echo 'netrunner'; echo 'netrunner') | vncpasswd {home_dir}/.vnc/passwd 2>/dev/null && "
+                f"chmod 600 {home_dir}/.vnc/passwd && "
+                f"chown -R {username}:{username} {home_dir}/.vnc 2>/dev/null || true"
+            )
+
+        # Startup file
+        xstartup_content = (
+            f"#!/bin/sh\n"
+            f"unset SESSION_MANAGER\n"
+            f"unset DBUS_SESSION_BUS_ADDRESS\n"
+            f"xrdb $HOME/.Xresources 2>/dev/null\n"
+            f"xsetroot -solid grey\n"
+            f"dbus-launch --exit-with-session {desktop_start_cmd} &\n"
+        )
+        xstartup_marker = "__NETRUNNER_VNC_START__"
+
+        cmds += [
+            "# Setup VNC configurations",
+            vnc_passwd_setup,
+            f"cat > {home_dir}/.vnc/xstartup << '{xstartup_marker}'\n{xstartup_content}\n{xstartup_marker}",
+            f"chmod +x {home_dir}/.vnc/xstartup",
+            f"chown -R {username}:{username} {home_dir}/.vnc 2>/dev/null || true"
+        ]
+
+        # Run/daemonize VNC server on display mapping (display = port - 5900)
+        display_num = max(1, port - 5900)
+        
+        cmds += [
+            "# Start VNC server instance",
+            f"su - {username} -c \"vncserver -kill :{display_num} 2>/dev/null || true\"",
+            f"su - {username} -c \"vncserver :{display_num} -geometry {resolution} -localhost no 2>/dev/null || vncserver :{display_num} -geometry {resolution}\""
+        ]
+
+    # 4. Open connection ports in Firewall
+    cmds += [
+        "# Adjust Firewall rules to allow connections",
+        f"ufw allow {port}/tcp 2>/dev/null || ufw allow {port} 2>/dev/null || true",
+        f"iptables -I INPUT -p tcp --dport {port} -j ACCEPT 2>/dev/null || true"
+    ]
+
+    cmds.append("echo 'Remote Desktop configuration applied!'")
+    return cmds
+

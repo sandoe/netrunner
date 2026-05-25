@@ -32,62 +32,77 @@ async def chaos_loop():
         node["username"] = username
         node["password"] = password
         
-        # Simulate a noisy scan or CPU spike
-        cmds = [
-            "echo '[CHAOS MONKEY] Triggering simulated anomaly!' | logger",
-            "nmap -F 127.0.0.1 > /dev/null 2>&1 &"
-        ]
+        from ..generators.redteam import RedTeamGenerator
         from ..core.soar import soar_engine
         from datetime import datetime
+        
+        # Pick a random real attack payload to emulate
+        attack_types = ["scapy", "yara", "shodan"]
+        attack_choice = random.choice(attack_types)
+        payload_script = ""
+        log_desc = ""
+        target_ip = node.get("host", "127.0.0.1")
+        
+        if attack_choice == "scapy":
+            payload_script = RedTeamGenerator.generate_dns_spoof_payload(target_domain="netrunner.corp", spoofed_ip="10.99.99.99")
+            log_desc = "DNS Spoofing Payload (Scapy)"
+        elif attack_choice == "yara":
+            payload_script = RedTeamGenerator.generate_yara_scanner(target_path="/tmp")
+            log_desc = "Malware File Scanner (YARA)"
+        elif attack_choice == "shodan":
+            payload_script = RedTeamGenerator.generate_shodan_query(target_ip=target_ip)
+            log_desc = f"OSINT Footprinting (Shodan) against {target_ip}"
+            
+        cmds = [
+            f"cat << 'EOFRED' > /tmp/chaos_rt.py\n{payload_script}\nEOFRED",
+            "python3 /tmp/chaos_rt.py > /dev/null 2>&1 &",
+            "rm -f /tmp/chaos_rt.py"
+        ]
+        
         now = datetime.now()
-        try:
-            results, err = await session_manager.run(nid, node, cmds)
-            if err:
-                print(f"[Chaos] Node {nid} connection was closed intentionally or failed: {err}")
-                continue
+        
+        # Run asynchronously so we never block the event loop if the node hangs!
+        async def execute_chaos_payload(nid, node_data, commands, desc, attack_type):
+            try:
+                results, err = await session_manager.run(nid, node_data, commands)
+                if err:
+                    return
                 
-            log_msg = {
-                "timestamp": now.isoformat(),
-                "message": f"[RED TEAM CHAOS] Unleashed Port Scan (Nmap) on node {node.get('name', nid)} ({node.get('host')})",
-                "ts": now.strftime("%H:%M:%S"),
-                "msg": f"[RED TEAM CHAOS] Unleashed Port Scan (Nmap) on node {node.get('name', nid)} ({node.get('host')})"
-            }
-            
-            # Immediately trigger an active response from AI Autopilot (Blue Team) if it is online
-            simulated_event = {
-                "id": f"evt_chaos_{int(now.timestamp())}_{random.randint(1000, 9999)}",
-                "timestamp": now.timestamp(),
-                "source": {
-                    "ip": "10.99.99.99",
-                    "city": "Threat Emulation Source",
-                    "lat": 37.7749,
-                    "lng": -122.4194
-                },
-                "target": {
-                    "ip": node.get("host"),
-                    "city": "Internal Network Target",
-                    "lat": 35.6762,
-                    "lng": 139.6503
-                },
-                "type": "Port Scan (Nmap)",
-                "severity": "critical"
-            }
-            asyncio.create_task(soar_engine.process_event(simulated_event))
-            soar_engine.action_logs.insert(0, log_msg)
-            if len(soar_engine.action_logs) > 50:
-                soar_engine.action_logs.pop()
-            
-        except Exception as e:
-            print(f"[Chaos] Error running chaos on {nid}: {e}")
-            log_msg = {
-                "timestamp": now.isoformat(),
-                "message": f"[RED TEAM CHAOS] Scan probe failed on node {node.get('name', nid)} ({node.get('host')}): {str(e)}",
-                "ts": now.strftime("%H:%M:%S"),
-                "msg": f"[RED TEAM CHAOS] Scan probe failed on node {node.get('name', nid)} ({node.get('host')}): {str(e)}"
-            }
-            soar_engine.action_logs.insert(0, log_msg)
-            if len(soar_engine.action_logs) > 50:
-                soar_engine.action_logs.pop()
+                log_msg = {
+                    "timestamp": now.isoformat(),
+                    "message": f"[CHAOS MONKEY] Deployed real {desc} on node {node_data.get('name', nid)}",
+                    "ts": now.strftime("%H:%M:%S"),
+                    "msg": f"[CHAOS MONKEY] Deployed real {desc} on node {node_data.get('name', nid)}"
+                }
+                soar_engine.action_logs.insert(0, log_msg)
+                if len(soar_engine.action_logs) > 50:
+                    soar_engine.action_logs.pop()
+                    
+                # Immediately trigger an active response from AI Autopilot (Blue Team)
+                simulated_event = {
+                    "id": f"evt_chaos_{int(now.timestamp())}_{random.randint(1000, 9999)}",
+                    "timestamp": now.timestamp(),
+                    "source": {
+                        "ip": "10.99.99.99",
+                        "city": "Threat Emulation Source",
+                        "lat": 37.7749,
+                        "lng": -122.4194
+                    },
+                    "target": {
+                        "ip": node_data.get("host"),
+                        "city": "Internal Network Target",
+                        "lat": 35.6762,
+                        "lng": 139.6503
+                    },
+                    "type": desc,
+                    "severity": "critical"
+                }
+                await soar_engine.process_event(simulated_event)
+                
+            except Exception as e:
+                pass
+                
+        asyncio.create_task(execute_chaos_payload(nid, node, cmds, log_desc, attack_choice))
 
 from pydantic import BaseModel
 from fastapi import HTTPException

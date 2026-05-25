@@ -14,3 +14,15 @@ asyncpg>=0.29.0
 aiomysql>=0.2.0
 python-dotenv>=1.0.0
 PyJWT>=2.0.0
+
+# --- RED TEAM & CYBER FORENSICS ---
+scapy>=2.5.0
+impacket>=0.11.0
+volatility3>=2.5.0
+pwntools>=4.12.0
+mitmproxy>=10.2.2
+yara-python>=4.5.0
+shodan>=1.31.0
+rapidfuzz>=3.8.0
+pycryptodome>=3.20.0
+dnspython>=2.6.0

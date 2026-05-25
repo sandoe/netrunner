@@ -44,6 +44,27 @@
           </button>
           <div v-else class="desc text-cyan" style="font-weight:bold;">[LOCKED: ADMIN CLEARANCE REQUIRED]</div>
         </div>
+
+        <div class="section-title mt-4">MIRAGE DECEPTION GRID</div>
+        <div class="control-group mirage-zone">
+          <p class="desc text-purple">Deploy a Cognitive Tarpit Honeypot. This will spin up an AI-simulated Docker container that traps attackers in a time-dilated hallucination maze.</p>
+          <div class="mirage-options" v-if="isAdmin">
+            <select v-model="miragePersona" class="mirage-select">
+              <option value="banking">Persona: Banking Database</option>
+              <option value="hr">Persona: Corporate HR Records</option>
+              <option value="scada">Persona: Secret SCADA Controller</option>
+            </select>
+            <select v-model="mirageAggressiveness" class="mirage-select mt-2">
+              <option value="passive">Mode: Passive Logging</option>
+              <option value="tarpit">Mode: Cognitive Tarpit (1 bps)</option>
+            </select>
+            <input type="number" v-model="miragePort" class="mirage-input mt-2" placeholder="Port (default: 2222)" />
+            <button class="btn-tool btn-mirage mt-2" @click="deployMirage" :disabled="deployingMirage">
+              {{ deployingMirage ? 'DEPLOYING HOLOGRAM...' : 'DEPLOY HOLOGRAPHIC HONEYPOT' }}
+            </button>
+          </div>
+          <div v-else class="desc text-purple" style="font-weight:bold;">[LOCKED: ADMIN CLEARANCE REQUIRED]</div>
+        </div>
       </div>
 
       <!-- Output Log -->
@@ -80,6 +101,11 @@ const ztaEnforcing = ref(false)
 const installing = ref(false)
 const removing = ref(false)
 const logOutput = ref('')
+
+const deployingMirage = ref(false)
+const miragePersona = ref('banking')
+const mirageAggressiveness = ref('tarpit')
+const miragePort = ref(2222)
 
 function appendLog(msg: string) {
   const ts = new Date().toISOString().split('T')[1].split('.')[0]
@@ -175,6 +201,28 @@ async function enforceZTA() {
     appendLog(`ERROR: ${e.message}`)
   } finally {
     ztaEnforcing.value = false
+  }
+}
+
+async function deployMirage() {
+  if (!props.nodeId) return
+  if (!confirm("This will install and run a Docker container (Project Mirage) on the target node. Proceed?")) return
+
+  deployingMirage.value = true
+  appendLog(`Initializing HOLOGRAPHIC PROJECTION (Persona: ${miragePersona.value}) on node ${props.nodeId}...`)
+  appendLog("Compiling paramiko cognitive tarpit...")
+  try {
+    const res = await api.deployMirageHoneypot(props.nodeId, {
+      persona: miragePersona.value,
+      port: miragePort.value,
+      aggressiveness: mirageAggressiveness.value
+    })
+    appendLog("Mirage Deception Grid online.")
+    logOutput.value += `\n${res.message}\n\n`
+  } catch (e: any) {
+    appendLog(`ERROR: ${e.message}`)
+  } finally {
+    deployingMirage.value = false
   }
 }
 </script>
@@ -430,3 +478,15 @@ async function enforceZTA() {
 }
 </style>
 
+<style scoped>
+.btn-mirage { background: rgba(162, 0, 255, 0.1); border-color: #a200ff; color: #a200ff; width: 100%; }
+.btn-mirage:hover:not(:disabled) { background: #a200ff; color: var(--bg); box-shadow: 0 0 15px rgba(162, 0, 255, 0.6); }
+.text-purple { color: #a200ff; }
+.mirage-zone { border-color: rgba(162, 0, 255, 0.3); background: rgba(162, 0, 255, 0.02); }
+.mirage-options { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
+.mirage-select, .mirage-input {
+  width: 100%; padding: 8px; background: var(--bg); border: 1px solid rgba(162, 0, 255, 0.3);
+  color: #fff; font-family: var(--font-co); border-radius: var(--r); outline: none;
+}
+.mirage-select:focus, .mirage-input:focus { border-color: #a200ff; }
+</style>

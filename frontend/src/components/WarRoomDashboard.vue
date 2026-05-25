@@ -73,6 +73,13 @@
                     <option value="xss">Web Exploit: Cross-Site Scripting (XSS)</option>
                     <option value="lfi">Web Exploit: Path Traversal (LFI)</option>
                     <option value="ufw">Firewall: UFW Blocked Port Scan</option>
+                    <option disabled>──────────── REAL ARSENAL ────────────</option>
+                    <option value="scapy">DNS Spoofing (Scapy)</option>
+                    <option value="mitmproxy">Mitmproxy (HTTP Intercept)</option>
+                    <option value="impacket">SMB Relay / Hash Capture (Impacket)</option>
+                    <option value="volatility">Memory Dump (Volatility3)</option>
+                    <option value="yara">Malware Scanner (YARA)</option>
+                    <option value="shodan">OSINT Footprinting (Shodan API)</option>
                   </select>
                 </div>
 
@@ -94,10 +101,22 @@
                   <input v-model="webPathQuery" type="text" class="cyber-input" placeholder="F.eks. /?id=1%20UNION%20SELECT%201" />
                 </div>
 
-                <!-- Firewall port conditional field -->
-                <div v-if="selectedAttackType === 'ufw'" class="form-row">
-                  <label>TARGET PORT:</label>
-                  <input v-model="fwPort" type="number" class="cyber-input" placeholder="F.eks. 8080" />
+                <!-- Target IP (Used for Scapy, Impacket, Shodan) -->
+                <div v-if="['scapy', 'impacket', 'shodan'].includes(selectedAttackType)" class="form-row">
+                  <label>TARGET IP / DOMAIN:</label>
+                  <input v-model="attackerIp" type="text" class="cyber-input" placeholder="IP to target or spoof" />
+                </div>
+
+                <!-- Firewall port / Proxy Port -->
+                <div v-if="['ufw', 'mitmproxy'].includes(selectedAttackType)" class="form-row">
+                  <label>PORT:</label>
+                  <input v-model="fwPort" type="number" class="cyber-input" placeholder="e.g. 8080" />
+                </div>
+
+                <!-- Yara Path -->
+                <div v-if="selectedAttackType === 'yara'" class="form-row">
+                  <label>TARGET DIRECTORY PATH:</label>
+                  <input v-model="yaraPath" type="text" class="cyber-input" placeholder="e.g. /var/www/html" />
                 </div>
 
                 <!-- Action button -->
@@ -199,6 +218,7 @@ const attackerIp = ref('203.0.113.5')
 const sshUsername = ref('root')
 const webPathQuery = ref('/?id=1%20UNION%20SELECT%201')
 const fwPort = ref(8080)
+const yaraPath = ref('/var/www/html')
 
 const launchingAttack = ref(false)
 const attackResult = ref('')
@@ -229,18 +249,34 @@ async function launchAttack() {
   if (!selectedNodeId.value) return
   launchingAttack.value = true
   attackResult.value = ''
+  
+  const isRealPayload = ['scapy', 'mitmproxy', 'impacket', 'volatility', 'yara', 'shodan'].includes(selectedAttackType.value)
+  
   try {
-    const payload = {
-      node_id: selectedNodeId.value,
-      attack_type: selectedAttackType.value,
-      attacker_ip: attackerIp.value,
-      username: selectedAttackType.value === 'ssh' ? sshUsername.value : undefined,
-      port: selectedAttackType.value === 'ufw' ? Number(fwPort.value) : undefined,
-      path_query: ['sqli', 'xss', 'lfi'].includes(selectedAttackType.value) ? webPathQuery.value : undefined
+    if (isRealPayload) {
+      const payload = {
+        node_id: selectedNodeId.value,
+        tool_name: selectedAttackType.value,
+        target_ip: attackerIp.value,
+        target_path: yaraPath.value,
+        port: Number(fwPort.value)
+      }
+      const res = await api.deployRedTeamPayload(payload)
+      const writeDetail = res.real_file_write ? ' (Payload executed via SSH!)' : ' (Simuleret fallback)'
+      attackResult.value = `Arsenal Deployed: ${res.message}${writeDetail}`
+    } else {
+      const payload = {
+        node_id: selectedNodeId.value,
+        attack_type: selectedAttackType.value,
+        attacker_ip: attackerIp.value,
+        username: selectedAttackType.value === 'ssh' ? sshUsername.value : undefined,
+        port: selectedAttackType.value === 'ufw' ? Number(fwPort.value) : undefined,
+        path_query: ['sqli', 'xss', 'lfi'].includes(selectedAttackType.value) ? webPathQuery.value : undefined
+      }
+      const res = await api.triggerAttack(payload)
+      const writeDetail = res.real_file_write ? ' (Skrevet til serverlogfiler!)' : ' (Simuleret fallback)'
+      attackResult.value = `Angreb udrullet: ${res.message}${writeDetail}`
     }
-    const res = await api.triggerAttack(payload)
-    const writeDetail = res.real_file_write ? ' (Skrevet til serverlogfiler!)' : ' (Simuleret fallback)'
-    attackResult.value = `Angreb udrullet: ${res.message}${writeDetail}`
   } catch (e: any) {
     attackResult.value = 'FEJL: ' + e.message
   } finally {

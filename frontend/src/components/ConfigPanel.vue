@@ -29,8 +29,8 @@
               <span>persist on boot</span>
             </label>
             <button class="btn-clear-form" @click="resetForm" title="Reset form to defaults">🗑 clear form</button>
-            <button class="btn-preview" @click="getPreview" :disabled="loading">👁 preview</button>
-            <button class="btn-apply" @click="applyConfig" :disabled="loading || !previewCommands.length">
+            <button class="btn-preview" @click="getPreview" :disabled="loading || !!validationErrorMessage">👁 preview</button>
+            <button class="btn-apply" @click="applyConfig" :disabled="loading || !previewCommands.length || !!validationErrorMessage">
               {{ persistMode ? '💾 install' : '🚀 apply' }}
             </button>
           </div>
@@ -534,6 +534,12 @@
 
             <!-- Standard creation/update inputs -->
             <div v-if="wireguardForm.action !== 'delete'" class="wg-form-body">
+              <!-- Validation warning banner -->
+              <div v-if="validationErrorMessage" class="wg-validation-warning">
+                <span class="warning-icon">⚠️</span>
+                <span class="warning-msg">{{ validationErrorMessage }}</span>
+              </div>
+
               <div class="wg-profile-panel">
                 <div class="wg-profile-header">
                   <div>
@@ -568,9 +574,9 @@
               </div>
 
               <div class="form-row">
-                <label>Interface <input v-model="wireguardForm.interface" placeholder="wg0" /></label>
-                <label>Address <input v-model="wireguardForm.address" placeholder="10.0.0.1/24" /></label>
-                <label>Listen Port <input v-model.number="wireguardForm.listen_port" type="number" placeholder="51820" /></label>
+                <label>Interface <input v-model="wireguardForm.interface" placeholder="wg0" autocomplete="off" data-lpignore="true" /></label>
+                <label>IP Address <input v-model="wireguardForm.address" placeholder="10.0.0.1/24" autocomplete="off" data-lpignore="true" /></label>
+                <label>Listen Port <input v-model.number="wireguardForm.listen_port" type="number" placeholder="51820" autocomplete="off" data-lpignore="true" /></label>
               </div>
               
               <!-- Key Generation Row -->
@@ -584,6 +590,8 @@
                         :type="hidePrivateKey ? 'password' : 'text'" 
                         placeholder="Local private key..."
                         class="private-key-input"
+                        autocomplete="new-password"
+                        data-lpignore="true"
                       />
                       <button 
                         type="button" 
@@ -680,12 +688,12 @@
               <!-- Advanced Fields -->
               <div v-if="wgAdvancedExpanded" class="wg-advanced-fields">
                 <div class="form-row">
-                  <label>DNS <input v-model="wireguardForm.dns" placeholder="e.g. 1.1.1.1, 8.8.8.8" /></label>
-                  <label>MTU <input v-model="wireguardForm.mtu" placeholder="e.g. 1420" /></label>
+                  <label>DNS <input v-model="wireguardForm.dns" placeholder="e.g. 1.1.1.1, 8.8.8.8" autocomplete="off" data-lpignore="true" /></label>
+                  <label>MTU <input v-model="wireguardForm.mtu" placeholder="e.g. 1420" autocomplete="off" data-lpignore="true" /></label>
                 </div>
                 <div class="form-row">
-                  <label>PostUp <input v-model="wireguardForm.post_up" placeholder="iptables -A FORWARD -i wg0 -j ACCEPT; ..." /></label>
-                  <label>PostDown <input v-model="wireguardForm.post_down" placeholder="iptables -D FORWARD -i wg0 -j ACCEPT; ..." /></label>
+                  <label>PostUp <input v-model="wireguardForm.post_up" placeholder="iptables -A FORWARD -i wg0 -j ACCEPT; ..." autocomplete="off" data-lpignore="true" /></label>
+                  <label>PostDown <input v-model="wireguardForm.post_down" placeholder="iptables -D FORWARD -i wg0 -j ACCEPT; ..." autocomplete="off" data-lpignore="true" /></label>
                 </div>
               </div>
 
@@ -693,11 +701,11 @@
               <div class="section-label-sub">Peers</div>
               <div v-for="(peer, i) in wireguardForm.peers" :key="i" class="form-row multi-row peer-row-container">
                 <div class="peer-grid">
-                  <label class="peer-full-width">Public Key <input v-model="peer.public_key" placeholder="Remote peer public key..." /></label>
-                  <label>Endpoint <input v-model="peer.endpoint" placeholder="e.g. 192.168.1.100:51820" /></label>
-                  <label>Allowed IPs <input v-model="peer.allowed_ips" placeholder="e.g. 10.0.0.2/32, 192.168.20.0/24" /></label>
-                  <label>Preshared Key <input v-model="peer.preshared_key" placeholder="Optional peer preshared key..." /></label>
-                  <label>Keepalive <input v-model.number="peer.persistent_keepalive" type="number" placeholder="e.g. 25" /></label>
+                  <label class="peer-full-width">Public Key <input v-model="peer.public_key" placeholder="Remote peer public key..." autocomplete="off" data-lpignore="true" /></label>
+                  <label>Endpoint <input v-model="peer.endpoint" placeholder="e.g. 192.168.1.100:51820" autocomplete="off" data-lpignore="true" /></label>
+                  <label>Allowed IPs <input v-model="peer.allowed_ips" placeholder="e.g. 10.0.0.2/32, 192.168.20.0/24" autocomplete="off" data-lpignore="true" /></label>
+                  <label>Preshared Key <input v-model="peer.preshared_key" placeholder="Optional peer preshared key..." autocomplete="off" data-lpignore="true" /></label>
+                  <label>Keepalive <input v-model.number="peer.persistent_keepalive" type="number" placeholder="e.g. 25" autocomplete="off" data-lpignore="true" /></label>
                 </div>
                 <button class="btn-remove btn-remove-peer" @click="wireguardForm.peers.splice(i, 1)">✕</button>
               </div>
@@ -707,7 +715,7 @@
             <!-- Deletion Mode Layout -->
             <div v-else class="wg-delete-body">
               <div class="form-row">
-                <label>Interface to Delete <input v-model="wireguardForm.interface" placeholder="wg0" /></label>
+                <label>Interface to Delete <input v-model="wireguardForm.interface" placeholder="wg0" autocomplete="off" data-lpignore="true" /></label>
               </div>
               <div class="wg-delete-warning-box">
                 <div class="warning-header">⚠️ WARNING: IRREVERSIBLE OPERATION</div>
@@ -829,6 +837,222 @@
             <label class="check-label"><input type="checkbox" v-model="fileWriteForm.backup" /> Create .bak before writing</label>
           </div>
 
+          <!-- Remote Desktop Form -->
+          <div v-if="activeType === 'remote-desktop'" class="specialized-form">
+            <div class="form-row">
+              <label>Handling
+                <select v-model="remoteDesktopForm.action">
+                  <option value="install">Installér og aktivér (Opsæt)</option>
+                  <option value="uninstall">Afinstallér og fjern (Ryd op)</option>
+                </select>
+              </label>
+              <label>Protokol
+                <select v-model="remoteDesktopForm.protocol">
+                  <option value="rdp">RDP (Remote Desktop Server)</option>
+                  <option value="vnc">VNC (Virtual Network Computing Server)</option>
+                  <option value="remmina">Remmina (Fjernskrivebordsklient)</option>
+                </select>
+              </label>
+            </div>
+            
+            <div class="form-row" v-if="remoteDesktopForm.action === 'install' && remoteDesktopForm.protocol !== 'remmina'">
+              <label>Brugernavn <input v-model="remoteDesktopForm.username" placeholder="F.eks. root" /></label>
+              <label>Password <input v-model="remoteDesktopForm.password" type="password" placeholder="Skriv adgangskode til fjernforbindelse" /></label>
+            </div>
+
+            <div class="form-row" v-if="remoteDesktopForm.action === 'install' && remoteDesktopForm.protocol !== 'remmina'">
+              <label>Skrivebordsmiljø (Desktop)
+                <select v-model="remoteDesktopForm.desktop">
+                  <option value="xfce">XFCE4 (Anbefalet - let og fuld funktionel)</option>
+                  <option value="lxde">LXDE Core (Super letvægt)</option>
+                  <option value="none">Rå X11 / Ingen (Kun Xterm / TWM)</option>
+                </select>
+              </label>
+              <label v-if="remoteDesktopForm.protocol === 'vnc'">Opløsning (Resolution)
+                <select v-model="remoteDesktopForm.resolution">
+                  <option value="800x600">800 x 600</option>
+                  <option value="1024x768">1024 x 768</option>
+                  <option value="1280x720">1280 x 720 (Standard HD)</option>
+                  <option value="1920x1080">1920 x 1080 (Fuld HD)</option>
+                </select>
+              </label>
+              <label>Port <input type="number" v-model="remoteDesktopForm.port" /></label>
+            </div>
+            
+            <div class="form-row" v-if="remoteDesktopForm.action === 'uninstall' && remoteDesktopForm.protocol !== 'remmina'">
+              <label>Port der skal lukkes <input type="number" v-model="remoteDesktopForm.port" /></label>
+              <label>Brugernavn til oprydning <input v-model="remoteDesktopForm.username" /></label>
+            </div>
+
+            <!-- Danish Tip Box for Remmina Client -->
+            <div v-if="remoteDesktopForm.protocol === 'remmina'" style="margin-top: 12px; padding: 12px 16px; background: rgba(56, 189, 248, 0.05); border: 1px dashed var(--accent, #38bdf8); border-radius: var(--r, 6px); font-family: var(--font-ui); font-size: 0.9rem; line-height: 1.5;">
+              <h4 style="margin: 0 0 6px 0; color: var(--accent, #38bdf8); display: flex; align-items: center; gap: 6px; font-family: var(--font-hd); font-size: 0.95rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">
+                🖥️ Remmina Fjernskrivebordsklient
+              </h4>
+              <p style="margin: 0; color: var(--text-muted, #94a3b8);" v-if="remoteDesktopForm.action === 'install'">
+                Du installerer nu <strong>Remmina</strong> på denne node. 
+                Da Remmina er en <em>klientapplikation</em> (forbindelsesmanager) og ikke en server, kræves der ingen porte, passwords eller skrivebordsopsætning her. 
+                Programmet installeres automatisk med understøttelse af RDP og VNC, så noden kan forbinde ud til andre fjernskriveborde i netværket.
+              </p>
+              <p style="margin: 0; color: var(--text-muted, #94a3b8);" v-else>
+                Dette vil afinstallere <strong>Remmina</strong> samt dets RDP- og VNC-forbindelsesplugins fuldstændigt fra noden. No yderligere serverindstillinger vil blive påvirket.
+              </p>
+            </div>
+          </div>
+
+          <!-- Windows IP Setup Form -->
+          <div v-if="activeType === 'win-ip'" class="specialized-form">
+            <div class="form-row">
+              <label>Netværkskort (Interface Alias)
+                <input v-model="winIpForm.interface" placeholder="Ethernet" />
+              </label>
+              <label class="check-label" style="margin-top: 18px;">
+                <input type="checkbox" v-model="winIpForm.dhcp" /> Aktiver DHCP (Dynamisk IP)
+              </label>
+            </div>
+            
+            <div class="form-row" v-if="!winIpForm.dhcp">
+              <label>IP-adresse / CIDR
+                <input v-model="winIpForm.address" placeholder="192.168.1.100/24" />
+              </label>
+              <label>Gateway (Router IP)
+                <input v-model="winIpForm.gateway" placeholder="192.168.1.1" />
+              </label>
+            </div>
+
+            <div class="form-row">
+              <label>DNS-servere (CSV eller mellemrum)
+                <input v-model="winIpForm.dns" placeholder="1.1.1.1, 8.8.8.8" />
+              </label>
+            </div>
+
+            <!-- Danish Tip Box -->
+            <div style="margin-top: 12px; padding: 12px 16px; background: rgba(56, 189, 248, 0.05); border: 1px dashed var(--accent, #38bdf8); border-radius: var(--r, 6px); font-family: var(--font-ui); font-size: 0.9rem; line-height: 1.5;">
+              <h4 style="margin: 0 0 6px 0; color: var(--accent, #38bdf8); display: flex; align-items: center; gap: 6px; font-family: var(--font-hd); font-size: 0.95rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">
+                🪟 Windows Netværkskort Info
+              </h4>
+              <p style="margin: 0; color: var(--text-muted, #94a3b8);">
+                Standard netværkskortnavnet i Windows er normalt <code>Ethernet</code> eller <code>Wi-Fi</code>. 
+                Når du tildeler en statisk IP, vil eksisterende ikke-link-local IP-adresser og ruter på kortet automatisk blive ryddet for at undgå konflikter.
+              </p>
+            </div>
+          </div>
+
+          <!-- Windows Routes Form -->
+          <div v-if="activeType === 'win-route'" class="specialized-form">
+            <div class="form-row">
+              <label>Handling (Action)
+                <select v-model="winRouteForm.action" class="cyber-select">
+                  <option value="add">Tilføj rute (Add)</option>
+                  <option value="remove">Fjern rute (Remove)</option>
+                </select>
+              </label>
+              <label>Destination (IP/CIDR)
+                <input v-model="winRouteForm.destination" placeholder="10.200.0.0/16" />
+              </label>
+            </div>
+
+            <div class="form-row" v-if="winRouteForm.action === 'add'">
+              <label>Gateway (Next Hop)
+                <input v-model="winRouteForm.gateway" placeholder="192.168.1.1" />
+              </label>
+              <label>Netværkskort (Alias - Valgfrit)
+                <input v-model="winRouteForm.interface" placeholder="Ethernet" />
+              </label>
+              <label>Metric (Valgfrit)
+                <input type="number" v-model.number="winRouteForm.metric" placeholder="10" />
+              </label>
+            </div>
+
+            <div style="margin-top: 12px; padding: 12px 16px; background: rgba(56, 189, 248, 0.05); border: 1px dashed var(--accent, #38bdf8); border-radius: var(--r, 6px); font-family: var(--font-ui); font-size: 0.9rem; line-height: 1.5;">
+              <p style="margin: 0; color: var(--text-muted, #94a3b8);">
+                Windows-ruter tilføjes som persistente som standard i PowerShell. Next Hop (gateway) er påkrævet for at kunne tilføje en ny rute.
+              </p>
+            </div>
+          </div>
+
+          <!-- Windows Services Form -->
+          <div v-if="activeType === 'win-service'" class="specialized-form">
+            <div class="form-row">
+              <label>Tjeneste Navn (Service Name)
+                <input v-model="winServiceForm.name" placeholder="wuauserv, WinRM, etc." />
+              </label>
+              <label>Handling (Action)
+                <select v-model="winServiceForm.action" class="cyber-select">
+                  <option value="status">Vis status (Status)</option>
+                  <option value="start">Start tjeneste (Start)</option>
+                  <option value="stop">Stop tjeneste (Stop)</option>
+                  <option value="restart">Genstart tjeneste (Restart)</option>
+                  <option value="enable">Aktiver ved opstart (Enable)</option>
+                  <option value="disable">Deaktiver ved opstart (Disable)</option>
+                </select>
+              </label>
+            </div>
+          </div>
+
+          <!-- Windows Features Form -->
+          <div v-if="activeType === 'win-feature'" class="specialized-form">
+            <div class="form-row">
+              <label>Pakke- eller Funktionsnavn (Name / ID)
+                <input v-model="winFeatureForm.name" placeholder="NetFx3 eller winget ID (f.eks. Git.Git)" />
+              </label>
+              <label>Installationstype (Manager)
+                <select v-model="winFeatureForm.manager" class="cyber-select">
+                  <option value="feature">Windows Optional Feature (DISM)</option>
+                  <option value="winget">winget Pakke Manager</option>
+                </select>
+              </label>
+              <label>Handling (Action)
+                <select v-model="winFeatureForm.action" class="cyber-select">
+                  <option value="install">Installer / Aktiver (Install)</option>
+                  <option value="uninstall">Afinstaller / Deaktiver (Uninstall)</option>
+                </select>
+              </label>
+            </div>
+
+            <div style="margin-top: 12px; padding: 12px 16px; background: rgba(56, 189, 248, 0.05); border: 1px dashed var(--accent, #38bdf8); border-radius: var(--r, 6px); font-family: var(--font-ui); font-size: 0.9rem; line-height: 1.5;">
+              <p style="margin: 0; color: var(--text-muted, #94a3b8);">
+                For Windows Features bruges <code>Enable-WindowsOptionalFeature</code> / <code>Disable-WindowsOptionalFeature</code> med <code>-NoRestart</code>. 
+                For winget installeres pakker lydløst med <code>--silent</code>.
+              </p>
+            </div>
+          </div>
+
+          <!-- Windows Hostname Form -->
+          <div v-if="activeType === 'win-hostname'" class="specialized-form">
+            <div class="form-row">
+              <label>Nyt Computernavn
+                <input v-model="winHostnameForm.hostname" placeholder="WinNode-01" />
+              </label>
+            </div>
+
+            <div style="margin-top: 12px; padding: 12px 16px; background: rgba(239, 68, 68, 0.05); border: 1px dashed #ef4444; border-radius: var(--r, 6px); font-family: var(--font-ui); font-size: 0.9rem; line-height: 1.5;">
+              <h4 style="margin: 0 0 6px 0; color: #ef4444; display: flex; align-items: center; gap: 6px; font-family: var(--font-hd); font-size: 0.95rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">
+                ⚠️ Genstart Påkrævet
+              </h4>
+              <p style="margin: 0; color: var(--text-muted, #94a3b8);">
+                Når du ændrer computernavnet på en Windows-maskine, vil ændringen først træde i kraft efter en fuld genstart af operativsystemet.
+              </p>
+            </div>
+          </div>
+
+          <!-- Windows Write File Form -->
+          <div v-if="activeType === 'win-file'" class="specialized-form">
+            <div class="form-row">
+              <label>Filsti (File Path)
+                <input v-model="winFileForm.path" placeholder="C:\temp\config.txt" />
+              </label>
+              <label class="check-label" style="margin-top: 18px;">
+                <input type="checkbox" v-model="winFileForm.overwrite" /> Overskriv eksisterende fil
+              </label>
+            </div>
+            <div class="input-section">
+              <div class="section-label">Filindhold</div>
+              <textarea v-model="winFileForm.content" class="json-textarea" style="height: 180px;" placeholder="Skriv dit filindhold her..."></textarea>
+            </div>
+          </div>
+
+
           <!-- Direct File Editor Form -->
           <div v-if="activeType === 'direct-file'" class="specialized-form">
             <div class="form-row">
@@ -869,6 +1093,12 @@
                   <option value="service">service (Services)</option>
                   <option value="package">package (Packages)</option>
                   <option value="file-write">file-write (Write File)</option>
+                  <option value="win-ip">win-ip (Windows IP Setup)</option>
+                  <option value="win-route">win-route (Windows Routes)</option>
+                  <option value="win-service">win-service (Windows Services)</option>
+                  <option value="win-feature">win-feature (Windows Features)</option>
+                  <option value="win-hostname">win-hostname (Windows Hostname)</option>
+                  <option value="win-file">win-file (Windows Write File)</option>
                 </select>
               </label>
             </div>
@@ -1230,10 +1460,24 @@
           </div>
 
           <div class="input-section" v-if="activeType !== 'direct-file'">
-            <div class="section-label">
-              Data (JSON)
-              <span v-if="activeType === 'direct-json'" class="auto-label" style="color: var(--accent-light, #00f0ff); font-weight: bold;"> — DIRECT EDIT MODE</span>
-              <span v-else-if="activeType" class="auto-label"> — auto-generated</span>
+            <div class="section-label" style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
+              <span>
+                Data (JSON)
+                <span v-if="activeType === 'direct-json'" class="auto-label" style="color: var(--accent-light, #00f0ff); font-weight: bold;"> — DIRECT EDIT MODE</span>
+                <span v-else-if="activeType" class="auto-label"> — auto-generated</span>
+              </span>
+              <button 
+                v-if="activeType && activeType !== 'direct-json'" 
+                type="button" 
+                class="btn-rebuild-json" 
+                @click="rebuildJsonFromFields"
+                title="Genopbyg JSON-konfigurationen ud fra formularen ovenfor"
+                style="background: transparent; border: 1px solid var(--border); border-radius: 4px; color: var(--text); padding: 2px 8px; font-size: 10px; cursor: pointer; transition: all 0.2s;"
+                @mouseover="$event.target.style.borderColor = 'var(--cyan)';"
+                @mouseleave="$event.target.style.borderColor = 'var(--border)';"
+              >
+                🔄 Genbyg fra formular
+              </button>
             </div>
             <textarea
               v-model="inputJson"
@@ -1306,7 +1550,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch, computed, onUnmounted } from 'vue'
+import { ref, watch, computed, onUnmounted, nextTick } from 'vue'
 import { api } from '@/api/client'
 import type { CommandResult } from '@/types'
 
@@ -1344,6 +1588,18 @@ const CONFIG_CATEGORIES = {
       { type: 'hostname', label: 'Hostname' },
       { type: 'sysctl', label: 'Sysctl' },
       { type: 'file-write', label: 'Write File' },
+      { type: 'remote-desktop', label: '💻 Remote Desktop' },
+    ]
+  },
+  windows: {
+    icon: '🪟', label: 'Windows',
+    types: [
+      { type: 'win-ip', label: 'Windows IP Setup' },
+      { type: 'win-route', label: 'Windows Routes' },
+      { type: 'win-service', label: 'Windows Services' },
+      { type: 'win-feature', label: 'Windows Features' },
+      { type: 'win-hostname', label: 'Windows Hostname' },
+      { type: 'win-file', label: 'Windows Write File' }
     ]
   },
   rpi: {
@@ -1461,6 +1717,42 @@ const CYBER_GUIDES: Record<string, GuideData> = {
     description: 'Fine-tune Linux kernel parameters dynamically or persistently.',
     files: ['/etc/sysctl.conf'],
     tips: ['Changing sysctl values can alter system security and network behavior instantly.', 'Run sysctl -p to reload.']
+  },
+  'win-ip': {
+    title: 'Windows IP Setup',
+    description: 'Konfigurer IP-adresser, gateway og DNS-servere på Windows-netværkskort.',
+    files: ['NetIPAddress', 'DnsClientServerAddress'],
+    tips: ['Brug DHCP for dynamisk opsætning.', 'Static IP fjerner gamle adresser automatisk for at forhindre konflikter.']
+  },
+  'win-route': {
+    title: 'Windows Routing',
+    description: 'Administrer statiske og persistente ruter i Windows-routingtabellen.',
+    files: ['NetRoute'],
+    tips: ['Statiske ruter tilføjes som persistente som standard.', 'NextHop (gateway) er påkrævet for at tilføje en rute.']
+  },
+  'win-service': {
+    title: 'Windows Services',
+    description: 'Administrer systemtjenester (status, start, stop, restart, startup type).',
+    files: ['Get-Service / Set-Service'],
+    tips: ['Kræver administratorrettigheder på Windows-noden.', 'Stop ikke kritiske systemtjenester som f.eks. WinRM eller RPC.']
+  },
+  'win-feature': {
+    title: 'Windows Features & Packages',
+    description: 'Aktiver/deaktiver valgfrie komponenter (DISM) eller installer programmer via winget.',
+    files: ['WindowsOptionalFeature', 'winget'],
+    tips: ['winget kræver at pakke-manageren er installeret på maskinen.', 'Standardfunktioner installeres lydløst uden genstart.']
+  },
+  'win-hostname': {
+    title: 'Windows Hostname omdøb',
+    description: 'Omdøb computerens navn (computername / hostname) i Windows.',
+    files: ['Rename-Computer'],
+    tips: ['En fuld genstart af maskinen er påkrævet, før det nye computernavn træder i kraft.']
+  },
+  'win-file': {
+    title: 'Windows Filskrivning',
+    description: 'Skriv tekstfiler og konfigurationsfiler direkte på Windows-noden.',
+    files: ['Out-File / Here-Strings'],
+    tips: ['Alle overordnede mapper oprettes automatisk, hvis de ikke findes.', 'Here-Strings bevarer formatering og linjeskift fejlfrit.']
   }
 }
 
@@ -1487,7 +1779,7 @@ function escapeHtml(unsafe: string) {
 function highlightPreviewCommands(text: string): string {
   let highlighted = escapeHtml(text)
   
-  const sysCmds = /\b(ip|rc-update|sysctl|systemctl|cat|chmod|wg-quick|wg|apk|apt|ufw|iptables|mkdir|echo|tee|touch)\b/g
+  const sysCmds = /\b(ip|rc-update|sysctl|systemctl|cat|chmod|wg-quick|wg|apk|apt|ufw|iptables|mkdir|echo|tee|touch|Set-NetIPInterface|Set-DnsClientServerAddress|Remove-NetIPAddress|Remove-NetRoute|New-NetIPAddress|New-NetRoute|Start-Service|Stop-Service|Restart-Service|Set-Service|Get-Service|Disable-WindowsOptionalFeature|Enable-WindowsOptionalFeature|Rename-Computer|Split-Path|Test-Path|New-Item|Out-File|winget)\b/g
   const heredoc = /(&lt;&lt;\s*&#039;?EOF&#039;?|EOF|__NETRUNNER_EOF__)/g
   const ipAddr = /\b(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}(?:\/\d{1,2})?)\b/g
   const strings = /(&quot;[^&]*&quot;|&#039;[^&]*&#039;)/g
@@ -1528,7 +1820,7 @@ const defaultDnsForm          = () => ({ nameservers: ['8.8.8.8'], search: ['loc
 const defaultNatForm          = () => ({ outbound_iface: 'eth0', inbound_iface: 'eth1', source_subnet: '10.0.0.0/24', masquerade: true, port_forwards: [{ proto: 'tcp', external_port: '80', target_ip: '10.0.0.10', target_port: '80' }] })
 const defaultVlanRouterForm   = () => ({ interface: 'eth0', vlans: [{ id: '10', address: '10.0.10.1/24', description: 'Management', action: 'add' }] })
 const defaultVlanSwitchForm   = () => ({ bridge: 'br0', vlans: [{ id: '10', name: 'MGMT' }], ports: [{ iface: 'eth1', mode: 'access', vlan: '10', allowed: '' }] })
-const defaultWireguardForm    = () => ({ action: 'add', interface: 'wg0', private_key: '', address: '10.0.0.1/24', listen_port: 51820, dns: '', mtu: '', post_up: '', post_down: '', peers: [{ public_key: '', preshared_key: '', endpoint: '', allowed_ips: '0.0.0.0/0', persistent_keepalive: '' }] })
+const defaultWireguardForm    = () => ({ action: 'add', interface: 'wg0', private_key: '', address: '', listen_port: 51820, dns: '', mtu: '', post_up: '', post_down: '', peers: [{ public_key: '', preshared_key: '', endpoint: '', allowed_ips: '0.0.0.0/0', persistent_keepalive: '' }] })
 const defaultForwardingForm   = () => ({ ipv4: true, ipv6: false })
 const defaultServiceForm      = () => ({ name: '', action: 'status' })
 const defaultPackageForm      = () => ({ packages: '', action: 'install', manager: 'auto' })
@@ -1536,6 +1828,7 @@ const defaultUserForm         = () => ({ username: '', action: 'create', passwor
 const defaultHostnameForm     = () => ({ hostname: '', domain: '' })
 const defaultSysctlForm       = () => ({ params: [{ key: 'net.ipv4.ip_forward', value: '1' }], persist: true })
 const defaultFileWriteForm    = () => ({ path: '/tmp/test.txt', content: '', mode: '644', owner: 'root', backup: false })
+const defaultRemoteDesktopForm = () => ({ action: 'install', protocol: 'rdp', username: 'root', password: '', desktop: 'xfce', resolution: '1280x720', port: 3389 })
 const defaultIptablesForm     = () => ({
   defaults: { INPUT: 'DROP', FORWARD: 'DROP', OUTPUT: 'ACCEPT' },
   rules: [
@@ -1575,6 +1868,13 @@ const defaultDnsLookupForm    = () => ({ target: '', query_type: 'A', server: ''
 const defaultWolForm          = () => ({ mac: '', interface: '' })
 const defaultArpScanForm      = () => ({ target: 'localnet', interface: '' })
 
+const defaultWinIpForm = () => ({ interface: 'Ethernet', dhcp: false, address: '', gateway: '', dns: '' })
+const defaultWinRouteForm = () => ({ destination: '10.200.0.0/16', gateway: '', interface: '', metric: undefined as number | undefined, action: 'add' })
+const defaultWinServiceForm = () => ({ name: '', action: 'status' })
+const defaultWinFeatureForm = () => ({ name: '', action: 'install', manager: 'feature' })
+const defaultWinHostnameForm = () => ({ hostname: '' })
+const defaultWinFileForm = () => ({ path: 'C:\\temp\\test.txt', content: '', overwrite: true })
+
 function resetForm() {
   if (!activeType.value) return
   if (!confirm(`Clear current ${activeType.value} configuration form?`)) return
@@ -1607,7 +1907,9 @@ function resetForm() {
     'rpi-camera': defaultRpiCameraForm, 'rpi-watchdog': defaultRpiWatchdogForm,
     nmap: defaultNmapForm, iperf3: defaultIperf3Form, mtr: defaultMtrForm,
     speedtest: () => ({}), 'dns-lookup': defaultDnsLookupForm, wol: defaultWolForm,
-    'arp-scan': defaultArpScanForm
+    'arp-scan': defaultArpScanForm, 'remote-desktop': defaultRemoteDesktopForm,
+    'win-ip': defaultWinIpForm, 'win-route': defaultWinRouteForm, 'win-service': defaultWinServiceForm,
+    'win-feature': defaultWinFeatureForm, 'win-hostname': defaultWinHostnameForm, 'win-file': defaultWinFileForm
   }
 
   const formRefs: Record<string, any> = {
@@ -1620,7 +1922,10 @@ function resetForm() {
     'rpi-wifi': rpiWifiForm, 'rpi-spi': rpiSpiForm, 'rpi-i2c-enable': rpiI2cForm,
     'rpi-camera': rpiCameraForm, 'rpi-watchdog': rpiWatchdogForm,
     nmap: nmapForm, iperf3: iperf3Form, mtr: mtrForm,
-    'dns-lookup': dnsLookupForm, wol: wolForm, 'arp-scan': arpScanForm
+    'dns-lookup': dnsLookupForm, wol: wolForm, 'arp-scan': arpScanForm,
+    'remote-desktop': remoteDesktopForm,
+    'win-ip': winIpForm, 'win-route': winRouteForm, 'win-service': winServiceForm,
+    'win-feature': winFeatureForm, 'win-hostname': winHostnameForm, 'win-file': winFileForm
   }
 
   if (defaults[activeType.value] && formRefs[activeType.value]) {
@@ -1687,6 +1992,26 @@ const wgHistoryExpanded = ref(false)
 const wgProfiles = ref<WireguardProfile[]>([])
 const currentWgProfiles = computed(() => wgProfiles.value.filter(p => p.nodeId === props.nodeId))
 const currentKeyHistory = computed(() => keyHistory.value.filter(k => k.nodeId === props.nodeId))
+
+const validationErrorMessage = computed(() => {
+  if (activeType.value === 'wireguard') {
+    if (wireguardForm.value.action !== 'delete') {
+      if (!wireguardForm.value.interface || !wireguardForm.value.interface.trim()) {
+        return 'Interface navn er påkrævet (f.eks. wg0).'
+      }
+      if (!/^wg[a-zA-Z0-9_.-]*$/.test(wireguardForm.value.interface)) {
+        return 'WireGuard interface skal starte med "wg" og må kun indeholde bogstaver, tal, understreg, punktum eller bindestreg.'
+      }
+      if (!wireguardForm.value.address || !wireguardForm.value.address.trim()) {
+        return 'IP-adresse er påkrævet (f.eks. 10.100.0.1/24).'
+      }
+      if (!wireguardForm.value.private_key || !wireguardForm.value.private_key.trim()) {
+        return 'Private Key er påkrævet. Klik på "Generate Keypair" eller indlæs en nøgle.'
+      }
+    }
+  }
+  return ''
+})
 
 function cloneWireguardForm(): ReturnType<typeof defaultWireguardForm> {
   return JSON.parse(JSON.stringify(wireguardForm.value))
@@ -1762,10 +2087,45 @@ function saveWireguardProfile() {
   saveWgProfiles()
 }
 
+function mergeWireguardForm(parsed: ReturnType<typeof defaultWireguardForm>) {
+  const current = { ...wireguardForm.value }
+  if (parsed.interface) current.interface = parsed.interface
+  if (parsed.private_key) current.private_key = parsed.private_key
+  if (parsed.address) current.address = parsed.address
+  if (parsed.listen_port) current.listen_port = parsed.listen_port
+  if (parsed.dns) current.dns = parsed.dns
+  if (parsed.mtu) current.mtu = parsed.mtu
+  if (parsed.post_up) current.post_up = parsed.post_up
+  if (parsed.post_down) current.post_down = parsed.post_down
+  current.action = parsed.action || current.action || 'add'
+
+  const realParsedPeers = parsed.peers.filter(p => p.public_key && p.public_key.trim() !== '')
+  if (realParsedPeers.length > 0) {
+    current.peers = realParsedPeers
+  } else {
+    const realCurrentPeers = current.peers.filter(p => p.public_key && p.public_key.trim() !== '')
+    if (realCurrentPeers.length === 0) {
+      current.peers = parsed.peers
+    }
+  }
+  wireguardForm.value = current
+}
+
 function loadWireguardProfile() {
   const profile = wgProfiles.value.find(p => p.id === wgSelectedProfileId.value)
   if (!profile) return
-  wireguardForm.value = normalizeWireguardForm(profile.data)
+  const oldPrivateKey = wireguardForm.value.private_key
+  const oldAddress = wireguardForm.value.address
+
+  const parsed = normalizeWireguardForm(profile.data)
+  if (!parsed.private_key && oldPrivateKey) {
+    parsed.private_key = oldPrivateKey
+  }
+  if (!parsed.address && oldAddress) {
+    parsed.address = oldAddress
+  }
+
+  mergeWireguardForm(parsed)
   generatedPublicKey.value = profile.publicKey || ''
   wgProfileName.value = profile.name
   syncWireguardForm()
@@ -1845,7 +2205,8 @@ async function loadWireguardFromNode() {
     const iface = safeWireguardInterfaceName(wireguardForm.value.interface)
     const res = await api.executeNode(props.nodeId, [
       `cat /etc/wireguard/${iface}.conf 2>/dev/null || echo "__NR_WG_CONF_NOT_FOUND__"`,
-      `cat /etc/wireguard/publickey 2>/dev/null || true`
+      `cat /etc/wireguard/publickey 2>/dev/null || true`,
+      `cat /etc/wireguard/privatekey 2>/dev/null || true`
     ])
     const conf = res.results?.[0]?.output || ''
     if (!conf.trim() || conf.includes('__NR_WG_CONF_NOT_FOUND__')) {
@@ -1853,7 +2214,26 @@ async function loadWireguardFromNode() {
       return
     }
 
-    wireguardForm.value = parseWireguardConfig(conf, iface)
+    const oldPrivateKey = wireguardForm.value.private_key
+    const oldAddress = wireguardForm.value.address
+
+    const parsed = parseWireguardConfig(conf, iface)
+
+    // Fallback: Read direct /etc/wireguard/privatekey if missing in the parsed configuration file
+    const nodePrivateKey = (res.results?.[2]?.output || '').trim()
+    if (nodePrivateKey && !parsed.private_key) {
+      parsed.private_key = nodePrivateKey
+    }
+
+    // Fallback: Keep user's UI input if both the parsed file and node files returned blank/empty
+    if (!parsed.private_key && oldPrivateKey) {
+      parsed.private_key = oldPrivateKey
+    }
+    if (!parsed.address && oldAddress) {
+      parsed.address = oldAddress
+    }
+
+    mergeWireguardForm(parsed)
     generatedPublicKey.value = (res.results?.[1]?.output || '').trim()
     wgProfileName.value = `${props.nodeId} ${iface}`
     syncWireguardForm()
@@ -1934,6 +2314,14 @@ const fileWriteForm   = ref(defaultFileWriteForm())
 const iptablesForm    = ref(defaultIptablesForm())
 const ufwForm         = ref(defaultUfwForm())
 const nftablesForm    = ref(defaultNftablesForm())
+const remoteDesktopForm = ref(defaultRemoteDesktopForm())
+
+const winIpForm       = ref(defaultWinIpForm())
+const winRouteForm    = ref(defaultWinRouteForm())
+const winServiceForm  = ref(defaultWinServiceForm())
+const winFeatureForm  = ref(defaultWinFeatureForm())
+const winHostnameForm = ref(defaultWinHostnameForm())
+const winFileForm     = ref(defaultWinFileForm())
 
 const rpiWifiForm     = ref(defaultRpiWifiForm())
 const rpiSpiForm      = ref(defaultRpiSpiForm())
@@ -1946,6 +2334,106 @@ const mtrForm         = ref(defaultMtrForm())
 const dnsLookupForm   = ref(defaultDnsLookupForm())
 const wolForm         = ref(defaultWolForm())
 const arpScanForm     = ref(defaultArpScanForm())
+
+const defaultsMap: Record<string, () => any> = {
+  interface: defaultInterfaceForm, routes: defaultRouteForm, dns: defaultDnsForm,
+  nat: defaultNatForm, 'vlan-router': defaultVlanRouterForm, 'vlan-switch': defaultVlanSwitchForm,
+  wireguard: defaultWireguardForm, forwarding: defaultForwardingForm, service: defaultServiceForm,
+  package: defaultPackageForm, user: defaultUserForm, hostname: defaultHostnameForm,
+  sysctl: defaultSysctlForm, 'file-write': defaultFileWriteForm, iptables: defaultIptablesForm,
+  ufw: defaultUfwForm, nftables: defaultNftablesForm,
+  'rpi-wifi': defaultRpiWifiForm, 'rpi-spi': defaultRpiSpiForm, 'rpi-i2c-enable': defaultRpiI2cForm,
+  'rpi-camera': defaultRpiCameraForm, 'rpi-watchdog': defaultRpiWatchdogForm,
+  nmap: defaultNmapForm, iperf3: defaultIperf3Form, mtr: defaultMtrForm,
+  speedtest: () => ({}), 'dns-lookup': defaultDnsLookupForm, wol: defaultWolForm,
+  'arp-scan': defaultArpScanForm, 'remote-desktop': defaultRemoteDesktopForm,
+  'win-ip': defaultWinIpForm, 'win-route': defaultWinRouteForm, 'win-service': defaultWinServiceForm,
+  'win-feature': defaultWinFeatureForm, 'win-hostname': defaultWinHostnameForm, 'win-file': defaultWinFileForm
+}
+
+const formRefsMap: Record<string, any> = {
+  interface: interfaceForm, routes: routeForm, dns: dnsForm,
+  nat: natForm, 'vlan-router': vlanRouterForm, 'vlan-switch': vlanSwitchForm,
+  wireguard: wireguardForm, forwarding: forwardingForm, service: serviceForm,
+  package: packageForm, user: userForm, hostname: hostnameForm,
+  sysctl: sysctlForm, 'file-write': fileWriteForm, iptables: iptablesForm,
+  ufw: ufwForm, nftables: nftablesForm,
+  'rpi-wifi': rpiWifiForm, 'rpi-spi': rpiSpiForm, 'rpi-i2c-enable': rpiI2cForm,
+  'rpi-camera': rpiCameraForm, 'rpi-watchdog': rpiWatchdogForm,
+  nmap: nmapForm, iperf3: iperf3Form, mtr: mtrForm,
+  'dns-lookup': dnsLookupForm, wol: wolForm, 'arp-scan': arpScanForm,
+  'remote-desktop': remoteDesktopForm,
+  'win-ip': winIpForm, 'win-route': winRouteForm, 'win-service': winServiceForm,
+  'win-feature': winFeatureForm, 'win-hostname': winHostnameForm, 'win-file': winFileForm
+}
+
+const isSyncing = ref(false)
+
+function updateFormFromJson(type: string, parsed: any) {
+  const formRef = formRefsMap[type]
+  if (!formRef) return
+
+  if (isSyncing.value) return
+  isSyncing.value = true
+
+  try {
+    if (type === 'wireguard') {
+      const normalized = normalizeWireguardForm(parsed)
+      formRef.value = normalized
+    } else {
+      const defaultCreator = defaultsMap[type]
+      if (defaultCreator) {
+        const defaults = defaultCreator()
+        const merged = { ...defaults }
+        for (const k of Object.keys(defaults)) {
+          if (parsed[k] !== undefined) {
+            merged[k] = parsed[k]
+          }
+        }
+        formRef.value = merged
+      }
+    }
+  } catch (err) {
+    console.error('Error merging JSON to form:', err)
+  } finally {
+    nextTick(() => {
+      isSyncing.value = false
+    })
+  }
+}
+
+function rebuildJsonFromFields() {
+  if (!activeType.value) return
+  if (syncFnMap[activeType.value]) {
+    isSyncing.value = true
+    try {
+      syncFnMap[activeType.value]()
+      lastCopied.value = "Konfigurationen genopbygget!"
+      showToast.value = true
+      setTimeout(() => { showToast.value = false }, 2500)
+    } finally {
+      nextTick(() => {
+        isSyncing.value = false
+      })
+    }
+  }
+}
+
+// Watch inputJson changes to update form fields dynamically (JSON -> Form)
+watch(inputJson, (newVal) => {
+  if (!activeType.value) return
+  if (isSyncing.value || activeType.value === 'direct-file' || activeType.value === 'direct-json') return
+  if (!newVal || newVal.trim() === '{}' || newVal.trim() === '') return
+  
+  try {
+    const parsed = JSON.parse(newVal)
+    if (parsed && typeof parsed === 'object') {
+      updateFormFromJson(activeType.value, parsed)
+    }
+  } catch (e) {
+    // Ignore invalid JSON while user is typing
+  }
+})
 
 // Advanced direct editing refs
 const directFilePath = ref('/etc/wireguard/wg0.conf')
@@ -1967,7 +2455,14 @@ const JSON_BOILERPLATES: Record<string, string> = {
   ufw: JSON.stringify({ enabled: true, defaults: { incoming: "deny", outgoing: "allow" }, rules: [] }, null, 2),
   service: JSON.stringify({ name: "wireguard", action: "start", enabled: true }, null, 2),
   package: JSON.stringify({ name: "wireguard-tools", action: "install" }, null, 2),
-  "file-write": JSON.stringify({ path: "/etc/wireguard/wg0.conf", content: "[Interface]\nAddress = 10.110.0.1/24\n", mode: "600", owner: "root", backup: true }, null, 2)
+  "file-write": JSON.stringify({ path: "/etc/wireguard/wg0.conf", content: "[Interface]\nAddress = 10.110.0.1/24\n", mode: "600", owner: "root", backup: true }, null, 2),
+  "remote-desktop": JSON.stringify({ action: "install", protocol: "rdp", username: "root", password: "YOUR_PASSWORD", desktop: "xfce", resolution: "1280x720", port: 3389 }, null, 2),
+  "win-ip": JSON.stringify({ interface: "Ethernet", dhcp: false, address: "192.168.1.100/24", gateway: "192.168.1.1", dns: "1.1.1.1, 8.8.8.8" }, null, 2),
+  "win-route": JSON.stringify({ destination: "10.200.0.0/16", gateway: "192.168.1.1", interface: "", metric: 10, action: "add" }, null, 2),
+  "win-service": JSON.stringify({ name: "wuauserv", action: "start" }, null, 2),
+  "win-feature": JSON.stringify({ name: "NetFx3", action: "install", manager: "feature" }, null, 2),
+  "win-hostname": JSON.stringify({ hostname: "WinNode-01" }, null, 2),
+  "win-file": JSON.stringify({ path: "C:\\temp\\config.txt", content: "Hello from Netrunner\n", overwrite: true }, null, 2)
 }
 
 function syncRouteForm() {
@@ -2009,7 +2504,9 @@ function syncVlanSwitchForm() {
 function syncWireguardForm() {
   inputJson.value = JSON.stringify({
     ...wireguardForm.value,
-    peers: wireguardForm.value.peers.filter(p => p.public_key)
+    peers: wireguardForm.value.peers.filter(p => 
+      p.public_key || p.preshared_key || p.endpoint || p.allowed_ips || p.persistent_keepalive
+    )
   }, null, 2)
 }
 
@@ -2030,6 +2527,10 @@ async function generateWireguardKeys() {
 
 function syncForwardingForm() {
   inputJson.value = JSON.stringify(forwardingForm.value, null, 2)
+}
+
+function syncRemoteDesktopForm() {
+  inputJson.value = JSON.stringify(remoteDesktopForm.value, null, 2)
 }
 
 function syncServiceForm() {
@@ -2063,6 +2564,28 @@ function syncSysctlForm() {
 
 function syncFileWriteForm() {
   inputJson.value = JSON.stringify(fileWriteForm.value, null, 2)
+}
+
+function syncWinIpForm() {
+  inputJson.value = JSON.stringify(winIpForm.value, null, 2)
+}
+function syncWinRouteForm() {
+  inputJson.value = JSON.stringify({
+    ...winRouteForm.value,
+    metric: winRouteForm.value.metric ? Number(winRouteForm.value.metric) : undefined
+  }, null, 2)
+}
+function syncWinServiceForm() {
+  inputJson.value = JSON.stringify(winServiceForm.value, null, 2)
+}
+function syncWinFeatureForm() {
+  inputJson.value = JSON.stringify(winFeatureForm.value, null, 2)
+}
+function syncWinHostnameForm() {
+  inputJson.value = JSON.stringify(winHostnameForm.value, null, 2)
+}
+function syncWinFileForm() {
+  inputJson.value = JSON.stringify(winFileForm.value, null, 2)
 }
 
 function syncNmapForm() {
@@ -2247,6 +2770,13 @@ syncFnMap.user         = syncUserForm
 syncFnMap.hostname     = syncHostnameForm
 syncFnMap.sysctl       = syncSysctlForm
 syncFnMap['file-write'] = syncFileWriteForm
+syncFnMap['remote-desktop'] = syncRemoteDesktopForm
+syncFnMap['win-ip']      = syncWinIpForm
+syncFnMap['win-route']   = syncWinRouteForm
+syncFnMap['win-service'] = syncWinServiceForm
+syncFnMap['win-feature'] = syncWinFeatureForm
+syncFnMap['win-hostname'] = syncWinHostnameForm
+syncFnMap['win-file']    = syncWinFileForm
 syncFnMap.iptables     = syncIptablesForm
 syncFnMap.ufw          = syncUfwForm
 syncFnMap.nftables     = syncNftablesForm
@@ -2271,7 +2801,7 @@ syncFnMap['direct-json'] = () => {
 }
 
 // Auto-update JSON as form fields change
-watch(interfaceForm,   () => { if (activeType.value === 'interface')   syncInterfaceForm() },   { deep: true })
+watch(interfaceForm,   () => { if (activeType.value === 'interface' && !isSyncing.value)   syncInterfaceForm() },   { deep: true })
 watch(() => [interfaceForm.value.vlanParent, interfaceForm.value.vlanId], ([parent, id]) => {
   if (parent && id !== undefined && id !== null && String(id).trim() !== '') {
     interfaceForm.value.interface = `${parent}.${id}`
@@ -2287,8 +2817,8 @@ watch(
     const found = (interfaces as DetectedInterface[]).find(i => i.name.toLowerCase() === cleanVal.toLowerCase())
     if (found) {
       const isAddressesUntouched = 
-        interfaceForm.value.addresses.length === 0 || 
-        (interfaceForm.value.addresses.length === 1 && !interfaceForm.value.addresses[0].trim())
+      interfaceForm.value.addresses.length === 0 || 
+      (interfaceForm.value.addresses.length === 1 && !interfaceForm.value.addresses[0].trim())
       
       if (isAddressesUntouched) {
         if (found.ips && found.ips.length > 0) {
@@ -2301,40 +2831,72 @@ watch(
   },
   { deep: true }
 )
-watch(routeForm,       () => { if (activeType.value === 'routes')      syncRouteForm() },       { deep: true })
-watch(dnsForm,         () => { if (activeType.value === 'dns')         syncDnsForm() },         { deep: true })
-watch(natForm,         () => { if (activeType.value === 'nat')         syncNatForm() },         { deep: true })
-watch(vlanRouterForm,  () => { if (activeType.value === 'vlan-router') syncVlanRouterForm() },  { deep: true })
-watch(vlanSwitchForm,  () => { if (activeType.value === 'vlan-switch') syncVlanSwitchForm() },  { deep: true })
-watch(wireguardForm,   () => { if (activeType.value === 'wireguard')   syncWireguardForm() },   { deep: true })
-watch(forwardingForm,  () => { if (activeType.value === 'forwarding')  syncForwardingForm() },  { deep: true })
-watch(serviceForm,     () => { if (activeType.value === 'service')     syncServiceForm() },     { deep: true })
-watch(packageForm,     () => { if (activeType.value === 'package')     syncPackageForm() },     { deep: true })
-watch(userForm,        () => { if (activeType.value === 'user')        syncUserForm() },        { deep: true })
-watch(hostnameForm,    () => { if (activeType.value === 'hostname')    syncHostnameForm() },    { deep: true })
-watch(sysctlForm,      () => { if (activeType.value === 'sysctl')      syncSysctlForm() },      { deep: true })
-watch(fileWriteForm,   () => { if (activeType.value === 'file-write')  syncFileWriteForm() },   { deep: true })
-watch(iptablesForm,    () => { if (activeType.value === 'iptables')    syncIptablesForm() },    { deep: true })
-watch(ufwForm,         () => { if (activeType.value === 'ufw')         syncUfwForm() },         { deep: true })
-watch(nftablesForm,    () => { if (activeType.value === 'nftables')    syncNftablesForm() },    { deep: true })
-watch(rpiWifiForm,     () => { if (activeType.value === 'rpi-wifi')    syncRpiWifiForm() },     { deep: true })
-watch(rpiSpiForm,      () => { if (activeType.value === 'rpi-spi')     syncRpiSpiForm() },      { deep: true })
-watch(rpiI2cForm,      () => { if (activeType.value === 'rpi-i2c-enable') syncRpiI2cForm() },   { deep: true })
-watch(rpiCameraForm,   () => { if (activeType.value === 'rpi-camera')  syncRpiCameraForm() },   { deep: true })
-watch(rpiWatchdogForm, () => { if (activeType.value === 'rpi-watchdog')syncRpiWatchdogForm() }, { deep: true })
-watch(nmapForm,        () => { if (activeType.value === 'nmap')        syncNmapForm() },        { deep: true })
-watch(iperf3Form,      () => { if (activeType.value === 'iperf3')      syncIperf3Form() },      { deep: true })
-watch(mtrForm,         () => { if (activeType.value === 'mtr')         syncMtrForm() },         { deep: true })
-watch(dnsLookupForm,   () => { if (activeType.value === 'dns-lookup')  syncDnsLookupForm() },   { deep: true })
-watch(wolForm,         () => { if (activeType.value === 'wol')         syncWolForm() },         { deep: true })
-watch(arpScanForm,     () => { if (activeType.value === 'arp-scan')    syncArpScanForm() },     { deep: true })
+watch(routeForm,       () => { if (activeType.value === 'routes' && !isSyncing.value)      syncRouteForm() },      { deep: true })
+watch(dnsForm,         () => { if (activeType.value === 'dns' && !isSyncing.value)         syncDnsForm() },         { deep: true })
+watch(natForm,         () => { if (activeType.value === 'nat' && !isSyncing.value)         syncNatForm() },         { deep: true })
+watch(vlanRouterForm,  () => { if (activeType.value === 'vlan-router' && !isSyncing.value) syncVlanRouterForm() },  { deep: true })
+watch(vlanSwitchForm,  () => { if (activeType.value === 'vlan-switch' && !isSyncing.value) syncVlanSwitchForm() },  { deep: true })
+watch(wireguardForm,   () => { if (activeType.value === 'wireguard' && !isSyncing.value)   syncWireguardForm() },   { deep: true })
+watch(forwardingForm,  () => { if (activeType.value === 'forwarding' && !isSyncing.value)  syncForwardingForm() },  { deep: true })
+watch(serviceForm,     () => { if (activeType.value === 'service' && !isSyncing.value)     syncServiceForm() },     { deep: true })
+watch(packageForm,     () => { if (activeType.value === 'package' && !isSyncing.value)     syncPackageForm() },     { deep: true })
+watch(userForm,        () => { if (activeType.value === 'user' && !isSyncing.value)        syncUserForm() },        { deep: true })
+watch(hostnameForm,    () => { if (activeType.value === 'hostname' && !isSyncing.value)    syncHostnameForm() },    { deep: true })
+watch(sysctlForm,      () => { if (activeType.value === 'sysctl' && !isSyncing.value)      syncSysctlForm() },      { deep: true })
+watch(fileWriteForm,   () => { if (activeType.value === 'file-write' && !isSyncing.value)  syncFileWriteForm() },   { deep: true })
+watch(remoteDesktopForm, () => { if (activeType.value === 'remote-desktop' && !isSyncing.value) syncRemoteDesktopForm() }, { deep: true })
+watch(() => remoteDesktopForm.value.protocol, (newProto) => {
+  if (newProto === 'rdp' && remoteDesktopForm.value.port === 5901) {
+    remoteDesktopForm.value.port = 3389
+  } else if (newProto === 'vnc' && remoteDesktopForm.value.port === 3389) {
+    remoteDesktopForm.value.port = 5901
+  }
+})
+watch(winIpForm,       () => { if (activeType.value === 'win-ip' && !isSyncing.value)      syncWinIpForm() },      { deep: true })
+watch(winRouteForm,    () => { if (activeType.value === 'win-route' && !isSyncing.value)   syncWinRouteForm() },   { deep: true })
+watch(winServiceForm,  () => { if (activeType.value === 'win-service' && !isSyncing.value) syncWinServiceForm() }, { deep: true })
+watch(winFeatureForm,  () => { if (activeType.value === 'win-feature' && !isSyncing.value) syncWinFeatureForm() }, { deep: true })
+watch(winHostnameForm, () => { if (activeType.value === 'win-hostname' && !isSyncing.value) syncWinHostnameForm() }, { deep: true })
+watch(winFileForm,     () => { if (activeType.value === 'win-file' && !isSyncing.value)     syncWinFileForm() },     { deep: true })
+watch(iptablesForm,    () => { if (activeType.value === 'iptables' && !isSyncing.value)    syncIptablesForm() },    { deep: true })
+watch(ufwForm,         () => { if (activeType.value === 'ufw' && !isSyncing.value)         syncUfwForm() },         { deep: true })
+watch(nftablesForm,    () => { if (activeType.value === 'nftables' && !isSyncing.value)    syncNftablesForm() },    { deep: true })
+watch(rpiWifiForm,     () => { if (activeType.value === 'rpi-wifi' && !isSyncing.value)    syncRpiWifiForm() },     { deep: true })
+watch(rpiSpiForm,      () => { if (activeType.value === 'rpi-spi' && !isSyncing.value)     syncRpiSpiForm() },      { deep: true })
+watch(rpiI2cForm,      () => { if (activeType.value === 'rpi-i2c-enable' && !isSyncing.value) syncRpiI2cForm() },   { deep: true })
+watch(rpiCameraForm,   () => { if (activeType.value === 'rpi-camera' && !isSyncing.value)  syncRpiCameraForm() },   { deep: true })
+watch(rpiWatchdogForm, () => { if (activeType.value === 'rpi-watchdog' && !isSyncing.value)syncRpiWatchdogForm() }, { deep: true })
+watch(nmapForm,        () => { if (activeType.value === 'nmap' && !isSyncing.value)        syncNmapForm() },        { deep: true })
+watch(iperf3Form,      () => { if (activeType.value === 'iperf3' && !isSyncing.value)      syncIperf3Form() },      { deep: true })
+watch(mtrForm,         () => { if (activeType.value === 'mtr' && !isSyncing.value)         syncMtrForm() },         { deep: true })
+watch(dnsLookupForm,   () => { if (activeType.value === 'dns-lookup' && !isSyncing.value)  syncDnsLookupForm() },   { deep: true })
+watch(wolForm,         () => { if (activeType.value === 'wol' && !isSyncing.value)         syncWolForm() },         { deep: true })
+watch(arpScanForm,     () => { if (activeType.value === 'arp-scan' && !isSyncing.value)    syncArpScanForm() },     { deep: true })
 
 watch([directFilePath, directFileContent, directFileMode, directFileBackup], () => {
   if (activeType.value === 'direct-file') syncDirectFileForm()
 }, { deep: true })
 
-watch(directJsonGeneratorType, (newType) => {
+let isResettingGeneratorType = false
+
+watch(directJsonGeneratorType, (newType, oldType) => {
+  if (isResettingGeneratorType) return
   if (activeType.value === 'direct-json') {
+    const oldBoilerplate = oldType ? JSON_BOILERPLATES[oldType] : null
+    const isDirty = inputJson.value && inputJson.value.trim() !== '{}' && inputJson.value !== oldBoilerplate
+    
+    if (isDirty) {
+      if (!confirm(`Du har lavet ændringer i JSON. Vil du overskrive og nulstille til standard-skabelonen for "${newType}"?`)) {
+        if (oldType) {
+          isResettingGeneratorType = true
+          directJsonGeneratorType.value = oldType
+          nextTick(() => {
+            isResettingGeneratorType = false
+          })
+        }
+        return
+      }
+    }
     inputJson.value = JSON_BOILERPLATES[newType] || '{}'
   }
 })
@@ -2342,11 +2904,12 @@ watch(directJsonGeneratorType, (newType) => {
 watch(persistMode, () => { if (activeType.value && previewCommands.value.length) getPreview() })
 
 watch(() => props.nodeId, () => {
-  activeType.value      = null
+  const currentType = activeType.value
+  
   previewCommands.value = []
   previewError.value    = ''
   results.value         = []
-  inputJson.value       = '{}'
+  
   interfaceForm.value   = defaultInterfaceForm()
   routeForm.value       = defaultRouteForm()
   dnsForm.value         = defaultDnsForm()
@@ -2361,9 +2924,16 @@ watch(() => props.nodeId, () => {
   hostnameForm.value    = defaultHostnameForm()
   sysctlForm.value      = defaultSysctlForm()
   fileWriteForm.value   = defaultFileWriteForm()
+  remoteDesktopForm.value = defaultRemoteDesktopForm()
   iptablesForm.value    = defaultIptablesForm()
   ufwForm.value         = defaultUfwForm()
   nftablesForm.value    = defaultNftablesForm()
+  winIpForm.value       = defaultWinIpForm()
+  winRouteForm.value    = defaultWinRouteForm()
+  winServiceForm.value  = defaultWinServiceForm()
+  winFeatureForm.value  = defaultWinFeatureForm()
+  winHostnameForm.value = defaultWinHostnameForm()
+  winFileForm.value     = defaultWinFileForm()
   persistMode.value     = false
   generatedPublicKey.value = ''
   wgProfileName.value = ''
@@ -2371,6 +2941,12 @@ watch(() => props.nodeId, () => {
   wgHistoryExpanded.value = false
   directFileContent.value = ''
   directFileBackup.value  = false
+  
+  if (currentType && syncFnMap[currentType]) {
+    syncFnMap[currentType]()
+  } else {
+    inputJson.value = '{}'
+  }
   
   // Refresh live interfaces telemetry when active node changes
   fetchLiveInterfaces()
@@ -4108,6 +4684,26 @@ fetchLiveInterfaces()
   display: flex;
   flex-direction: column;
   gap: 16px;
+}
+.wg-validation-warning {
+  background: rgba(255, 60, 60, 0.08);
+  border: 1px solid rgba(255, 60, 60, 0.25);
+  border-left: 3.5px solid #ff4a4a;
+  border-radius: 4px;
+  padding: 10px 12px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+.wg-validation-warning .warning-icon {
+  font-size: 14px;
+}
+.wg-validation-warning .warning-msg {
+  font-size: 11px;
+  color: #ff9d9d;
+  font-weight: 500;
+  font-family: var(--font-ui);
 }
 .wg-profile-panel {
   background: rgba(0, 229, 255, 0.035);
