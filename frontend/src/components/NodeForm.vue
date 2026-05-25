@@ -30,6 +30,7 @@
           <select v-model="form.device_type">
             <option value="unknown">Unknown (auto-detect)</option>
             <option value="linux">Linux</option>
+            <option value="windows">Windows</option>
             <option value="rpi">Raspberry Pi</option>
             <option value="gns3">GNS3 / Network device</option>
           </select>

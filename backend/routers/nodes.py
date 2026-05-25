@@ -107,6 +107,16 @@ READ_CMDS: dict[str, list[str]] = {
     "if-stats":     ["ip -s link show"],
     "wifi-scan":    ["nmcli -t -f SSID,SIGNAL,SECURITY dev wifi list 2>/dev/null || iwlist scan 2>/dev/null | grep -E 'ESSID|Signal|Encryption' || echo '(WiFi tools not available)'"],
     "nmap-scan":    ["nmap -sV -F 127.0.0.1 2>/dev/null || nmap -F 127.0.0.1 2>/dev/null || echo '(nmap not installed)'"],
+    "docker":       [
+        "docker info 2>/dev/null || sudo -n docker info 2>/dev/null || echo '(Docker daemon not running or not installed)'",
+        "echo -e 'CONTAINER ID\\tNAMES\\tIMAGE\\tSTATUS\\tPORTS' && (docker ps -a --format '{{.ID}}{{printf \"\\t\"}}{{.Names}}{{printf \"\\t\"}}{{.Image}}{{printf \"\\t\"}}{{.Status}}{{printf \"\\t\"}}{{.Ports}}' 2>/dev/null || sudo -n docker ps -a --format '{{.ID}}{{printf \"\\t\"}}{{.Names}}{{printf \"\\t\"}}{{.Image}}{{printf \"\\t\"}}{{.Status}}{{printf \"\\t\"}}{{.Ports}}' 2>/dev/null || echo '(No containers)')",
+        "echo -e 'CONTAINER\\tNAME\\tCPU\\tMEM\\tNET' && (docker stats --no-stream --format '{{.Container}}{{printf \"\\t\"}}{{.Name}}{{printf \"\\t\"}}{{.CPUPerc}}{{printf \"\\t\"}}{{.MemUsage}}{{printf \"\\t\"}}{{.NetIO}}' 2>/dev/null || sudo -n docker stats --no-stream --format '{{.Container}}{{printf \"\\t\"}}{{.Name}}{{printf \"\\t\"}}{{.CPUPerc}}{{printf \"\\t\"}}{{.MemUsage}}{{printf \"\\t\"}}{{.NetIO}}' 2>/dev/null || echo '(Stats unavailable)')",
+        "echo -e 'NETWORK ID\\tNAME\\tDRIVER' && (docker network ls --format '{{.ID}}{{printf \"\\t\"}}{{.Name}}{{printf \"\\t\"}}{{.Driver}}' 2>/dev/null || sudo -n docker network ls --format '{{.ID}}{{printf \"\\t\"}}{{.Name}}{{printf \"\\t\"}}{{.Driver}}' 2>/dev/null || echo '(Networks unavailable)')",
+        "echo -e 'REPOSITORY\\tTAG\\tSIZE' && (docker images --format '{{.Repository}}{{printf \"\\t\"}}{{.Tag}}{{printf \"\\t\"}}{{.Size}}' 2>/dev/null || sudo -n docker images --format '{{.Repository}}{{printf \"\\t\"}}{{.Tag}}{{printf \"\\t\"}}{{.Size}}' 2>/dev/null || echo '(Images unavailable)')",
+        "docker info --format '{{json .Swarm}}' 2>/dev/null || sudo -n docker info --format '{{json .Swarm}}' 2>/dev/null || echo '(Swarm info unavailable)'",
+        "echo -e 'NODE ID\\tHOSTNAME\\tSTATUS\\tAVAILABILITY\\tMANAGER STATUS' && (docker node ls --format '{{.ID}}{{printf \"\\t\"}}{{.Hostname}}{{printf \"\\t\"}}{{.Status}}{{printf \"\\t\"}}{{.Availability}}{{printf \"\\t\"}}{{.ManagerStatus}}' 2>/dev/null || sudo -n docker node ls --format '{{.ID}}{{printf \"\\t\"}}{{.Hostname}}{{printf \"\\t\"}}{{.Status}}{{printf \"\\t\"}}{{.Availability}}{{printf \"\\t\"}}{{.ManagerStatus}}' 2>/dev/null || echo '(Swarm node list unavailable)')",
+        "echo -e 'SERVICE ID\\tNAME\\tMODE\\tREPLICAS\\tIMAGE' && (docker service ls --format '{{.ID}}{{printf \"\\t\"}}{{.Name}}{{printf \"\\t\"}}{{.Mode}}{{printf \"\\t\"}}{{.Replicas}}{{printf \"\\t\"}}{{.Image}}' 2>/dev/null || sudo -n docker service ls --format '{{.ID}}{{printf \"\\t\"}}{{.Name}}{{printf \"\\t\"}}{{.Mode}}{{printf \"\\t\"}}{{.Replicas}}{{printf \"\\t\"}}{{.Image}}' 2>/dev/null || echo '(Swarm service list unavailable)')"
+    ],
 
     # Linux system
     "services":     ["systemctl list-units --type=service --state=running --no-pager 2>/dev/null || service --status-all 2>/dev/null || rc-status 2>/dev/null"],
@@ -988,3 +998,108 @@ def api_export_download(fname: str):
     if not p.exists():
         raise HTTPException(404, "Not found")
     return FileResponse(p, filename=fname, media_type="application/zip")
+
+@router.post("/nodes/{nid}/capture/inject")
+async def api_capture_inject(nid: str, body: dict):
+    nodes = await load_nodes()
+    if nid not in nodes:
+        raise HTTPException(404, "Not found")
+    
+    target_ip = body.get("target_ip", "")
+    port = int(body.get("port", 0))
+    protocol = body.get("protocol", "UDP").upper()
+    payload = body.get("payload", "")
+
+    if not target_ip or not port:
+        raise HTTPException(400, "Missing target_ip or port")
+
+    # We will write a tiny python script on the node to do the socket send
+    script = f"""import socket, binascii
+target_ip = '{target_ip}'
+port = {port}
+protocol = '{protocol}'
+data = '{payload}'
+
+try:
+    decoded_data = binascii.unhexlify(data.replace(' ', '').replace('\\n', ''))
+except:
+    decoded_data = data.encode('utf-8')
+
+sock_type = socket.SOCK_DGRAM if protocol == 'UDP' else socket.SOCK_STREAM
+try:
+    s = socket.socket(socket.AF_INET, sock_type)
+    s.settimeout(5)
+    if protocol == 'TCP':
+        s.connect((target_ip, port))
+        s.sendall(decoded_data)
+    else:
+        s.sendto(decoded_data, (target_ip, port))
+    s.close()
+    print("SUCCESS: Packet injected")
+except Exception as e:
+    print(f"ERROR: {e}")
+"""
+    encoded_script = base64.b64encode(script.encode('utf-8')).decode('utf-8')
+    remote_cmd = f"echo {encoded_script} | base64 -d | python3 - 2>&1"
+    
+    node = await _get_node_with_creds(nid, nodes)
+    results, err = await session_manager.run(nid, node, [remote_cmd])
+    if err:
+        raise HTTPException(500, err)
+    
+    output = results[0].get("output", "") if results else ""
+    return {"status": "success", "output": output}
+# ---------------------------------------------------------------------------
+# Metrics / Dashboards
+# ---------------------------------------------------------------------------
+
+import random
+import time
+
+_metrics_cache: dict[str, list[dict]] = {}
+
+@router.get("/nodes/{nid}/metrics/history")
+async def api_node_metrics_history(nid: str):
+    """
+    Returns simulated or cached time-series metrics (CPU, RAM, Net) 
+    for the visual Grafana-style dashboards on the node overview.
+    """
+    nodes = await load_nodes()
+    if nid not in nodes:
+        raise HTTPException(404, "Node not found")
+
+    now = int(time.time())
+    history = _metrics_cache.get(nid, [])
+
+    # If empty, pre-fill with 30 data points (e.g., last 30 seconds)
+    if not history:
+        base_cpu = random.uniform(5.0, 30.0)
+        base_ram = random.uniform(20.0, 60.0)
+        base_net = random.uniform(100.0, 1000.0)
+        
+        for i in range(30, 0, -1):
+            history.append({
+                "time": now - i,
+                "cpu": max(0.0, min(100.0, base_cpu + random.uniform(-5, 5))),
+                "ram": max(0.0, min(100.0, base_ram + random.uniform(-2, 2))),
+                "net_tx": max(0.0, base_net + random.uniform(-50, 50)),
+                "net_rx": max(0.0, base_net * 0.8 + random.uniform(-40, 40))
+            })
+
+    # Add new point based on the last point
+    last = history[-1]
+    history.append({
+        "time": now,
+        "cpu": max(0.0, min(100.0, last["cpu"] + random.uniform(-10, 10))),
+        "ram": max(0.0, min(100.0, last["ram"] + random.uniform(-1, 1))),
+        "net_tx": max(0.0, last["net_tx"] + random.uniform(-100, 100)),
+        "net_rx": max(0.0, last["net_rx"] + random.uniform(-80, 80))
+    })
+
+    # Keep only the last 30 points
+    if len(history) > 30:
+        history = history[-30:]
+
+    _metrics_cache[nid] = history
+
+    return {"status": "success", "history": history}

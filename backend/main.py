@@ -12,7 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from .routers import ai, configs, gns3, links, nodes, preview, terminal, settings, threats, defense, system, chaos, auth
+from .routers import ai, configs, gns3, links, nodes, preview, terminal, settings, threats, defense, system, chaos, auth, redteam, deception
 from .routers.settings import load_settings
 from .core.db import init_db
 
@@ -71,6 +71,8 @@ app.include_router(defense.router,  prefix="/api")
 app.include_router(threats.router)
 app.include_router(system.router,   prefix="/api")
 app.include_router(chaos.router,    prefix="/api")
+app.include_router(redteam.router,  prefix="/api")
+app.include_router(deception.router,prefix="/api")
 app.include_router(auth.router,     prefix="/api")
 app.include_router(terminal.router)
 
@@ -118,14 +120,20 @@ def main():
     ap.add_argument("--host",   default="0.0.0.0", help="Bind host (default: 0.0.0.0)")
     ap.add_argument("--port",   default=8000, type=int, help="Bind port (default: 8000)")
     ap.add_argument("--reload", action="store_true", help="Enable auto-reload (dev mode)")
+    ap.add_argument("--ssl-keyfile", default=None, help="Path to SSL key file")
+    ap.add_argument("--ssl-certfile", default=None, help="Path to SSL certificate file")
     args = ap.parse_args()
-    uvicorn.run(
-        "backend.main:app",
-        host=args.host,
-        port=args.port,
-        reload=args.reload,
-    )
+    
+    run_kwargs = {
+        "host": args.host,
+        "port": args.port,
+        "reload": args.reload,
+    }
+    if args.ssl_keyfile and args.ssl_certfile:
+        run_kwargs["ssl_keyfile"] = args.ssl_keyfile
+        run_kwargs["ssl_certfile"] = args.ssl_certfile
 
+    uvicorn.run("backend.main:app", **run_kwargs)
 
 if __name__ == "__main__":
     main()

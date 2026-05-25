@@ -395,6 +395,29 @@ def gen_vlan_switch(bridge: str, vlans: list[dict], ports: list[dict]) -> list[s
     return cmds
 
 
+def _get_robust(d: dict, keys: list[str]) -> any:
+    if not isinstance(d, dict):
+        return None
+    for k in keys:
+        if k in d:
+            val = d[k]
+            if val is not None:
+                if isinstance(val, (list, tuple)):
+                    return ", ".join(str(x) for x in val)
+                return val
+    # Fallback to normalized keys (lowercase, no underscores or dashes)
+    lower_dict = {str(k).lower().replace("_", "").replace("-", ""): v for k, v in d.items()}
+    for k in keys:
+        norm_k = k.lower().replace("_", "").replace("-", "")
+        if norm_k in lower_dict:
+            val = lower_dict[norm_k]
+            if val is not None:
+                if isinstance(val, (list, tuple)):
+                    return ", ".join(str(x) for x in val)
+                return val
+    return None
+
+
 def gen_wireguard(iface: str, cfg: dict) -> list[str]:
     action = cfg.get("action", "add")
     if action == "delete":
@@ -406,23 +429,43 @@ def gen_wireguard(iface: str, cfg: dict) -> list[str]:
             f"echo 'WireGuard interface {iface} and keys deleted successfully'"
         ]
 
+    private_key = _get_robust(cfg, ["private_key", "privateKey", "PrivateKey"])
+    address = _get_robust(cfg, ["address", "addresses", "Address", "Addresses"])
+
+    if not private_key:
+        raise ValueError("WireGuard PrivateKey is required to generate/apply configuration.")
+    if not address:
+        raise ValueError("WireGuard IP Address (e.g. 10.0.0.1/24) is required.")
+
     lines = ["[Interface]"]
-    for k, lbl in [
-        ("private_key", "PrivateKey"), ("address", "Address"),
-        ("listen_port", "ListenPort"), ("dns", "DNS"),
-        ("mtu", "MTU"), ("post_up", "PostUp"), ("post_down", "PostDown"),
+    for keys, lbl in [
+        (["private_key", "privateKey", "PrivateKey"], "PrivateKey"),
+        (["address", "addresses", "Address", "Addresses"], "Address"),
+        (["listen_port", "listenPort", "ListenPort"], "ListenPort"),
+        (["dns", "dns_servers", "dnsServers", "DNS"], "DNS"),
+        (["mtu", "MTU"], "MTU"),
+        (["post_up", "postUp", "PostUp"], "PostUp"),
+        (["post_down", "postDown", "PostDown"], "PostDown"),
     ]:
-        if cfg.get(k):
-            lines.append(f"{lbl} = {cfg[k]}")
+        val = _get_robust(cfg, keys)
+        if val is not None and str(val).strip() != "":
+            lines.append(f"{lbl} = {val}")
+
     for peer in cfg.get("peers", []):
+        pub_key = _get_robust(peer, ["public_key", "publicKey", "PublicKey"])
+        if not pub_key:
+            continue
         lines += ["", "[Peer]"]
-        for k, lbl in [
-            ("public_key", "PublicKey"), ("preshared_key", "PresharedKey"),
-            ("endpoint", "Endpoint"), ("allowed_ips", "AllowedIPs"),
-            ("persistent_keepalive", "PersistentKeepalive"),
+        for keys, lbl in [
+            (["public_key", "publicKey", "PublicKey"], "PublicKey"),
+            (["preshared_key", "presharedKey", "PresharedKey"], "PresharedKey"),
+            (["endpoint", "Endpoint"], "Endpoint"),
+            (["allowed_ips", "allowedIPs", "AllowedIPs"], "AllowedIPs"),
+            (["persistent_keepalive", "persistentKeepalive", "PersistentKeepalive"], "PersistentKeepalive"),
         ]:
-            if peer.get(k):
-                lines.append(f"{lbl} = {peer[k]}")
+            val = _get_robust(peer, keys)
+            if val is not None and str(val).strip() != "":
+                lines.append(f"{lbl} = {val}")
     conf = "\n".join(lines)
 
     return [
@@ -437,6 +480,7 @@ def gen_wireguard(iface: str, cfg: dict) -> list[str]:
         f"mkdir -p /etc/wireguard\ncat > /etc/wireguard/{iface}.conf << 'EOF'\n{conf}\nEOF\nchmod 600 /etc/wireguard/{iface}.conf",
         "",
         "# ── Activate ────────────────────────────────────────────────",
+        f"wg-quick down {iface} 2>/dev/null || ip link del {iface} 2>/dev/null || true",
         f"wg-quick up {iface}",
         "",
         "# ── Persist across reboots ──────────────────────────────────",

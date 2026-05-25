@@ -25,5 +25,12 @@ if [ ! -d "frontend/dist" ] && command -v npm >/dev/null 2>&1; then
     cd ..
 fi
 
-echo "Starting Netrunner on http://localhost:8000"
-exec python3 netrunner.py "$@"
+# Ensure self-signed certs for HTTPS/WSS exist
+mkdir -p .certs
+if [ ! -f ".certs/cert.pem" ] || [ ! -f ".certs/key.pem" ]; then
+    echo "Generating self-signed SSL certificates for HTTPS/WSS..."
+    openssl req -x509 -newkey rsa:4096 -keyout .certs/key.pem -out .certs/cert.pem -sha256 -days 365 -nodes -subj "/CN=localhost" 2>/dev/null
+fi
+
+echo "Starting Netrunner on https://localhost:8000"
+exec python3 netrunner.py --ssl-keyfile .certs/key.pem --ssl-certfile .certs/cert.pem "$@"

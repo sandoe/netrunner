@@ -1,0 +1,69 @@
+<!DOCTYPE html><html lang="en"><head>
+    <meta charset="UTF-8">
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NETRUNNER</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&amp;family=JetBrains+Mono:ital,wght@0,400;0,500;1,400&amp;family=Inter:wght@300;400;500;600&amp;display=swap" rel="stylesheet">
+    <script type="module" crossorigin="" src="/assets/index-C-nTdN_S.js"></script>
+    <link rel="stylesheet" crossorigin="" href="/assets/index-BF9CVNZf.css">
+  <style type="text/css">.float-tooltip-kap {
+  position: absolute;
+  width: max-content; /* prevent shrinking near right edge */
+  max-width: max(50%, 150px);
+  padding: 3px 5px;
+  border-radius: 3px;
+  font: 12px sans-serif;
+  color: #eee;
+  background: rgba(0,0,0,0.6);
+  pointer-events: none;
+}
+</style><style type="text/css">.scene-nav-info {
+  position: absolute;
+  bottom: 5px;
+  width: 100%;
+  text-align: center;
+  color: slategrey;
+  opacity: 0.7;
+  font-size: 10px;
+  font-family: sans-serif;
+  pointer-events: none;
+  user-select: none;
+}
+
+.scene-container canvas:focus {
+  outline: none;
+}</style><style type="text/css">.graph-info-msg {
+  top: 50%;
+  width: 100%;
+  text-align: center;
+  color: lavender;
+  opacity: 0.7;
+  font-size: 22px;
+  position: absolute;
+  font-family: Sans-serif;
+}
+
+.scene-container .clickable {
+  cursor: pointer;
+}
+
+.scene-container .grabbable {
+  cursor: move;
+  cursor: grab;
+  cursor: -moz-grab;
+  cursor: -webkit-grab;
+}
+
+.scene-container .grabbable:active {
+  cursor: grabbing;
+  cursor: -moz-grabbing;
+  cursor: -webkit-grabbing;
+}</style><style type="text/css">.scene-container .clickable {
+  cursor: pointer;
+}</style></head>
+  <body class="chaos-active">
+    <div id="app" data-v-app=""><div data-v-03ca2f6a="" class="app"><div data-v-03ca2f6a="" class="scanline"></div><aside data-v-03ca2f6a="" class="sidebar"><div data-v-03ca2f6a="" class="sidebar-header"><div data-v-03ca2f6a="" class="logo"><span data-v-03ca2f6a="" class="logo-title">NETRUNNER</span><span data-v-03ca2f6a="" class="logo-sub">OS v1.0.0</span></div><div data-v-03ca2f6a="" class="header-tools"><button data-v-03ca2f6a="" class="btn-icon" title="Fullscreen">🖥️</button><button data-v-03ca2f6a="" class="btn-icon" title="Settings">⚙️</button><button data-v-03ca2f6a="" class="btn-add" title="Add node">+</button></div></div><div data-v-03ca2f6a="" class="sidebar-stats"><div data-v-03ca2f6a="" class="sidebar-stat"><div data-v-03ca2f6a="" class="stat-label">NODES</div><div data-v-03ca2f6a="" class="stat-value">5</div></div><div data-v-03ca2f6a="" class="sidebar-stat"><div data-v-03ca2f6a="" class="stat-label">LIVE</div><div data-v-03ca2f6a="" class="stat-value">0</div></div></div><nav data-v-03ca2f6a="" class="nav-menu"><button data-v-03ca2f6a="" class="">NODES</button><button data-v-03ca2f6a="" class="">TOPOLOGY</button><button data-v-03ca2f6a="" class="">THREAT MAP</button><button data-v-03ca2f6a="" class="btn-warroom active">🚨 WAR ROOM</button></nav><!----><!----><div data-v-03ca2f6a="" class="sidebar-search"><input data-v-03ca2f6a="" placeholder="FILTER NODES..." class="search-input"></div><div data-v-03ca2f6a="" class="node-list"><div data-v-03ca2f6a="" class="node-group"><div data-v-03ca2f6a="" class="node-group-head"><span data-v-03ca2f6a="">LINUX</span><span data-v-03ca2f6a="" class="node-group-chevron">⌃</span></div><div data-v-03ca2f6a="" class="node-group-items"><div data-v-03ca2f6a="" class="node-item"><div data-v-03ca2f6a="" class="node-dot"></div><div data-v-03ca2f6a="" class="node-meta"><div data-v-03ca2f6a="" class="node-name">cloud</div><div data-v-03ca2f6a="" class="node-host">68.183.72.134:22</div><!----></div><span data-v-03ca2f6a="" class="node-transport ssh">ssh</span></div><div data-v-03ca2f6a="" class="node-item"><div data-v-03ca2f6a="" class="node-dot"></div><div data-v-03ca2f6a="" class="node-meta"><div data-v-03ca2f6a="" class="node-name">PC</div><div data-v-03ca2f6a="" class="node-host">127.0.0.1:22</div><!----></div><span data-v-03ca2f6a="" class="node-transport ssh">ssh</span></div></div></div><div data-v-03ca2f6a="" class="node-group"><div data-v-03ca2f6a="" class="node-group-head"><span data-v-03ca2f6a="">NETWORK</span><span data-v-03ca2f6a="" class="node-group-chevron">⌃</span></div><div data-v-03ca2f6a="" class="node-group-items"><div data-v-03ca2f6a="" class="node-item"><div data-v-03ca2f6a="" class="node-dot"></div><div data-v-03ca2f6a="" class="node-meta"><div data-v-03ca2f6a="" class="node-name">Node</div><div data-v-03ca2f6a="" class="node-host">192.168.65.132:5002</div><!----></div><span data-v-03ca2f6a="" class="node-transport telnet">telnet</span></div><div data-v-03ca2f6a="" class="node-item"><div data-v-03ca2f6a="" class="node-dot"></div><div data-v-03ca2f6a="" class="node-meta"><div data-v-03ca2f6a="" class="node-name">router-1</div><div data-v-03ca2f6a="" class="node-host">192.168.65.132:5000</div><!----></div><span data-v-03ca2f6a="" class="node-transport telnet">telnet</span></div></div></div><div data-v-03ca2f6a="" class="node-group"><div data-v-03ca2f6a="" class="node-group-head"><span data-v-03ca2f6a="">RASPBERRY PI</span><span data-v-03ca2f6a="" class="node-group-chevron">⌃</span></div><div data-v-03ca2f6a="" class="node-group-items"><div data-v-03ca2f6a="" class="node-item"><div data-v-03ca2f6a="" class="node-dot"></div><div data-v-03ca2f6a="" class="node-meta"><div data-v-03ca2f6a="" class="node-name">rpi</div><div data-v-03ca2f6a="" class="node-host">192.168.1.29:22</div><!----></div><span data-v-03ca2f6a="" class="node-transport ssh">ssh</span></div></div></div><!----></div></aside><main data-v-03ca2f6a="" class="main"><div data-v-03ca2f6a="" class="main-bg"><div data-v-348e23e4="" data-v-03ca2f6a="" class="war-room"><div data-v-348e23e4="" class="wr-header"><div data-v-348e23e4="" class="title">⚔️ CYBER COMMAND // RED VS BLUE</div><div data-v-348e23e4="" class="subtitle">LIVE SYSTEM OPERATIONS DASHBOARD</div></div><div data-v-348e23e4="" class="split-view"><div data-v-348e23e4="" class="team-panel red-team"><div data-v-348e23e4="" class="team-header"><h2 data-v-348e23e4="">RED TEAM</h2><span data-v-348e23e4="" class="sub">THREAT EMULATION / CHAOS MONKEY</span></div><div data-v-348e23e4="" class="sub-tab-bar"><button data-v-348e23e4="" class="sub-tab active"> 🤖 AUTOMATED CHAOS </button><button data-v-348e23e4="" class="sub-tab"> 🎯 MANUAL STRIKE </button></div><div data-v-348e23e4="" class="control-area"><div data-v-348e23e4="" class="chaos-panel" style="width: 100%; display: flex; flex-direction: column; align-items: center; gap: 20px;"><p data-v-348e23e4="" class="desc text-pink"> Slip Chaos Monkey løs på netværket. Dette simulerer interne og eksterne trusler ved at igangsætte Nmap-scans, brute-force forsøg og anomali-skabelse for at teste Blue Teams reaktionsevne. </p><button data-v-348e23e4="" class="btn-engage btn-red active">🔥 CHAOS MODE: ENGAGED</button></div></div><div data-v-348e23e4="" class="log-area"><div data-v-348e23e4="" class="log-title text-pink">RED TEAM ACTIVITY FEED</div><div data-v-348e23e4="" class="log-window"><div data-v-348e23e4="" class="log-empty">No recent activity.</div></div></div></div><div data-v-348e23e4="" class="team-panel blue-team"><div data-v-348e23e4="" class="team-header"><h2 data-v-348e23e4="">BLUE TEAM</h2><span data-v-348e23e4="" class="sub">AUTONOMOUS SOAR / ACTIVE DEFENSE</span></div><div data-v-348e23e4="" class="control-area"><p data-v-348e23e4="" class="desc text-cyan"> Aktiver AI Autopilot. Maskinlæringsmodellen vil analysere trusler i realtid, isolere inficerede noder og håndhæve Zero Trust arkitektur automatisk uden menneskelig indgriben. </p><button data-v-348e23e4="" class="btn-engage btn-blue">ACTIVATE AI AUTOPILOT</button></div><div data-v-348e23e4="" class="log-area"><div data-v-348e23e4="" class="log-title text-cyan">BLUE TEAM ACTIVITY FEED</div><div data-v-348e23e4="" class="log-window"><div data-v-348e23e4="" class="log-empty">No recent activity.</div></div></div></div></div></div></div><!----></main><!----><!----><!----><!----><div data-v-03ca2f6a="" class="flash-stack"><div data-v-03ca2f6a="" class="flash err">CHAOS MODE UNLEASHED</div></div><div data-v-a8515cc6="" data-v-03ca2f6a="" class="ai-sidebar"><div data-v-a8515cc6="" class="ai-toggle"><span data-v-a8515cc6="" class="ai-toggle-icon">🤖</span><span data-v-a8515cc6="" class="ai-toggle-text">AI ASSISTANT</span></div><div data-v-a8515cc6="" class="ai-content"><div data-v-a8515cc6="" class="ai-header"><div data-v-a8515cc6="" class="ai-title">NEURAL LINK v1.0</div><button data-v-a8515cc6="" class="btn-close">×</button></div><div data-v-a8515cc6="" class="ai-messages"><div data-v-a8515cc6="" class="message assistant"><div data-v-a8515cc6="" class="msg-header"><span data-v-a8515cc6="" class="msg-role">ASSISTANT</span></div><div data-v-a8515cc6="" class="msg-text">SYSTEM READY. I HAVE DIRECT ACCESS TO NODES AND TOPOLOGY. HOW CAN I HELP?</div></div><!----></div><div data-v-a8515cc6="" class="ai-input-area"><textarea data-v-a8515cc6="" placeholder="ASK ANYTHING... (E.G. 'WHAT IS THE IP OF NODE 1?')"></textarea><button data-v-a8515cc6="" class="btn-send" disabled="">SEND</button></div></div></div><!----></div></div>
+  
+
+</body></html>
