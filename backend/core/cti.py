@@ -217,177 +217,38 @@ class CTIEngine:
             # Wait a bit before generating the next threat
             await asyncio.sleep(random.uniform(0.5, 2.5))
 
-    async def tail_monitored_nodes_logs(self, queue: asyncio.Queue):
-        """Periodically polls log files of monitored nodes and posts real-time targeted alerts."""
-        import re
-        from .vault import load_credentials
-        from .session import session_manager
+    async def inject_agent_event(self, queue: asyncio.Queue, target_host: str, alert_type: str, severity: str, attacker_ip: str, target_name: str = "Target Node"):
+        """Injects a targeted event from the Go agent directly into the CTI queue."""
+        # Geolocate the source IP
+        attacker_geo = await get_ip_geolocation(attacker_ip, default_name="Global Attack Source")
+        # Geolocate the destination target node
+        target_geo = await get_ip_geolocation(target_host, default_name=target_name)
         
-        # Regex parsers for SSH, Web server logs, and Firewall logs
-        ssh_re = re.compile(r"Failed (?:password|publickey) for (?:invalid user )?(\S+) from (\S+)")
-        web_re = re.compile(r"^(\S+)\s+\S+\s+\S+\s+\[[^\]]+\]\s+\"(\S+)\s+(.*?)\s+HTTP/[^\"]+\"\s+(\d+)")
-        ufw_re = re.compile(r"\[UFW BLOCK\].*?SRC=(\S+).*?DST=(\S+).*?DPT=(\d+)")
-
-        # Web exploit payloads regex
-        sql_pat = re.compile(r"(?i)(union\s+select|select\s+.*\s+from|insert\s+into|delete\s+from|drop\s+table|' or 1=1|--|%27%20or%201%3D1|%20union%20select)")
-        path_pat = re.compile(r"(?i)(\.\./\.\.|/etc/passwd|/boot\.ini|win\.ini|%2e%2e%2f)")
-        xss_pat = re.compile(r"(?i)(<script>|javascript:|%3Cscript%3E|onerror=|onload=)")
-
-        seen_lines = {} # nid -> set of line hashes to avoid duplicate alerts
-
-        # Combined tail / journalctl commands for multiple log sources
-        ssh_cmd = (
-            "tail -n 50 /var/log/auth.log 2>/dev/null | grep -E 'Failed password|Failed publickey' || "
-            "journalctl -u ssh -n 50 --no-pager 2>/dev/null | grep -E 'Failed password|Failed publickey' || echo ''"
-        )
-        web_cmd = (
-            "tail -n 50 /var/log/nginx/access.log 2>/dev/null || "
-            "tail -n 50 /var/log/apache2/access.log 2>/dev/null || "
-            "tail -n 50 /var/log/httpd/access_log 2>/dev/null || echo ''"
-        )
-        fw_cmd = (
-            "tail -n 50 /var/log/ufw.log 2>/dev/null || "
-            "tail -n 50 /var/log/syslog 2>/dev/null | grep -E '\\[UFW BLOCK\\]|IPTABLES' || echo ''"
-        )
-
-        cmds = [ssh_cmd, web_cmd, fw_cmd]
-
-        while True:
-            try:
-                nodes = await load_nodes_db()
-                monitored_nodes = {nid: n for nid, n in nodes.items() if n.get("threat_monitoring")}
-                
-                for nid, node in monitored_nodes.items():
-                    if nid not in seen_lines:
-                        seen_lines[nid] = set()
-
-                    # Fetch SSH credentials for connection
-                    username, password = await load_credentials(nid)
-                    node_ssh = dict(node)
-                    node_ssh["username"] = username
-                    node_ssh["password"] = password
-
-                    # Run resilient multi-vector log queries in a single batch
-                    results, err = await session_manager.run(nid, node_ssh, cmds)
-                    if err or not results:
-                        continue
-
-                    # Avoid spamming historical logs on first connection
-                    is_first_poll = len(seen_lines[nid]) == 0
-
-                    async def process_and_queue_alert(attacker_ip, alert_type, severity):
-                        # Geolocate the source IP
-                        attacker_geo = await get_ip_geolocation(attacker_ip, default_name="Global Attack Source")
-                        # Geolocate the destination target node
-                        target_host = node.get("host", "127.0.0.1")
-                        target_geo = await get_ip_geolocation(target_host, default_name=node.get("name", "Target Node"))
-                        
-                        source = {
-                            "ip": attacker_ip,
-                            "city": f"{attacker_geo['name']} (IP: {attacker_ip})",
-                            "lat": attacker_geo["lat"] + (random.random() - 0.5) * 1.5, # Jitter for visual overlapping
-                            "lng": attacker_geo["lng"] + (random.random() - 0.5) * 1.5
-                        }
-                        
-                        target = {
-                            "ip": target_host,
-                            "city": f"{node.get('name')} ({target_geo['name']})",
-                            "lat": target_geo["lat"] + (random.random() - 0.5) * 0.3,
-                            "lng": target_geo["lng"] + (random.random() - 0.5) * 0.3
-                        }
-                        
-                        event = {
-                            "id": f"evt_{int(time.time()*1000)}_{random.randint(1000, 9999)}",
-                            "timestamp": time.time(),
-                            "source": source,
-                            "target": target,
-                            "type": alert_type,
-                            "severity": severity,
-                            "targeted": True
-                        }
-                        
-                        await queue.put(event)
-                        # Stagger messages to keep websocket queue smooth
-                        await asyncio.sleep(0.1)
-
-                    # 1. Parse SSH output
-                    ssh_output = results[0].get("output", "") if len(results) > 0 else ""
-                    ssh_lines = [l.strip() for l in ssh_output.split("\n") if l.strip()]
-                    for line in ssh_lines:
-                        if line in seen_lines[nid]:
-                            continue
-                        seen_lines[nid].add(line)
-                        if is_first_poll:
-                            continue
-                        m = ssh_re.search(line)
-                        if m:
-                            attacker_username = m.group(1)
-                            attacker_ip = m.group(2)
-                            await process_and_queue_alert(
-                                attacker_ip=attacker_ip,
-                                alert_type=f"SSH Brute Force ({attacker_username})",
-                                severity="high"
-                            )
-
-                    # 2. Parse Web server access logs
-                    web_output = results[1].get("output", "") if len(results) > 1 else ""
-                    web_lines = [l.strip() for l in web_output.split("\n") if l.strip()]
-                    for line in web_lines:
-                        if line in seen_lines[nid]:
-                            continue
-                        seen_lines[nid].add(line)
-                        if is_first_poll:
-                            continue
-                        m = web_re.search(line)
-                        if m:
-                            ip, method, path_query, status = m.groups()
-                            alert_type = None
-                            severity = "medium"
-                            
-                            if sql_pat.search(path_query):
-                                alert_type = "SQL Injection Attempt"
-                                severity = "high"
-                            elif path_pat.search(path_query):
-                                alert_type = "Path Traversal Attempt"
-                                severity = "high"
-                            elif xss_pat.search(path_query):
-                                alert_type = "XSS Attack Attempt"
-                                severity = "medium"
-                                
-                            if alert_type:
-                                await process_and_queue_alert(
-                                    attacker_ip=ip,
-                                    alert_type=alert_type,
-                                    severity=severity
-                                )
-
-                    # 3. Parse Firewall blocked logs
-                    fw_output = results[2].get("output", "") if len(results) > 2 else ""
-                    fw_lines = [l.strip() for l in fw_output.split("\n") if l.strip()]
-                    for line in fw_lines:
-                        if line in seen_lines[nid]:
-                            continue
-                        seen_lines[nid].add(line)
-                        if is_first_poll:
-                            continue
-                        m = ufw_re.search(line)
-                        if m:
-                            src_ip, dst_ip, port = m.groups()
-                            await process_and_queue_alert(
-                                attacker_ip=src_ip,
-                                alert_type=f"Port Scan (UFW Blocked Port {port})",
-                                severity="medium"
-                            )
-
-                    # Cap memory usage of seen lines set
-                    if len(seen_lines[nid]) > 1000:
-                        seen_lines[nid] = set(list(seen_lines[nid])[-500:])
-
-            except Exception as e:
-                print(f"[CTI] Error in monitored nodes tailing loop: {e}")
-
-            # Polling frequency
-            await asyncio.sleep(6)
+        source = {
+            "ip": attacker_ip,
+            "city": f"{attacker_geo['name']} (IP: {attacker_ip})",
+            "lat": attacker_geo["lat"] + (random.random() - 0.5) * 1.5,
+            "lng": attacker_geo["lng"] + (random.random() - 0.5) * 1.5
+        }
+        
+        target = {
+            "ip": target_host,
+            "city": f"{target_name} ({target_geo['name']})",
+            "lat": target_geo["lat"] + (random.random() - 0.5) * 0.3,
+            "lng": target_geo["lng"] + (random.random() - 0.5) * 0.3
+        }
+        
+        event = {
+            "id": f"evt_{int(time.time()*1000)}_{random.randint(1000, 9999)}",
+            "timestamp": time.time(),
+            "source": source,
+            "target": target,
+            "type": alert_type,
+            "severity": severity,
+            "targeted": True
+        }
+        
+        await queue.put(event)
 
 cti_engine = CTIEngine()
 cti_queue = asyncio.Queue()

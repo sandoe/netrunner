@@ -12,7 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from .routers import ai, configs, gns3, links, nodes, preview, terminal, settings, threats, defense, system, chaos, auth, redteam, deception
+from .routers import ai, configs, gns3, links, nodes, preview, terminal, settings, threats, defense, system, chaos, auth, redteam, deception, agent
 from .routers.settings import load_settings
 from .core.db import init_db
 
@@ -23,7 +23,7 @@ DATA_DIR = Path("data")
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Ensure directories exist
-    for d in ("configs", "captures", "exports"):
+    for d in ("configs", "captures", "exports", "agents"):
         (DATA_DIR / d).mkdir(parents=True, exist_ok=True)
     
     # Initialize DB
@@ -74,6 +74,7 @@ app.include_router(chaos.router,    prefix="/api")
 app.include_router(redteam.router,  prefix="/api")
 app.include_router(deception.router,prefix="/api")
 app.include_router(auth.router,     prefix="/api")
+app.include_router(agent.router,    prefix="/api/agent")
 app.include_router(terminal.router)
 
 class NoCacheStaticFiles(StaticFiles):
