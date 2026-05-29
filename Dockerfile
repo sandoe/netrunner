@@ -6,7 +6,16 @@ RUN npm ci --silent
 COPY frontend/ ./
 RUN npm run build
 
-# Stage 2: Create the final Python production container
+# Stage 2: Build the Go agent
+FROM golang:1.22-alpine AS agent-builder
+WORKDIR /app/agent
+COPY agent/ ./
+# Build AMD64
+RUN GOOS=linux GOARCH=amd64 go build -o /netrunner-agent-amd64 main.go
+# Build ARM64
+RUN GOOS=linux GOARCH=arm64 go build -o /netrunner-agent-arm64 main.go
+
+# Stage 3: Create the final Python production container
 FROM python:3.10-slim
 WORKDIR /app
 
@@ -25,6 +34,11 @@ COPY netrunner.py ./
 
 # Copy compiled frontend assets from Stage 1
 COPY --from=frontend-builder /app/frontend/dist ./frontend/dist
+
+# Copy compiled Go agents from Stage 2
+RUN mkdir -p /app/bin
+COPY --from=agent-builder /netrunner-agent-amd64 /app/bin/
+COPY --from=agent-builder /netrunner-agent-arm64 /app/bin/
 
 # Set up the data directory and volume
 RUN mkdir -p /app/data

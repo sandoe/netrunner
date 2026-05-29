@@ -6,7 +6,9 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test:unit": "vitest",
+    "test:e2e": "playwright test"
   },
   "dependencies": {
     "@types/cytoscape": "^3.31.0",
@@ -23,12 +25,17 @@
     "vue-chartjs": "^5.3.3"
   },
   "devDependencies": {
+    "@pinia/testing": "^1.0.3",
+    "@playwright/test": "^1.60.0",
     "@types/node": "^24.12.2",
     "@types/three": "^0.184.1",
     "@vitejs/plugin-vue": "^6.0.6",
+    "@vue/test-utils": "^2.4.10",
     "@vue/tsconfig": "^0.9.1",
+    "jsdom": "^29.1.1",
     "typescript": "~6.0.2",
     "vite": "^8.0.10",
+    "vitest": "^4.1.7",
     "vue-tsc": "^3.2.7"
   }
 }
