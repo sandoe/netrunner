@@ -33,6 +33,10 @@ async def lifespan(app: FastAPI):
     # Initialize DB
     await init_db()
 
+    # Seed default users (admin/analyst) on first run
+    from .routers.auth import seed_default_users
+    await seed_default_users()
+
     # Load settings into env
     s = await load_settings()
     if s.get("openai_api_key"):

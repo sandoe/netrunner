@@ -44,6 +44,7 @@ async function handleLogin() {
     const res = await api.login({ username: username.value, password: password.value })
     localStorage.setItem('nr_token', res.access_token)
     localStorage.setItem('nr_role', res.role)
+    localStorage.setItem('nr_username', res.username)
     emit('authenticated', res.role)
   } catch (e: any) {
     error.value = "ACCESS DENIED: Invalid credentials."

@@ -29,6 +29,11 @@ export const api = {
   // Auth
   login: (creds: any) => req<any>('POST', '/auth/login', creds),
 
+  // User management (admin only)
+  listUsers: () => req<{ users: { username: string, role: string, created?: string }[] }>('GET', '/auth/users'),
+  createUser: (u: { username: string, password: string, role: string }) => req<any>('POST', '/auth/users', u),
+  deleteUser: (username: string) => req<{ status: string }>('DELETE', `/auth/users/${encodeURIComponent(username)}`),
+
   // Nodes
   listNodes: () => req<Record<string, NrNode>>('GET', '/nodes'),
   createNode: (n: Partial<NrNode> & { password?: string }) => req<NrNode>('POST', '/nodes', n),

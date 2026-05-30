@@ -45,13 +45,18 @@ class LoginRequest(BaseModel):
 
 
 # --- credentials ---------------------------------------------------------- #
-# Passwords are never stored in plaintext. Each user's password is hashed with
-# PBKDF2-HMAC-SHA256 at startup and verified in constant time. Override the
-# defaults via env vars NETRUNNER_ADMIN_PASSWORD / NETRUNNER_ANALYST_PASSWORD.
+# Users live in the database (see UserModel). Passwords are never stored in
+# plaintext: each user has a random salt and a PBKDF2-HMAC-SHA256 hash, verified
+# in constant time. Default admin/analyst are seeded on first startup; override
+# their initial passwords via NETRUNNER_ADMIN_PASSWORD / NETRUNNER_ANALYST_PASSWORD.
 import hashlib
 import hmac as _hmac
+from datetime import date
+
+from ..core.db import load_users_db, get_user_db, save_user_db, delete_user_db
 
 _PBKDF2_ROUNDS = 200_000
+ROLES = ("admin", "analyst")
 _DEFAULT_CREDS = {"admin": "admin", "analyst": "analyst"}
 
 
@@ -59,35 +64,43 @@ def _hash_password(password: str, salt: bytes) -> bytes:
     return hashlib.pbkdf2_hmac("sha256", password.encode(), salt, _PBKDF2_ROUNDS)
 
 
-class _User:
-    def __init__(self, role: str, password: str):
-        self.role = role
-        self._salt = secrets.token_bytes(16)
-        self._hash = _hash_password(password, self._salt)
-
-    def verify(self, password: str) -> bool:
-        return _hmac.compare_digest(self._hash, _hash_password(password, self._salt))
+def _make_hash(password: str) -> tuple[str, str]:
+    """Return (password_hash_hex, salt_hex) for a fresh random salt."""
+    salt = secrets.token_bytes(16)
+    return _hash_password(password, salt).hex(), salt.hex()
 
 
-def _build_users() -> dict:
-    users, using_defaults = {}, []
+def _verify(user: dict, password: str) -> bool:
+    try:
+        expected = bytes.fromhex(user["password_hash"])
+        salt = bytes.fromhex(user["salt"])
+    except (ValueError, KeyError, TypeError):
+        return False
+    return _hmac.compare_digest(expected, _hash_password(password, salt))
+
+
+async def seed_default_users():
+    """Create default admin/analyst on first run (idempotent)."""
+    using_defaults = []
     for username, default in _DEFAULT_CREDS.items():
+        if await get_user_db(username):
+            continue
         env_pw = os.environ.get(f"NETRUNNER_{username.upper()}_PASSWORD")
         pw = env_pw or default
         if not env_pw:
             using_defaults.append(username)
-        role = "admin" if username == "admin" else "analyst"
-        users[username] = _User(role, pw)
+        h, s = _make_hash(pw)
+        await save_user_db({
+            "username": username, "password_hash": h, "salt": s,
+            "role": "admin" if username == "admin" else "analyst",
+            "created": date.today().isoformat(),
+        })
     if using_defaults:
         print(
-            "WARNING: Netrunner is using DEFAULT login passwords for "
-            f"{using_defaults}. Set NETRUNNER_<USER>_PASSWORD env vars before "
-            "exposing this service."
+            "WARNING: Netrunner seeded DEFAULT login passwords for "
+            f"{using_defaults}. Change them (or set NETRUNNER_<USER>_PASSWORD "
+            "before first run) before exposing this service."
         )
-    return users
-
-
-USERS = _build_users()
 
 def create_access_token(data: dict):
     to_encode = data.copy()
@@ -113,16 +126,60 @@ def require_admin(user: dict = Depends(get_current_user)):
 
 @router.post("/auth/login")
 async def login(req: LoginRequest):
-    user = USERS.get(req.username)
-    if not user or not user.verify(req.password):
+    user = await get_user_db(req.username)
+    if not user or not _verify(user, req.password):
         raise HTTPException(401, "Invalid credentials")
 
-    token = create_access_token({"sub": req.username, "role": user.role})
-    return {"access_token": token, "token_type": "bearer", "role": user.role, "username": req.username}
+    token = create_access_token({"sub": req.username, "role": user["role"]})
+    return {"access_token": token, "token_type": "bearer", "role": user["role"], "username": req.username}
 
 @router.get("/auth/me")
 async def get_me(user: dict = Depends(get_current_user)):
     return user
+
+
+# --- user management (admin only) ----------------------------------------- #
+class CreateUserRequest(BaseModel):
+    username: str
+    password: str
+    role: str = "analyst"
+
+@router.get("/auth/users")
+async def list_users(admin: dict = Depends(require_admin)):
+    users = await load_users_db()
+    # never expose hashes/salts
+    return {"users": [{"username": u["username"], "role": u["role"], "created": u.get("created")} for u in users]}
+
+@router.post("/auth/users")
+async def create_user(req: CreateUserRequest, admin: dict = Depends(require_admin)):
+    username = req.username.strip()
+    if not username or not req.password:
+        raise HTTPException(400, "Username and password are required")
+    if req.role not in ROLES:
+        raise HTTPException(400, f"Role must be one of {ROLES}")
+    if await get_user_db(username):
+        raise HTTPException(409, "User already exists")
+    h, s = _make_hash(req.password)
+    await save_user_db({
+        "username": username, "password_hash": h, "salt": s,
+        "role": req.role, "created": date.today().isoformat(),
+    })
+    return {"status": "ok", "username": username, "role": req.role}
+
+@router.delete("/auth/users/{username}")
+async def remove_user(username: str, admin: dict = Depends(require_admin)):
+    if username == admin["username"]:
+        raise HTTPException(400, "You cannot delete your own account")
+    target = await get_user_db(username)
+    if not target:
+        raise HTTPException(404, "User not found")
+    if target["role"] == "admin":
+        users = await load_users_db()
+        admins = [u for u in users if u["role"] == "admin"]
+        if len(admins) <= 1:
+            raise HTTPException(400, "Cannot delete the last admin")
+    await delete_user_db(username)
+    return {"status": "ok"}
 
 
 async def authenticate_ws(websocket: WebSocket) -> dict | None:

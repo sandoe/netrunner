@@ -15,6 +15,9 @@ async def setup_db():
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.drop_all)
         await conn.run_sync(Base.metadata.create_all)
+    # Seed default users (lifespan doesn't run under ASGITransport)
+    from backend.routers.auth import seed_default_users
+    await seed_default_users()
     yield
     # Teardown
     async with engine.begin() as conn:

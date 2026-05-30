@@ -13,9 +13,16 @@
           <button class="btn-icon" @click="toggleGlobalFullscreen" :title="isGlobalFullscreen ? 'Exit Fullscreen' : 'Fullscreen'">
             {{ isGlobalFullscreen ? '📺' : '🖥️' }}
           </button>
+          <button v-if="userRole === 'admin'" class="btn-icon" @click="showUsers = true" title="User management">👤</button>
           <button class="btn-icon" @click="showSettings = true" title="Settings">⚙️</button>
           <button class="btn-add" @click="showAddForm = true" title="Add node">+</button>
         </div>
+      </div>
+
+      <div class="user-bar">
+        <span class="user-id">{{ currentUsername || 'operator' }}</span>
+        <span class="user-role" :class="userRole">{{ userRole }}</span>
+        <button class="btn-logout" @click="logout" title="Log out">⏻ LOGOUT</button>
       </div>
 
       <div class="sidebar-stats">
@@ -166,6 +173,7 @@
     <NodeForm v-if="showAddForm" @close="showAddForm = false" />
     <NodeForm v-if="showEdit"    :node="store.selected" @close="showEdit = false" />
     <SettingsModal v-if="showSettings" @close="showSettings = false" />
+    <UserManagementModal v-if="showUsers" @close="showUsers = false" />
 
     <!-- Reboot Modal -->
     <div v-if="showRebootModal" class="modal-overlay reboot-overlay" @click.self="showRebootModal = false">
@@ -287,6 +295,7 @@ import ThreatTimeline from './components/ThreatTimeline.vue'
 import ActiveDefensePanel from './components/ActiveDefensePanel.vue'
 import AiChatSidebar from './components/AiChatSidebar.vue'
 import SettingsModal from './components/SettingsModal.vue'
+import UserManagementModal from './components/UserManagementModal.vue'
 import LoginView from './components/LoginView.vue'
 import WarRoomDashboard from './components/WarRoomDashboard.vue'
 import Gns3Panel from './components/Gns3Panel.vue'
@@ -295,7 +304,17 @@ import { provide } from 'vue'
 
 const loggedIn = ref(!!localStorage.getItem('nr_token'))
 const userRole = ref(localStorage.getItem('nr_role') || 'analyst')
+const currentUsername = ref(localStorage.getItem('nr_username') || '')
 provide('userRole', userRole)
+
+function logout() {
+  localStorage.removeItem('nr_token')
+  localStorage.removeItem('nr_role')
+  localStorage.removeItem('nr_username')
+  loggedIn.value = false
+  userRole.value = 'analyst'
+  currentUsername.value = ''
+}
 
 const isGlobalFullscreen = ref(false)
 
@@ -318,6 +337,7 @@ function handleGlobalNativeFullscreenChange() {
 
 function onAuthenticated(role: string) {
   userRole.value = role
+  currentUsername.value = localStorage.getItem('nr_username') || ''
   loggedIn.value = true
   store.refresh()
   pollSystem()
@@ -339,6 +359,7 @@ watch(activeTab, t => localStorage.setItem('netrunner_active_tab', t))
 const showAddForm = ref(false)
 const showEdit    = ref(false)
 const showSettings = ref(false)
+const showUsers    = ref(false)
 const searchQuery = ref('')
 const connBusy    = ref(false)
 const exporting   = ref(false)
@@ -651,6 +672,14 @@ onUnmounted(() => {
 
 .btn-add { width: 28px; height: 28px; border-radius: 50%; background: none; border: 1px solid var(--cyan); color: var(--cyan); font-size: 18px; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all .2s; }
 .btn-add:hover { background: var(--cyan); color: var(--bg); box-shadow: var(--shadow-c); }
+
+.user-bar { display: flex; align-items: center; gap: 8px; padding: 8px 20px; border-bottom: 1px solid var(--border); font-family: var(--font-co); }
+.user-bar .user-id { color: var(--textwh); font-size: 12px; }
+.user-bar .user-role { font-size: 9px; letter-spacing: 1px; padding: 1px 6px; border-radius: 3px; text-transform: uppercase; }
+.user-bar .user-role.admin { background: rgba(255,45,110,0.15); color: var(--pink); border: 1px solid rgba(255,45,110,0.4); }
+.user-bar .user-role.analyst { background: rgba(0,229,255,0.1); color: var(--cyan); border: 1px solid var(--cyan-d); }
+.btn-logout { margin-left: auto; background: none; border: 1px solid var(--border2); color: var(--textbr); font-size: 10px; letter-spacing: 1px; padding: 4px 10px; border-radius: 4px; cursor: pointer; font-family: var(--font-hd); transition: all .2s; }
+.btn-logout:hover { border-color: var(--pink); color: var(--pink); box-shadow: 0 0 10px rgba(255,45,110,0.2); }
 
 .sidebar-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; padding: 14px 20px; border-bottom: 1px solid var(--border); }
 .sidebar-stat { background: linear-gradient(180deg, rgba(0,229,255,.08), rgba(16,24,40,.5)); border: 1px solid var(--border); border-radius: var(--r); padding: 10px; }

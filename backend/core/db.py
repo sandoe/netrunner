@@ -42,6 +42,14 @@ class NodeModel(Base):
     metadata_json: Mapped[Optional[str]] = mapped_column("metadata", Text)  # JSON dict
     threat_monitoring: Mapped[Optional[bool]] = mapped_column(Boolean, default=False)
 
+class UserModel(Base):
+    __tablename__ = "users"
+    username: Mapped[str] = mapped_column(String(100), primary_key=True)
+    password_hash: Mapped[str] = mapped_column(String(128))
+    salt: Mapped[str] = mapped_column(String(64))
+    role: Mapped[str] = mapped_column(String(20), default="analyst")
+    created: Mapped[Optional[str]] = mapped_column(String(50))
+
 class BeaconNodeModel(Base):
     __tablename__ = "beacon_nodes"
     id: Mapped[str] = mapped_column(String(50), primary_key=True)
@@ -295,4 +303,41 @@ async def save_beacon_node_db(node: dict):
 async def delete_beacon_node_db(node_id: str):
     async with AsyncSessionLocal() as session:
         await session.execute(delete(BeaconNodeModel).where(BeaconNodeModel.id == node_id))
+        await session.commit()
+
+
+# --- users ----------------------------------------------------------------- #
+def _user_to_dict(row: "UserModel") -> dict:
+    return {
+        "username": row.username,
+        "password_hash": row.password_hash,
+        "salt": row.salt,
+        "role": row.role,
+        "created": row.created,
+    }
+
+async def load_users_db() -> list[dict]:
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(select(UserModel))
+        return [_user_to_dict(r) for r in result.scalars()]
+
+async def get_user_db(username: str) -> Optional[dict]:
+    async with AsyncSessionLocal() as session:
+        row = await session.get(UserModel, username)
+        return _user_to_dict(row) if row else None
+
+async def save_user_db(user: dict):
+    async with AsyncSessionLocal() as session:
+        await session.merge(UserModel(
+            username=user["username"],
+            password_hash=user["password_hash"],
+            salt=user["salt"],
+            role=user.get("role", "analyst"),
+            created=user.get("created"),
+        ))
+        await session.commit()
+
+async def delete_user_db(username: str):
+    async with AsyncSessionLocal() as session:
+        await session.execute(delete(UserModel).where(UserModel.username == username))
         await session.commit()
