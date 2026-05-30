@@ -1,4 +1,4 @@
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Depends
 from fastapi.responses import FileResponse
 from backend.core.wifi_csi import csi_queue, mesh_queue
 from pydantic import BaseModel
@@ -7,7 +7,9 @@ import backend.core.wifi_csi as wifi_core
 import asyncio
 import os
 import glob
+import time
 from backend.core.db import load_beacon_nodes_db, save_beacon_node_db, delete_beacon_node_db
+from backend.routers.auth import get_current_user, authenticate_ws
 
 router = APIRouter()
 
@@ -15,6 +17,8 @@ connected_clients = set()
 
 @router.websocket("/ws/csi")
 async def websocket_csi(websocket: WebSocket):
+    if await authenticate_ws(websocket) is None:
+        return
     await websocket.accept()
     connected_clients.add(websocket)
     try:
@@ -35,18 +39,18 @@ class WifiModePayload(BaseModel):
     nodes: List[str]
 
 @router.post("/api/wifi/mode")
-async def set_wifi_mode(payload: WifiModePayload):
+async def set_wifi_mode(payload: WifiModePayload, user: dict = Depends(get_current_user)):
     wifi_core.is_simulation = payload.simulation
     wifi_core.real_nodes = payload.nodes
     return {"status": "ok", "simulation": payload.simulation, "nodes": payload.nodes}
 
 @router.post("/api/wifi/record/start")
-async def start_recording():
+async def start_recording(user: dict = Depends(get_current_user)):
     filename = wifi_core.recorder.start_recording()
     return {"status": "recording_started", "filename": filename}
 
 @router.post("/api/wifi/record/stop")
-async def stop_recording():
+async def stop_recording(user: dict = Depends(get_current_user)):
     filename = wifi_core.recorder.stop_recording()
     return {"status": "recording_stopped", "filename": filename}
 
@@ -64,7 +68,7 @@ async def esp32_download_main():
     return {"error": "Update file not found"}
 
 @router.get("/api/wifi/record/list")
-async def list_recordings():
+async def list_recordings(user: dict = Depends(get_current_user)):
     files = glob.glob("data/captures/csi_capture_*.jsonl")
     results = []
     for f in sorted(files, reverse=True):
@@ -94,17 +98,29 @@ class BeaconNodePayload(BaseModel):
     udp_port: int = 8001
 
 @router.get("/api/wifi/beacons")
-async def get_beacons():
+async def get_beacons(user: dict = Depends(get_current_user)):
     nodes = await load_beacon_nodes_db()
     return {"beacons": nodes}
 
+@router.get("/api/wifi/telemetry")
+async def get_telemetry(user: dict = Depends(get_current_user)):
+    """Live per-node CSI source + hardware capabilities reported by beacons.
+
+    A node is considered 'online' if a packet arrived in the last 5 seconds.
+    """
+    now = time.time()
+    nodes = []
+    for t in wifi_core.node_telemetry.values():
+        nodes.append({**t, "online": (now - t.get("last_seen", 0)) < 5.0})
+    return {"nodes": nodes}
+
 @router.post("/api/wifi/beacons")
-async def save_beacon(payload: BeaconNodePayload):
+async def save_beacon(payload: BeaconNodePayload, user: dict = Depends(get_current_user)):
     await save_beacon_node_db(payload.model_dump())
     return {"status": "ok"}
 
 @router.delete("/api/wifi/beacons/{node_id}")
-async def delete_beacon(node_id: str):
+async def delete_beacon(node_id: str, user: dict = Depends(get_current_user)):
     await delete_beacon_node_db(node_id)
     return {"status": "ok"}
 
@@ -114,7 +130,7 @@ class DeployPayload(BaseModel):
 from backend.core.deployment import deploy_beacon_to_node, stop_beacon_on_node
 
 @router.post("/api/wifi/deploy")
-async def deploy_beacon(payload: DeployPayload):
+async def deploy_beacon(payload: DeployPayload, user: dict = Depends(get_current_user)):
     # Find node from DB
     nodes = await load_beacon_nodes_db()
     node = next((n for n in nodes if n["id"] == payload.node_id), None)
@@ -137,7 +153,7 @@ async def deploy_beacon(payload: DeployPayload):
         return {"error": str(e)}
 
 @router.post("/api/wifi/beacons/{node_id}/stop")
-async def stop_beacon(node_id: str):
+async def stop_beacon(node_id: str, user: dict = Depends(get_current_user)):
     nodes = await load_beacon_nodes_db()
     node = next((n for n in nodes if n["id"] == node_id), None)
     if not node:

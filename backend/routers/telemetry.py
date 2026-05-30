@@ -31,6 +31,9 @@ async def broadcast_telemetry():
 
 @router.websocket("/ws/telemetry")
 async def websocket_telemetry(websocket: WebSocket):
+    from .auth import authenticate_ws
+    if await authenticate_ws(websocket) is None:
+        return
     await websocket.accept()
     telemetry_clients.append(websocket)
     try:

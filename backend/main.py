@@ -7,12 +7,16 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 import uvicorn
-from fastapi import FastAPI
+from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from .routers import ai, configs, gns3, links, nodes, preview, terminal, settings, threats, defense, system, chaos, auth, redteam, deception, agent, threat_history, rules, internal, telemetry, wifi
+from .routers.auth import get_current_user
+
+# Require a valid JWT for protected routers (login + internal m2m stay open).
+AUTH = [Depends(get_current_user)]
 from .routers.settings import load_settings
 from .core.db import init_db
 
@@ -79,25 +83,32 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.include_router(nodes.router,    prefix="/api")
-app.include_router(links.router,    prefix="/api")
-app.include_router(gns3.router,     prefix="/api")
-app.include_router(ai.router,       prefix="/api")
-app.include_router(settings.router, prefix="/api")
-app.include_router(configs.router,  prefix="/api")
-app.include_router(preview.router,  prefix="/api")
-app.include_router(defense.router,  prefix="/api")
-app.include_router(threats.router)
-app.include_router(system.router,   prefix="/api")
-app.include_router(chaos.router,    prefix="/api")
-app.include_router(redteam.router,  prefix="/api")
-app.include_router(deception.router,prefix="/api")
+# Auth must stay public (login). Internal is machine-to-machine (Go mux) and is
+# left open for now — see note in routers/internal.py.
 app.include_router(auth.router,     prefix="/api")
-app.include_router(agent.router,    prefix="/api/agent")
-app.include_router(threat_history.router, prefix="/api/threats")
-app.include_router(rules.router,    prefix="/api/rules")
-app.include_router(terminal.router)
 app.include_router(internal.router)
+
+# Protected HTTP routers — every endpoint requires a valid JWT.
+app.include_router(nodes.router,    prefix="/api", dependencies=AUTH)
+app.include_router(links.router,    prefix="/api", dependencies=AUTH)
+app.include_router(gns3.router,     prefix="/api", dependencies=AUTH)
+app.include_router(ai.router,       prefix="/api", dependencies=AUTH)
+app.include_router(settings.router, prefix="/api", dependencies=AUTH)
+app.include_router(configs.router,  prefix="/api", dependencies=AUTH)
+app.include_router(preview.router,  prefix="/api", dependencies=AUTH)
+app.include_router(defense.router,  prefix="/api", dependencies=AUTH)
+app.include_router(system.router,   prefix="/api", dependencies=AUTH)
+app.include_router(chaos.router,    prefix="/api", dependencies=AUTH)
+app.include_router(redteam.router,  prefix="/api", dependencies=AUTH)
+app.include_router(deception.router,prefix="/api", dependencies=AUTH)
+app.include_router(agent.router,    prefix="/api/agent", dependencies=AUTH)
+app.include_router(threat_history.router, prefix="/api/threats", dependencies=AUTH)
+app.include_router(rules.router,    prefix="/api/rules", dependencies=AUTH)
+
+# Mixed HTTP + WebSocket routers — auth applied per-endpoint inside the router
+# (router-level deps would also reject browser WS handshakes).
+app.include_router(threats.router)
+app.include_router(terminal.router)
 app.include_router(telemetry.router)
 app.include_router(wifi.router)
 class NoCacheStaticFiles(StaticFiles):

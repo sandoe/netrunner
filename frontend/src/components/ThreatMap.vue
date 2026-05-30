@@ -57,6 +57,7 @@
 
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, shallowRef, computed } from 'vue'
+import { wsTokenParam, wsBase } from '@/api/client'
 import Globe from 'globe.gl'
 
 const globeEl = ref<HTMLElement | null>(null)
@@ -166,8 +167,7 @@ onMounted(() => {
   fetchNodes()
 
   // Connect WebSocket
-  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-  const wsUrl = `${protocol}//${window.location.host}/ws/threats`
+  const wsUrl = `${wsBase()}/ws/threats${wsTokenParam()}`
   ws = new WebSocket(wsUrl)
   
   ws.onmessage = (event) => {

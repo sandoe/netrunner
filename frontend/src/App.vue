@@ -330,8 +330,12 @@ window.addEventListener('auth-expired', () => {
 })
 
 const store       = useNodesStore()
-const viewMode    = ref<'node' | 'topology' | 'threat' | 'history' | 'warroom'>('node')
-const activeTab   = ref<'overview' | 'gns3-api' | 'diag' | 'config' | 'exec' | 'defense' | 'capture' | 'terminal'>('overview')
+const viewMode    = ref<'node' | 'topology' | 'threat' | 'history' | 'warroom'>(
+  (localStorage.getItem('netrunner_view_mode') as any) || 'node')
+const activeTab   = ref<'overview' | 'gns3-api' | 'diag' | 'config' | 'exec' | 'defense' | 'capture' | 'terminal'>(
+  (localStorage.getItem('netrunner_active_tab') as any) || 'overview')
+watch(viewMode, v => localStorage.setItem('netrunner_view_mode', v))
+watch(activeTab, t => localStorage.setItem('netrunner_active_tab', t))
 const showAddForm = ref(false)
 const showEdit    = ref(false)
 const showSettings = ref(false)

@@ -1,10 +1,39 @@
+import os
+import secrets
+from pathlib import Path
+
 import jwt
 from datetime import datetime, timedelta
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, WebSocket
 from fastapi.security import OAuth2PasswordBearer
 from pydantic import BaseModel
 
-SECRET_KEY = "netrunner-super-secret-key"
+
+def _load_secret_key() -> str:
+    """Resolve the JWT signing key.
+
+    Priority: NETRUNNER_SECRET_KEY env var, else a random key persisted to
+    data/.jwt_secret (so tokens survive restarts without a hardcoded secret).
+    """
+    env = os.environ.get("NETRUNNER_SECRET_KEY")
+    if env:
+        return env
+    key_file = Path("data") / ".jwt_secret"
+    key_file.parent.mkdir(parents=True, exist_ok=True)
+    if key_file.exists():
+        existing = key_file.read_text().strip()
+        if existing:
+            return existing
+    key = secrets.token_urlsafe(48)
+    key_file.write_text(key)
+    try:
+        key_file.chmod(0o600)
+    except OSError:
+        pass
+    return key
+
+
+SECRET_KEY = _load_secret_key()
 ALGORITHM = "HS256"
 
 router = APIRouter()
@@ -54,3 +83,24 @@ async def login(req: LoginRequest):
 @router.get("/auth/me")
 async def get_me(user: dict = Depends(get_current_user)):
     return user
+
+
+async def authenticate_ws(websocket: WebSocket) -> dict | None:
+    """Validate a WebSocket connection via a `?token=` query parameter.
+
+    Browsers can't set Authorization headers on WebSocket handshakes, so the
+    JWT is passed as a query parameter. Returns the user dict on success.
+    On failure it accepts then immediately closes the socket (policy violation)
+    and returns None — callers should `return` when they get None.
+    """
+    token = websocket.query_params.get("token")
+    if token:
+        try:
+            payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+            if payload.get("sub"):
+                return {"username": payload.get("sub"), "role": payload.get("role")}
+        except jwt.PyJWTError:
+            pass
+    await websocket.accept()
+    await websocket.close(code=4401)  # 4401: unauthorized (app-defined)
+    return None

@@ -22,6 +22,26 @@
       <div class="stats-panel">
         <h3>RADIO TELEMETRY</h3>
         <div class="stat-row">
+          <span>Data Source:</span>
+          <span :class="isRealData ? 'highlight' : 'highlight-alert'">
+            {{ isSimulation ? 'SIMULATION' : (csiSource === 'nexmon' ? 'REAL CSI' : 'SYNTHETIC') }}
+          </span>
+        </div>
+        <div class="stat-row" v-if="!isSimulation && dataStatus">
+          <span>Link Status:</span>
+          <span class="highlight" style="font-size:0.75rem;">{{ dataStatus }}</span>
+        </div>
+        <div class="stat-row" v-if="selectedTelemetry">
+          <span>WiFi Chip:</span>
+          <span class="highlight">{{ selectedTelemetry.capabilities?.wifi_chip || 'unknown' }}</span>
+        </div>
+        <div class="stat-row" v-if="selectedTelemetry">
+          <span>Nexmon CSI:</span>
+          <span :class="selectedTelemetry.capabilities?.nexmon ? 'highlight' : 'highlight-alert'">
+            {{ selectedTelemetry.capabilities?.nexmon ? 'SUPPORTED' : 'NO' }}
+          </span>
+        </div>
+        <div class="stat-row">
           <span>Status:</span>
           <span class="highlight">MONITOR MODE</span>
         </div>
@@ -115,7 +135,8 @@
         <div class="decoder-panel">
           <div class="decoder-header">
             <div class="glitch-title-sm">KEYSTROKE (WiKey)</div>
-            <div v-if="typingActive" class="live-badge alert-badge"><span class="pulse-alert"></span> INTERCEPTING...</div>
+            <div v-if="!isSimulation && decodersSimulated" class="sim-tag" title="No CSI keystroke model loaded — demo only">SIMULATED</div>
+            <div v-else-if="typingActive" class="live-badge alert-badge"><span class="pulse-alert"></span> INTERCEPTING...</div>
           </div>
           <div class="decoder-terminal">
             <div class="terminal-text">{{ decodedText }}<span class="cursor" v-show="cursorVisible">_</span></div>
@@ -125,11 +146,16 @@
         <!-- Panel 2: Vital Signs -->
         <div class="decoder-panel">
           <div class="decoder-header">
-            <div class="glitch-title-sm">VITAL SIGNS (ECG)</div>
+            <div class="glitch-title-sm">VITAL SIGNS (CSI)</div>
             <div class="live-badge"><span class="pulse-alert" style="background:#ff2d6e;"></span> {{ bpm }} BPM</div>
           </div>
-          <div class="decoder-content" style="display:flex;align-items:center;justify-content:center;">
+          <div class="decoder-content" style="flex-direction:column;display:flex;align-items:center;justify-content:center;gap:14px;">
              <div class="heartbeat-line"></div>
+             <div class="vital-readout">
+               <span class="vital-resp">{{ breathingRate !== null ? breathingRate.toFixed(0) : '--' }}</span>
+               <span class="vital-unit">RPM (RESP)</span>
+             </div>
+             <div v-if="!isSimulation && breathingRate === null" class="vital-hint">collecting CSI (~10s)…</div>
           </div>
         </div>
 
@@ -137,6 +163,7 @@
         <div class="decoder-panel">
           <div class="decoder-header">
             <div class="glitch-title-sm">THROUGH-WALL RADAR</div>
+            <div v-if="!isSimulation && decodersSimulated" class="sim-tag" title="Single-node CSI can't localise — demo only">SIMULATED</div>
           </div>
           <div class="decoder-content" style="position:relative;display:flex;align-items:center;justify-content:center;overflow:hidden;">
             <div class="radar-scope">
@@ -150,6 +177,7 @@
         <div class="decoder-panel">
           <div class="decoder-header">
             <div class="glitch-title-sm">BEHAVIOR & SPEECH</div>
+            <div v-if="!isSimulation && decodersSimulated" class="sim-tag" title="No lip-reading/gesture model loaded — demo only">SIMULATED</div>
           </div>
           <div class="decoder-terminal behavior-terminal">
             <div v-for="(log, idx) in behaviorLogs" :key="idx" class="terminal-text" :class="{'speech-log': log.includes('[SPEECH]'), 'gesture-log': log.includes('[GESTURE]')}">
@@ -350,6 +378,7 @@
 
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, watch, nextTick, computed } from 'vue'
+import { wsTokenParam, wsBase } from '@/api/client'
 import Chart from 'chart.js/auto'
 import Plotly from 'plotly.js-dist-min'
 import * as THREE from 'three'
@@ -359,10 +388,24 @@ interface NetworkNode {
   color: number;
 }
 
-const activeMode = ref('single')
+const activeMode = ref(localStorage.getItem('netrunner_wifi_mode') || 'single')
 
-const selectedNodeId = ref<string>("")
+const selectedNodeId = ref<string>(localStorage.getItem('netrunner_wifi_selected') || "")
 const nodeLastSeen = ref<Record<string, number>>({})
+
+// fetch wrapper that attaches the JWT (backend now requires auth on wifi endpoints)
+const authFetch = (url: string, opts: RequestInit = {}) => {
+  const token = localStorage.getItem('nr_token')
+  const headers: Record<string, string> = { ...(opts.headers as Record<string, string> || {}) }
+  if (token) headers['Authorization'] = `Bearer ${token}`
+  return fetch(url, { ...opts, headers })
+}
+
+watch(selectedNodeId, (v) => {
+  if (v) localStorage.setItem('netrunner_wifi_selected', v)
+  else localStorage.removeItem('netrunner_wifi_selected')
+})
+watch(activeMode, (v) => localStorage.setItem('netrunner_wifi_mode', v))
 
 const isNodeActive = (id: string) => {
   if (isSimulation.value) return true;
@@ -388,7 +431,7 @@ const deployForm = ref({
 
 const fetchSavedNodes = async () => {
   try {
-    const res = await fetch('http://localhost:8000/api/wifi/beacons')
+    const res = await authFetch('/api/wifi/beacons')
     const data = await res.json()
     if (data.beacons) {
       activeNodes.value = data.beacons.map((b: any) => ({
@@ -412,7 +455,7 @@ onMounted(() => {
   }
   
   // Sync with backend on load
-  fetch('http://localhost:8000/api/wifi/mode', {
+  authFetch('/api/wifi/mode', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -420,6 +463,10 @@ onMounted(() => {
       nodes: activeNodes.value.map(n => n.ip)
     })
   }).catch(e => console.error("Initial sync failed", e))
+
+  // Poll per-node hardware capabilities / CSI source
+  fetchTelemetry()
+  telemetryInterval = setInterval(fetchTelemetry, 2000)
 })
 
 watch(activeNodes, (newVal) => {
@@ -448,7 +495,7 @@ const formatRecTime = computed(() => {
 
 const startRecording = async () => {
   try {
-    await fetch('http://localhost:8000/api/wifi/record/start', { method: 'POST' })
+    await authFetch('/api/wifi/record/start', { method: 'POST' })
     isRecording.value = true
     recordingSeconds.value = 0
     lastDownloadLink.value = ''
@@ -460,12 +507,12 @@ const startRecording = async () => {
 
 const stopRecording = async () => {
   try {
-    const res = await fetch('http://localhost:8000/api/wifi/record/stop', { method: 'POST' })
+    const res = await authFetch('/api/wifi/record/stop', { method: 'POST' })
     const data = await res.json()
     isRecording.value = false
     if (recInterval) clearInterval(recInterval)
     if (data.filename) {
-      lastDownloadLink.value = `http://localhost:8000/api/wifi/record/download/${data.filename}`
+      lastDownloadLink.value = `/api/wifi/record/download/${data.filename}`
     }
   } catch(e) {
     console.error("Stop recording failed", e)
@@ -481,7 +528,7 @@ const setMode = async (sim: boolean) => {
 
 const pushModeToBackend = async () => {
   try {
-    await fetch('http://localhost:8000/api/wifi/mode', {
+    await authFetch('/api/wifi/mode', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -507,14 +554,14 @@ const saveAndDeployNode = async () => {
   
   try {
     // 1. Save to DB
-    await fetch('http://localhost:8000/api/wifi/beacons', {
+    await authFetch('/api/wifi/beacons', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(deployForm.value)
     })
     
     // 2. Trigger Deploy regardless of mode
-    const res = await fetch('http://localhost:8000/api/wifi/deploy', {
+    const res = await authFetch('/api/wifi/deploy', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ node_id: nodeId })
@@ -551,7 +598,7 @@ const saveAndDeployNode = async () => {
 
 const startNode = async (nodeId: string) => {
   try {
-    const res = await fetch('http://localhost:8000/api/wifi/deploy', {
+    const res = await authFetch('/api/wifi/deploy', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ node_id: nodeId })
@@ -572,7 +619,7 @@ const startNode = async (nodeId: string) => {
 
 const stopNode = async (nodeId: string) => {
   try {
-    const res = await fetch(`http://localhost:8000/api/wifi/beacons/${nodeId}/stop`, {
+    const res = await authFetch(`/api/wifi/beacons/${nodeId}/stop`, {
       method: 'POST'
     })
     const data = await res.json()
@@ -589,7 +636,7 @@ const stopNode = async (nodeId: string) => {
 const deleteNode = async (nodeId: string) => {
   if (!confirm("Are you sure you want to remove this node configuration?")) return
   try {
-    await fetch(`http://localhost:8000/api/wifi/beacons/${nodeId}`, {
+    await authFetch(`/api/wifi/beacons/${nodeId}`, {
       method: 'DELETE'
     })
     await fetchSavedNodes()
@@ -602,7 +649,7 @@ const removeNode = async (index: number) => {
   const node = activeNodes.value[index]
   if ((node as any).id) {
     try {
-      await fetch(`http://localhost:8000/api/wifi/beacons/${(node as any).id}`, {
+      await authFetch(`/api/wifi/beacons/${(node as any).id}`, {
         method: 'DELETE'
       })
     } catch(e) {}
@@ -637,9 +684,39 @@ const decodedText = ref("")
 const cursorVisible = ref(true)
 
 const bpm = ref(72)
+const breathingRate = ref<number | null>(null)
 const radarX = ref(0.5)
 const radarY = ref(0.5)
 const behaviorLogs = ref<string[]>([])
+
+// --- live data provenance (REAL hardware CSI vs SIMULATED) ---
+const csiSource = ref<string>('')          // 'nexmon' | 'synthetic' | ''
+const dataStatus = ref<string>('')         // honest status string from beacon
+const decodersSimulated = ref<boolean>(true)
+const motionLevel = ref<number>(0)
+// per-node hardware telemetry from /api/wifi/telemetry
+const nodeTelemetry = ref<Record<string, any>>({})
+let telemetryInterval: any = null
+
+const isRealData = computed(() => !isSimulation.value && csiSource.value === 'nexmon')
+
+const selectedTelemetry = computed(() => {
+  if (selectedNodeId.value && nodeTelemetry.value[selectedNodeId.value]) {
+    return nodeTelemetry.value[selectedNodeId.value]
+  }
+  const vals = Object.values(nodeTelemetry.value)
+  return vals.length ? vals[0] : null
+})
+
+const fetchTelemetry = async () => {
+  try {
+    const res = await authFetch('/api/wifi/telemetry')
+    const data = await res.json()
+    const map: Record<string, any> = {}
+    for (const n of (data.nodes || [])) map[n.node_id] = n
+    nodeTelemetry.value = map
+  } catch (e) { /* non-fatal */ }
+}
 
 // Mesh state
 const meshNodes = ref<any>({})
@@ -650,6 +727,11 @@ const meshLinks = ref<any>({
   "CA": { disturbance: 0 }
 })
 let meshAnimFrame: number | null = null
+
+// Mesh rendering is driven by the always-on renderMesh() rAF loop (set up in onMounted),
+// which only draws while activeMode === 'mesh'. This is a no-op hook kept for the
+// activeMode watcher / restore-on-mount call sites.
+const startMeshAnimation = () => {}
 
 // 3D map references
 const map3dSurface = ref<HTMLElement | null>(null)
@@ -715,8 +797,7 @@ onMounted(() => {
   })
 
   // Setup WebSocket
-  const wsHost = window.location.hostname === 'localhost' ? 'localhost:8000' : window.location.host
-  ws = new WebSocket(`ws://${wsHost}/ws/csi`)
+  ws = new WebSocket(`${wsBase()}/ws/csi${wsTokenParam()}`)
   
   ws.onmessage = (event) => {
     try {
@@ -756,7 +837,13 @@ onMounted(() => {
         // Single Node CSI Amplitude Matrix logic
         if (selectedNodeId.value && resolvedNodeId !== selectedNodeId.value) { return; }
 
-        
+        // Provenance of this stream (REAL hardware CSI vs synthetic fallback)
+        if (data.csi_source) csiSource.value = data.csi_source
+        if (data.status) dataStatus.value = data.status
+        if (data.decoders_simulated !== undefined) decodersSimulated.value = data.decoders_simulated
+        if (data.motion_level !== undefined) motionLevel.value = data.motion_level
+        if (data.breathing_rate !== undefined) breathingRate.value = data.breathing_rate
+
         if (showAdvancedStream.value) {
           rawLogs.value.push(`[CSI] ${JSON.stringify({ts: data.timestamp, amps: data.amplitudes.slice(0, 5) + '...'})}`)
           if (rawLogs.value.length > 20) rawLogs.value.shift()
@@ -1102,6 +1189,14 @@ watch(activeMode, async (newVal) => {
     }
   })
 
+// Initialise the restored view mode after refresh (the watch above only fires on change)
+onMounted(async () => {
+  await nextTick()
+  if (activeMode.value === 'mesh') startMeshAnimation()
+  else if (activeMode.value === '3d-map') render3DMap()
+  else if (activeMode.value === 'observatory') initObservatory()
+})
+
 const initObservatory = () => {
   if (!obsCanvas.value || !obsContainer.value) return;
   const canvas = obsCanvas.value;
@@ -1281,6 +1376,7 @@ onUnmounted(() => {
   if (mapAnimFrame) cancelAnimationFrame(mapAnimFrame)
   if (mapAnimTimer) clearTimeout(mapAnimTimer)
   if (obsReqFrame) cancelAnimationFrame(obsReqFrame)
+  if (telemetryInterval) clearInterval(telemetryInterval)
 })
 </script>
 
@@ -1548,6 +1644,40 @@ onUnmounted(() => {
   color: #ffc000;
   border-color: #ffc000;
   background: rgba(255, 192, 0, 0.1);
+}
+
+.sim-tag {
+  font-size: 0.65rem;
+  letter-spacing: 1px;
+  color: #ffb800;
+  border: 1px solid #ffb800;
+  background: rgba(255, 184, 0, 0.08);
+  padding: 2px 6px;
+  border-radius: 3px;
+  cursor: help;
+}
+
+.vital-readout {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  line-height: 1;
+}
+.vital-resp {
+  color: #00ff9d;
+  font-size: 1.6rem;
+  font-weight: bold;
+  text-shadow: 0 0 8px rgba(0, 255, 157, 0.5);
+}
+.vital-unit {
+  color: #888;
+  font-size: 0.65rem;
+  letter-spacing: 1px;
+}
+.vital-hint {
+  color: #666;
+  font-size: 0.7rem;
+  font-style: italic;
 }
 
 .pulse-alert {

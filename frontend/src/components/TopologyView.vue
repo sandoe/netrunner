@@ -46,7 +46,7 @@ import ForceGraph3D from '3d-force-graph'
 import * as THREE from 'three'
 import SpriteText from 'three-spritetext'
 import { useNodesStore } from '@/stores/nodes'
-import { api } from '@/api/client'
+import { api, wsTokenParam, wsBase } from '@/api/client'
 
 const store = useNodesStore()
 const canvasRef = ref<HTMLElement | null>(null)
@@ -762,8 +762,7 @@ onMounted(() => {
   })
 
   // Start WS for telemetry
-  const wsHost = window.location.hostname === 'localhost' ? 'localhost:8000' : window.location.host
-  telemetryWs = new WebSocket(`ws://${wsHost}/ws/telemetry`)
+  telemetryWs = new WebSocket(`${wsBase()}/ws/telemetry${wsTokenParam()}`)
   telemetryWs.onmessage = (event) => {
     try {
       const data = JSON.parse(event.data)

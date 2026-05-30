@@ -169,6 +169,21 @@ export const api = {
   deleteConfig: (name: string) => req<{ ok: boolean }>('DELETE', `/configs/${name}`),
 }
 
+/** Query-param suffix carrying the JWT for WebSocket handshakes (browsers
+ *  can't set Authorization headers on WS). Returns e.g. "?token=..." or "". */
+export function wsTokenParam(): string {
+  const t = localStorage.getItem('nr_token')
+  return t ? `?token=${encodeURIComponent(t)}` : ''
+}
+
+/** Same-origin WebSocket base (e.g. "ws://host:port" / "wss://host").
+ *  In dev the Vite proxy forwards /ws → backend; in prod FastAPI serves it.
+ *  Use relative paths everywhere so the app works on any host, not just localhost. */
+export function wsBase(): string {
+  const proto = location.protocol === 'https:' ? 'wss:' : 'ws:'
+  return `${proto}//${location.host}`
+}
+
 export function wsTerminalUrl(nodeId: string): string {
   const proto = location.protocol === 'https:' ? 'wss' : 'ws'
   const hostname = location.hostname

@@ -7,8 +7,9 @@ venv/
 *.log
 backend.log
 
-# Vault key — never commit
+# Secrets — never commit
 data/.vault_key
+data/.jwt_secret
 
 # Data (node data, captures, exports — user-specific)
 data/nodes.json

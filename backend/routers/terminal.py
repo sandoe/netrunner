@@ -301,6 +301,9 @@ async def _telnet_terminal(ws: WebSocket, nid: str, node: dict) -> None:
 
 @router.websocket("/ws/terminal/{nid}")
 async def ws_terminal(ws: WebSocket, nid: str):
+    from .auth import authenticate_ws
+    if await authenticate_ws(ws) is None:
+        return
     await ws.accept()
 
     node = await _load_node(nid)

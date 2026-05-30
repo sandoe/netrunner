@@ -1,8 +1,9 @@
 import asyncio
 import json
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Depends
 from ..core.cti import cti_engine
 from ..core.soar import soar_engine
+from .auth import get_current_user
 
 router = APIRouter()
 
@@ -43,6 +44,9 @@ async def broadcast_threats():
 
 @router.websocket("/ws/threats")
 async def websocket_threats(websocket: WebSocket):
+    from .auth import authenticate_ws
+    if await authenticate_ws(websocket) is None:
+        return
     await websocket.accept()
     threat_clients.append(websocket)
     try:
@@ -55,7 +59,7 @@ async def websocket_threats(websocket: WebSocket):
 
 
 @router.get("/api/threats/nodes")
-async def get_threat_nodes():
+async def get_threat_nodes(user: dict = Depends(get_current_user)):
     from ..core.db import load_nodes_db
     from ..core.cti import get_ip_geolocation
     nodes = await load_nodes_db()

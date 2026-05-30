@@ -7,6 +7,8 @@ import os
 from datetime import datetime
 from typing import List
 
+from backend.core.csi_analysis import analyzer
+
 # A global queue to hold CSI events to be broadcasted to clients
 csi_queue = asyncio.Queue()
 mesh_queue = asyncio.Queue()
@@ -14,6 +16,10 @@ mesh_queue = asyncio.Queue()
 # Global mode toggle
 is_simulation = True
 real_nodes = []
+
+# Live telemetry per real node (populated from incoming beacon packets):
+#   node_id -> {ip, last_seen, csi_source, capabilities, status, samples, ...}
+node_telemetry: dict = {}
 
 class SessionRecorder:
     def __init__(self):
@@ -250,6 +256,39 @@ class BeaconProtocol(asyncio.DatagramProtocol):
         try:
             payload = json.loads(data.decode())
             payload["node_ip"] = addr[0]
+            node_id = payload.get("node_id") or addr[0]
+
+            # Derive REAL metrics from the incoming amplitudes (motion / vitals).
+            # Works whether the amplitudes are real CSI or the beacon's synthetic
+            # fallback — the numbers reflect the actual signal we received.
+            amps = payload.get("amplitudes")
+            if isinstance(amps, list) and amps:
+                metrics = analyzer.analyze(node_id, amps, payload.get("timestamp"))
+                payload["motion_detected"] = metrics["motion_detected"]
+                payload["motion_level"] = metrics["motion_level"]
+                payload["motion_score"] = metrics["motion_score"]
+                if metrics["vitals_ready"]:
+                    if metrics["breathing_rate"] is not None:
+                        payload["breathing_rate"] = metrics["breathing_rate"]
+                        payload["breathing_conf"] = metrics["breathing_conf"]
+                    if metrics["heart_rate"] is not None:
+                        payload["heart_rate"] = metrics["heart_rate"]
+                        payload["heart_conf"] = metrics["heart_conf"]
+                payload["vitals_ready"] = metrics["vitals_ready"]
+
+            # Track live per-node telemetry so the UI can report what the
+            # hardware actually supports (REAL vs SYNTHETIC fallback).
+            node_telemetry[node_id] = {
+                "node_id": node_id,
+                "ip": addr[0],
+                "last_seen": time.time(),
+                "csi_source": payload.get("csi_source", "unknown"),
+                "capabilities": payload.get("capabilities", {}),
+                "status": payload.get("status", ""),
+                "sample_rate": payload.get("sample_rate"),
+                "subcarriers": len(amps) if isinstance(amps, list) else None,
+            }
+
             if not is_simulation:
                 recorder.record_payload(payload)
                 csi_queue.put_nowait(payload)

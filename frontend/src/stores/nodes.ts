@@ -9,7 +9,8 @@ export const useNodesStore = defineStore('nodes', () => {
   const connections = ref<Record<string, { connected: boolean }>>({})
   const loading = ref(false)
   const error = ref<string | null>(null)
-  const selectedId = ref<string | null>(null)
+  const SELECTED_KEY = 'netrunner_selected_node'
+  const selectedId = ref<string | null>(localStorage.getItem(SELECTED_KEY))
   const manuallyDisconnected = ref<Set<string>>(new Set())
 
   const nodeList = computed(() => Object.values(nodes.value).sort((a, b) => a.name.localeCompare(b.name)))
@@ -29,6 +30,10 @@ export const useNodesStore = defineStore('nodes', () => {
       ])
       nodes.value = n
       links.value = l
+      // Drop a stale persisted selection if that node no longer exists
+      if (selectedId.value && !nodes.value[selectedId.value]) {
+        select(null)
+      }
       await refreshConnections()
     } catch (e) {
       error.value = String(e)
@@ -62,7 +67,7 @@ export const useNodesStore = defineStore('nodes', () => {
     delete nodes.value[id]
     // Clean up links associated with this node
     links.value = links.value.filter(l => l.source !== id && l.target !== id)
-    if (selectedId.value === id) selectedId.value = null
+    if (selectedId.value === id) select(null)
   }
 
   async function createLink(source: string, target: string) {
@@ -84,6 +89,8 @@ export const useNodesStore = defineStore('nodes', () => {
 
   function select(id: string | null) {
     selectedId.value = id
+    if (id) localStorage.setItem(SELECTED_KEY, id)
+    else localStorage.removeItem(SELECTED_KEY)
   }
 
   async function detectType(id: string) {

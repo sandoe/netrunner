@@ -2,6 +2,12 @@ import pytest
 from httpx import AsyncClient
 
 @pytest.mark.asyncio
+async def test_nodes_require_auth(anon_client: AsyncClient):
+    # Protected router must reject unauthenticated access
+    assert (await anon_client.get("/api/nodes")).status_code == 401
+    assert (await anon_client.post("/api/nodes", json={"name": "x"})).status_code == 401
+
+@pytest.mark.asyncio
 async def test_get_nodes_empty(client: AsyncClient):
     response = await client.get("/api/nodes")
     assert response.status_code == 200

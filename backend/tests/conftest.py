@@ -21,6 +21,16 @@ async def setup_db():
         await conn.run_sync(Base.metadata.drop_all)
 
 @pytest_asyncio.fixture
-async def client():
+async def anon_client():
+    """Unauthenticated client (for testing that auth is enforced)."""
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+        yield ac
+
+@pytest_asyncio.fixture
+async def client():
+    """Authenticated client — logs in as the demo admin and sets the bearer token."""
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+        resp = await ac.post("/api/auth/login", json={"username": "admin", "password": "admin"})
+        token = resp.json()["access_token"]
+        ac.headers["Authorization"] = f"Bearer {token}"
         yield ac
