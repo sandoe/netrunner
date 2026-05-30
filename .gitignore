@@ -10,6 +10,7 @@ backend.log
 # Secrets — never commit
 data/.vault_key
 data/.jwt_secret
+data/known_hosts
 
 # Data (node data, captures, exports — user-specific)
 data/nodes.json

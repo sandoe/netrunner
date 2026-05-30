@@ -3,7 +3,7 @@ import secrets
 from pathlib import Path
 
 import jwt
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, HTTPException, Depends, WebSocket
 from fastapi.security import OAuth2PasswordBearer
 from pydantic import BaseModel
@@ -43,15 +43,55 @@ class LoginRequest(BaseModel):
     username: str
     password: str
 
-# In-memory users for demo
-USERS = {
-    "admin": {"password": "admin", "role": "admin"},
-    "analyst": {"password": "analyst", "role": "analyst"}
-}
+
+# --- credentials ---------------------------------------------------------- #
+# Passwords are never stored in plaintext. Each user's password is hashed with
+# PBKDF2-HMAC-SHA256 at startup and verified in constant time. Override the
+# defaults via env vars NETRUNNER_ADMIN_PASSWORD / NETRUNNER_ANALYST_PASSWORD.
+import hashlib
+import hmac as _hmac
+
+_PBKDF2_ROUNDS = 200_000
+_DEFAULT_CREDS = {"admin": "admin", "analyst": "analyst"}
+
+
+def _hash_password(password: str, salt: bytes) -> bytes:
+    return hashlib.pbkdf2_hmac("sha256", password.encode(), salt, _PBKDF2_ROUNDS)
+
+
+class _User:
+    def __init__(self, role: str, password: str):
+        self.role = role
+        self._salt = secrets.token_bytes(16)
+        self._hash = _hash_password(password, self._salt)
+
+    def verify(self, password: str) -> bool:
+        return _hmac.compare_digest(self._hash, _hash_password(password, self._salt))
+
+
+def _build_users() -> dict:
+    users, using_defaults = {}, []
+    for username, default in _DEFAULT_CREDS.items():
+        env_pw = os.environ.get(f"NETRUNNER_{username.upper()}_PASSWORD")
+        pw = env_pw or default
+        if not env_pw:
+            using_defaults.append(username)
+        role = "admin" if username == "admin" else "analyst"
+        users[username] = _User(role, pw)
+    if using_defaults:
+        print(
+            "WARNING: Netrunner is using DEFAULT login passwords for "
+            f"{using_defaults}. Set NETRUNNER_<USER>_PASSWORD env vars before "
+            "exposing this service."
+        )
+    return users
+
+
+USERS = _build_users()
 
 def create_access_token(data: dict):
     to_encode = data.copy()
-    expire = datetime.utcnow() + timedelta(hours=24)
+    expire = datetime.now(timezone.utc) + timedelta(hours=24)
     to_encode.update({"exp": expire})
     return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
 
@@ -74,11 +114,11 @@ def require_admin(user: dict = Depends(get_current_user)):
 @router.post("/auth/login")
 async def login(req: LoginRequest):
     user = USERS.get(req.username)
-    if not user or user["password"] != req.password:
+    if not user or not user.verify(req.password):
         raise HTTPException(401, "Invalid credentials")
-    
-    token = create_access_token({"sub": req.username, "role": user["role"]})
-    return {"access_token": token, "token_type": "bearer", "role": user["role"], "username": req.username}
+
+    token = create_access_token({"sub": req.username, "role": user.role})
+    return {"access_token": token, "token_type": "bearer", "role": user.role, "username": req.username}
 
 @router.get("/auth/me")
 async def get_me(user: dict = Depends(get_current_user)):

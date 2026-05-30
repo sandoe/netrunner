@@ -9,9 +9,15 @@ import os
 import glob
 import time
 from backend.core.db import load_beacon_nodes_db, save_beacon_node_db, delete_beacon_node_db
+from backend.core.vault import store_credentials, load_credentials, delete_credentials
 from backend.routers.auth import get_current_user, authenticate_ws
 
 router = APIRouter()
+
+
+def _vault_key(node_id: str) -> str:
+    """Namespace beacon credentials in the vault, separate from node creds."""
+    return f"beacon:{node_id}"
 
 connected_clients = set()
 
@@ -100,6 +106,9 @@ class BeaconNodePayload(BaseModel):
 @router.get("/api/wifi/beacons")
 async def get_beacons(user: dict = Depends(get_current_user)):
     nodes = await load_beacon_nodes_db()
+    # Never expose SSH passwords to the client.
+    for n in nodes:
+        n.pop("password", None)
     return {"beacons": nodes}
 
 @router.get("/api/wifi/telemetry")
@@ -116,18 +125,32 @@ async def get_telemetry(user: dict = Depends(get_current_user)):
 
 @router.post("/api/wifi/beacons")
 async def save_beacon(payload: BeaconNodePayload, user: dict = Depends(get_current_user)):
-    await save_beacon_node_db(payload.model_dump())
+    data = payload.model_dump()
+    # Store the SSH password in the encrypted vault, not in the beacon row.
+    await store_credentials(_vault_key(data["id"]), data.get("username") or "root", data.get("password") or "")
+    data["password"] = ""
+    await save_beacon_node_db(data)
     return {"status": "ok"}
 
 @router.delete("/api/wifi/beacons/{node_id}")
 async def delete_beacon(node_id: str, user: dict = Depends(get_current_user)):
     await delete_beacon_node_db(node_id)
+    await delete_credentials(_vault_key(node_id))
     return {"status": "ok"}
 
 class DeployPayload(BaseModel):
     node_id: str
 
 from backend.core.deployment import deploy_beacon_to_node, stop_beacon_on_node
+
+
+async def _beacon_creds(node: dict) -> tuple[str, str]:
+    """Resolve (username, password) for a beacon from the vault, falling back to
+    a legacy plaintext password still stored on the row (pre-vault beacons)."""
+    vault_user, vault_pw = await load_credentials(_vault_key(node["id"]))
+    username = node.get("username") or vault_user or "root"
+    password = vault_pw or node.get("password") or ""
+    return username, password
 
 @router.post("/api/wifi/deploy")
 async def deploy_beacon(payload: DeployPayload, user: dict = Depends(get_current_user)):
@@ -136,12 +159,13 @@ async def deploy_beacon(payload: DeployPayload, user: dict = Depends(get_current
     node = next((n for n in nodes if n["id"] == payload.node_id), None)
     if not node:
         return {"error": "Node not found"}
-        
+
+    username, password = await _beacon_creds(node)
     try:
         msg = await deploy_beacon_to_node(
             ip=node["ip"],
-            username=node["username"],
-            password=node["password"],
+            username=username,
+            password=password,
             target_server_ip=node.get("target_server_ip", "127.0.0.1"),
             csi_mode=node.get("csi_mode", "AUTO"),
             sample_rate=node.get("sample_rate", 30),
@@ -158,12 +182,13 @@ async def stop_beacon(node_id: str, user: dict = Depends(get_current_user)):
     node = next((n for n in nodes if n["id"] == node_id), None)
     if not node:
         return {"error": "Node not found"}
-        
+
+    username, password = await _beacon_creds(node)
     try:
         msg = await stop_beacon_on_node(
             ip=node["ip"],
-            username=node["username"],
-            password=node["password"]
+            username=username,
+            password=password
         )
         return {"status": "stopped", "message": msg}
     except Exception as e:

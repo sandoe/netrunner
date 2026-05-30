@@ -2,10 +2,40 @@ import paramiko
 import asyncio
 import os
 
+# Persisted trust store for SSH host keys (trust-on-first-use).
+KNOWN_HOSTS = os.path.join("data", "known_hosts")
+
+
+class _TofuPolicy(paramiko.MissingHostKeyPolicy):
+    """Trust-on-first-use: accept and persist a host key the first time we see
+    it, so later connections verify against it. A *changed* key for a known
+    host is rejected by paramiko (BadHostKeyException) — i.e. MITM is caught."""
+
+    def __init__(self, path):
+        self.path = path
+
+    def missing_host_key(self, client, hostname, key):
+        client.get_host_keys().add(hostname, key.get_name(), key)
+        try:
+            os.makedirs(os.path.dirname(self.path), exist_ok=True)
+            client.save_host_keys(self.path)
+        except OSError:
+            pass
+
+
+def _make_ssh_client() -> paramiko.SSHClient:
+    ssh = paramiko.SSHClient()
+    try:
+        ssh.load_host_keys(KNOWN_HOSTS)
+    except (IOError, OSError):
+        pass
+    ssh.set_missing_host_key_policy(_TofuPolicy(KNOWN_HOSTS))
+    return ssh
+
+
 async def deploy_beacon_to_node(ip, username, password, target_server_ip, csi_mode, sample_rate, udp_port, node_id):
     def run_ssh():
-        ssh = paramiko.SSHClient()
-        ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        ssh = _make_ssh_client()
         try:
             ssh.connect(ip, username=username, password=password, timeout=60, banner_timeout=60, auth_timeout=60)
             
@@ -45,8 +75,7 @@ async def deploy_beacon_to_node(ip, username, password, target_server_ip, csi_mo
 
 async def stop_beacon_on_node(ip, username, password):
     def run_ssh():
-        ssh = paramiko.SSHClient()
-        ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        ssh = _make_ssh_client()
         try:
             ssh.connect(ip, username=username, password=password, timeout=60, banner_timeout=60, auth_timeout=60)
             # Kill existing beacons

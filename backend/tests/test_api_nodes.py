@@ -8,6 +8,13 @@ async def test_nodes_require_auth(anon_client: AsyncClient):
     assert (await anon_client.post("/api/nodes", json={"name": "x"})).status_code == 401
 
 @pytest.mark.asyncio
+async def test_login_rejects_wrong_password(anon_client: AsyncClient):
+    bad = await anon_client.post("/api/auth/login", json={"username": "admin", "password": "nope"})
+    assert bad.status_code == 401
+    ok = await anon_client.post("/api/auth/login", json={"username": "admin", "password": "admin"})
+    assert ok.status_code == 200 and ok.json().get("access_token")
+
+@pytest.mark.asyncio
 async def test_get_nodes_empty(client: AsyncClient):
     response = await client.get("/api/nodes")
     assert response.status_code == 200
