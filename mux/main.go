@@ -26,9 +26,15 @@ type NodeCreds struct {
 	Password  string `json:"password"`
 }
 
+// WsMsg matches the protocol the frontend Terminal expects:
+//   server -> client: {type:"output",data} | {type:"status",connected} | {type:"error",data}
+//   client -> server: {type:"input",data}  | {type:"resize",cols,rows}
 type WsMsg struct {
-	Type string `json:"type"`
-	Data string `json:"data"`
+	Type      string `json:"type"`
+	Data      string `json:"data,omitempty"`
+	Connected bool   `json:"connected,omitempty"`
+	Cols      int    `json:"cols,omitempty"`
+	Rows      int    `json:"rows,omitempty"`
 }
 
 func fetchCredentials(nodeID string) (*NodeCreds, error) {
@@ -101,7 +107,9 @@ func handleTerminal(w http.ResponseWriter, r *http.Request) {
 	}
 	defer session.Close()
 
-	ws.WriteJSON(WsMsg{Type: "data", Data: "\r\n[MUX] Connected successfully via Go.\r\n"})
+	// Tell the frontend the link is up (flips it from "ESTABLISHING" to CONNECTED).
+	ws.WriteJSON(WsMsg{Type: "status", Connected: true})
+	ws.WriteJSON(WsMsg{Type: "output", Data: "\r\n[MUX] Connected successfully via Go.\r\n"})
 
 	// Channel to signal disconnects
 	done := make(chan struct{}, 2) // buffered to avoid blocking
@@ -112,7 +120,7 @@ func handleTerminal(w http.ResponseWriter, r *http.Request) {
 		for {
 			n, err := session.Read(buf)
 			if n > 0 {
-				ws.WriteJSON(WsMsg{Type: "data", Data: string(buf[:n])})
+				ws.WriteJSON(WsMsg{Type: "output", Data: string(buf[:n])})
 			}
 			if err != nil {
 				log.Printf("Remote read err: %v", err)
@@ -134,11 +142,9 @@ func handleTerminal(w http.ResponseWriter, r *http.Request) {
 			if msg.Type == "data" || msg.Type == "input" {
 				session.Write([]byte(msg.Data))
 			} else if msg.Type == "resize" {
-				// Resize is supported in SSH PTY, ignore in basic telnet for now
+				// Resize is supported in SSH PTY; telnet ignores it for now.
 				if sshSession, ok := session.(*SSHSession); ok {
-					var size struct{ Cols, Rows int }
-					json.Unmarshal([]byte(msg.Data), &size)
-					sshSession.Resize(size.Cols, size.Rows)
+					sshSession.Resize(msg.Cols, msg.Rows)
 				}
 			}
 		}
@@ -146,7 +152,8 @@ func handleTerminal(w http.ResponseWriter, r *http.Request) {
 	}()
 
 	<-done
-	ws.WriteJSON(WsMsg{Type: "data", Data: "\r\n[MUX] Connection closed.\r\n"})
+	ws.WriteJSON(WsMsg{Type: "status", Connected: false})
+	ws.WriteJSON(WsMsg{Type: "output", Data: "\r\n[MUX] Connection closed.\r\n"})
 }
 
 func main() {
