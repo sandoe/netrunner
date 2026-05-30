@@ -15,6 +15,27 @@ async def test_login_rejects_wrong_password(anon_client: AsyncClient):
     assert ok.status_code == 200 and ok.json().get("access_token")
 
 @pytest.mark.asyncio
+async def test_internal_node_creds_for_telnet(client: AsyncClient, anon_client: AsyncClient):
+    # Create a telnet node (e.g. a GNS3 console)
+    payload = {
+        "name": "R1", "host": "127.0.0.1", "port": 5001,
+        "transport": "telnet", "device_type": "gns3",
+    }
+    created = await client.post("/api/nodes", json=payload)
+    assert created.status_code in (200, 201)
+    node_id = created.json()["id"]
+
+    # The mux fetches creds here (endpoint is open by design) — must be 200, not 500
+    r = await anon_client.get(f"/api/internal/node/{node_id}")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["transport"] == "telnet"
+    assert body["port"] == 5001
+
+    # Unknown node -> 404 (not 500)
+    assert (await anon_client.get("/api/internal/node/nope")).status_code == 404
+
+@pytest.mark.asyncio
 async def test_get_nodes_empty(client: AsyncClient):
     response = await client.get("/api/nodes")
     assert response.status_code == 200
