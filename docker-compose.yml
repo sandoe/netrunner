@@ -6,15 +6,17 @@ services:
       context: .
       dockerfile: Dockerfile
     container_name: netrunner-platform
-    ports:
-      - "8000:8000"
-      - "8001:8001/udp"
+    # Host networking so the backend can reach a host-local GNS3 server
+    # (127.0.0.1:3080) and the GNS3 VM consoles directly. Publishes 8000/tcp +
+    # 8001/udp on the host directly (the `ports:` mapping is implicit here).
+    network_mode: host
     volumes:
       - ./data:/app/data
+      # GNS3 server has auth enabled; mount its config dir (read-only) so the
+      # backend can read the API user/password. Container runs as root -> /root.
+      - /home/aso/.config/GNS3/2.2:/root/.config/GNS3/2.2:ro
     environment:
       - DATABASE_URL=sqlite+aiosqlite:////app/data/netrunner.db
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
     restart: unless-stopped
 
   terminal-mux:
@@ -25,7 +27,8 @@ services:
     ports:
       - "8081:8081"
     environment:
-      - BACKEND_HOST=http://netrunner:8000
+      # netrunner runs on the host network, so reach it via the host gateway
+      - BACKEND_HOST=http://host.docker.internal:8000
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:

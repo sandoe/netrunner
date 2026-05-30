@@ -53,7 +53,18 @@ async def _gns3_req(method: str, path: str, body: Optional[dict] = None):
     # Also include the configured URL from settings
     if base not in [c[0] for c in candidates]:
         candidates.append((base, auth))
-        
+
+    # When running inside Docker, a localhost GNS3 URL points at the container
+    # itself. Also try host.docker.internal so we can reach a GNS3 server bound
+    # on the host (requires the host's GNS3 to listen on a reachable interface).
+    extra = []
+    for c_url, c_auth in candidates:
+        if "127.0.0.1" in c_url or "localhost" in c_url:
+            mapped = c_url.replace("127.0.0.1", "host.docker.internal").replace("localhost", "host.docker.internal")
+            if mapped not in [c[0] for c in candidates] and mapped not in [e[0] for e in extra]:
+                extra.append((mapped, c_auth))
+    candidates.extend(extra)
+
     results = []
     success = False
     last_err = None
@@ -64,6 +75,9 @@ async def _gns3_req(method: str, path: str, body: Optional[dict] = None):
                 url = f"{b_url}/v2{path}"
                 res = await client.request(method, url, json=body, auth=b_auth, timeout=10.0)
                 if res.status_code == 404:
+                    # Record the real "not found" so it isn't masked by a later
+                    # unreachable-candidate (e.g. host.docker.internal) DNS error.
+                    last_err = f"404 Not Found: /v2{path}"
                     continue
                 res.raise_for_status()
                 data = res.json()
@@ -72,9 +86,13 @@ async def _gns3_req(method: str, path: str, body: Optional[dict] = None):
                     results.extend(data)
                 else:
                     return data
-            except Exception as e:
+            except httpx.HTTPStatusError as e:
                 last_err = e
-                continue
+            except Exception as e:
+                # Connection/DNS errors are the least informative — keep any
+                # earlier HTTP/404 error instead of overwriting it.
+                if last_err is None:
+                    last_err = e
                 
     if success:
         if method == "GET" and isinstance(results, list):

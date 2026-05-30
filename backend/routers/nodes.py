@@ -309,16 +309,16 @@ async def _discover_gns3_node_details(node: dict) -> tuple[Optional[str], Option
         if not projects:
             return None, None, None
 
-        # Prioritise "opened" projects
-        sorted_projects = sorted(
-            projects,
-            key=lambda p: 0 if p.get("status") == "opened" else 1
-        )
-
         port_match = None   # console port matches
         name_match = None   # name matches (port may have drifted)
 
-        for proj in sorted_projects:
+        # Only consider OPENED projects: closed projects can't be queried
+        # (GNS3 returns 403) and their console ports may be stale, leading to
+        # bogus matches that then fail. A node must be in an open project to
+        # be live anyway.
+        for proj in projects:
+            if proj.get("status") != "opened":
+                continue
             proj_id = proj.get("project_id")
             if not proj_id:
                 continue
