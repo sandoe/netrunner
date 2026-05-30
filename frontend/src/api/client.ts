@@ -56,6 +56,7 @@ export const api = {
   listLinks: () => req<NrLink[]>('GET', '/links'),
   createLink: (source: string, target: string) => req<NrLink>('POST', '/links', { source, target }),
   deleteLink: (id: string) => req<{ status: string }>('DELETE', `/links/${id}`),
+  autoDiscoverLinks: () => req<{ status: string; new_links: number }>('GET', '/links/auto-discover'),
   discoverLinks: () => req<{ 
     status: string; 
     discovered: number; 
@@ -170,5 +171,6 @@ export const api = {
 
 export function wsTerminalUrl(nodeId: string): string {
   const proto = location.protocol === 'https:' ? 'wss' : 'ws'
-  return `${proto}://${location.host}/ws/terminal/${nodeId}`
+  const hostname = location.hostname
+  return `${proto}://${hostname}:8081/ws/terminal?nodeId=${nodeId}`
 }

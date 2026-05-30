@@ -42,7 +42,16 @@ class NodeModel(Base):
     metadata_json: Mapped[Optional[str]] = mapped_column("metadata", Text)  # JSON dict
     threat_monitoring: Mapped[Optional[bool]] = mapped_column(Boolean, default=False)
 
-
+class BeaconNodeModel(Base):
+    __tablename__ = "beacon_nodes"
+    id: Mapped[str] = mapped_column(String(50), primary_key=True)
+    ip: Mapped[str] = mapped_column(String(100))
+    username: Mapped[str] = mapped_column(String(100))
+    password: Mapped[str] = mapped_column(String(100))
+    target_server_ip: Mapped[str] = mapped_column(String(100))
+    csi_mode: Mapped[str] = mapped_column(String(50), default="AUTO")
+    sample_rate: Mapped[int] = mapped_column(Integer, default=30)
+    udp_port: Mapped[int] = mapped_column(Integer, default=8001)
 
 class LinkModel(Base):
     __tablename__ = "links"
@@ -64,6 +73,17 @@ class VaultModel(Base):
     node_id: Mapped[str] = mapped_column(String(50), ForeignKey("nodes.id", ondelete="CASCADE"), primary_key=True)
     data: Mapped[str] = mapped_column(Text)
     encrypted: Mapped[bool] = mapped_column(Boolean, default=False)
+
+
+class ThreatEventModel(Base):
+    __tablename__ = "threat_events"
+    id: Mapped[str] = mapped_column(String(50), primary_key=True)
+    timestamp: Mapped[float] = mapped_column()
+    node_id: Mapped[str] = mapped_column(String(50))
+    source_ip: Mapped[str] = mapped_column(String(50))
+    target_ip: Mapped[str] = mapped_column(String(50))
+    type: Mapped[str] = mapped_column(String(100))
+    severity: Mapped[str] = mapped_column(String(20))
 
 
 async def init_db():
@@ -205,4 +225,74 @@ async def save_vault_entry_db(node_id: str, data: str, encrypted: bool):
 async def delete_vault_entry_db(node_id: str):
     async with AsyncSessionLocal() as session:
         await session.execute(delete(VaultModel).where(VaultModel.node_id == node_id))
+        await session.commit()
+
+
+async def save_threat_event_db(event: dict):
+    async with AsyncSessionLocal() as session:
+        e = ThreatEventModel(
+            id=event["id"],
+            timestamp=event["timestamp"],
+            node_id=event.get("node_id", "unknown"),
+            source_ip=event["source_ip"],
+            target_ip=event["target_ip"],
+            type=event["type"],
+            severity=event["severity"]
+        )
+        session.add(e)
+        await session.commit()
+
+async def load_threat_events_db(limit: int = 100) -> list[dict]:
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(
+            select(ThreatEventModel).order_by(ThreatEventModel.timestamp.desc()).limit(limit)
+        )
+        events = []
+        for row in result.scalars():
+            events.append({
+                "id": row.id,
+                "timestamp": row.timestamp,
+                "node_id": row.node_id,
+                "source_ip": row.source_ip,
+                "target_ip": row.target_ip,
+                "type": row.type,
+                "severity": row.severity
+            })
+        return events
+
+async def load_beacon_nodes_db() -> list[dict]:
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(select(BeaconNodeModel))
+        nodes = []
+        for row in result.scalars():
+            nodes.append({
+                "id": row.id,
+                "ip": row.ip,
+                "username": row.username,
+                "password": row.password,
+                "target_server_ip": row.target_server_ip,
+                "csi_mode": row.csi_mode,
+                "sample_rate": row.sample_rate,
+                "udp_port": row.udp_port
+            })
+        return nodes
+
+async def save_beacon_node_db(node: dict):
+    async with AsyncSessionLocal() as session:
+        b = BeaconNodeModel(
+            id=node["id"],
+            ip=node["ip"],
+            username=node["username"],
+            password=node["password"],
+            target_server_ip=node.get("target_server_ip", ""),
+            csi_mode=node.get("csi_mode", "AUTO"),
+            sample_rate=node.get("sample_rate", 30),
+            udp_port=node.get("udp_port", 8001)
+        )
+        await session.merge(b)
+        await session.commit()
+
+async def delete_beacon_node_db(node_id: str):
+    async with AsyncSessionLocal() as session:
+        await session.execute(delete(BeaconNodeModel).where(BeaconNodeModel.id == node_id))
         await session.commit()

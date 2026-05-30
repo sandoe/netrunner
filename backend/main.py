@@ -12,7 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from .routers import ai, configs, gns3, links, nodes, preview, terminal, settings, threats, defense, system, chaos, auth, redteam, deception, agent
+from .routers import ai, configs, gns3, links, nodes, preview, terminal, settings, threats, defense, system, chaos, auth, redteam, deception, agent, threat_history, rules, internal, telemetry, wifi
 from .routers.settings import load_settings
 from .core.db import init_db
 
@@ -36,9 +36,16 @@ async def lifespan(app: FastAPI):
 
     # Start background tasks for threats and chaos explicitly since lifespan bypasses on_event("startup")
     import asyncio
-    from .routers import threats, chaos
+    from .routers import threats, chaos, telemetry, wifi
+    from .core.telemetry import poll_telemetry_loop
+    from .core.wifi_csi import start_csi_engine
     threats._threat_task = asyncio.create_task(threats.broadcast_threats())
     chaos._chaos_task = asyncio.create_task(chaos.chaos_loop())
+    telemetry._telemetry_task = asyncio.create_task(telemetry.broadcast_telemetry())
+    telemetry._poll_task = asyncio.create_task(poll_telemetry_loop())
+    wifi._broadcast_csi_task = asyncio.create_task(wifi.broadcast_csi())
+    wifi._broadcast_mesh_task = asyncio.create_task(wifi.broadcast_mesh())
+    await start_csi_engine()
 
     yield
     # Cleanup background tasks
@@ -46,6 +53,18 @@ async def lifespan(app: FastAPI):
         threats._threat_task.cancel()
     if chaos._chaos_task:
         chaos._chaos_task.cancel()
+    if telemetry._telemetry_task:
+        telemetry._telemetry_task.cancel()
+    if hasattr(telemetry, "_poll_task") and telemetry._poll_task:
+        telemetry._poll_task.cancel()
+    if hasattr(wifi, "_broadcast_csi_task") and wifi._broadcast_csi_task:
+        wifi._broadcast_csi_task.cancel()
+    if hasattr(wifi, "_broadcast_mesh_task") and wifi._broadcast_mesh_task:
+        wifi._broadcast_mesh_task.cancel()
+    
+    from .core.wifi_csi import generator, mesh_generator
+    generator.stop()
+    mesh_generator.stop()
 
     from .core.session import session_manager
     session_manager.close_all()
@@ -75,8 +94,12 @@ app.include_router(redteam.router,  prefix="/api")
 app.include_router(deception.router,prefix="/api")
 app.include_router(auth.router,     prefix="/api")
 app.include_router(agent.router,    prefix="/api/agent")
+app.include_router(threat_history.router, prefix="/api/threats")
+app.include_router(rules.router,    prefix="/api/rules")
 app.include_router(terminal.router)
-
+app.include_router(internal.router)
+app.include_router(telemetry.router)
+app.include_router(wifi.router)
 class NoCacheStaticFiles(StaticFiles):
     def is_not_modified(self, response_headers, request_headers) -> bool:
         return False

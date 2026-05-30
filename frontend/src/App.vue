@@ -33,6 +33,8 @@
         <button :class="{ active: viewMode === 'node' }" @click="viewMode = 'node'">NODES</button>
         <button :class="{ active: viewMode === 'topology' }" @click="viewMode = 'topology'">TOPOLOGY</button>
         <button :class="{ active: viewMode === 'threat' }" @click="viewMode = 'threat'">THREAT MAP</button>
+        <button :class="{ active: viewMode === 'history' }" @click="viewMode = 'history'">HISTORY</button>
+        <button :class="{ active: viewMode === 'wifi' }" @click="viewMode = 'wifi'">WIFI & CSI</button>
         <button class="btn-warroom" :class="{ active: viewMode === 'warroom' }" @click="viewMode = 'warroom'">🚨 WAR ROOM</button>
       </nav>
 
@@ -87,6 +89,8 @@
       <div class="main-bg" :class="{ 'is-topology': viewMode === 'topology', 'is-threat': viewMode === 'threat' }">
         <TopologyView v-if="viewMode === 'topology'" />
         <ThreatMap v-else-if="viewMode === 'threat'" />
+        <WifiView v-else-if="viewMode === 'wifi'" />
+        <ThreatTimeline v-else-if="viewMode === 'history'" />
         <WarRoomDashboard 
           v-else-if="viewMode === 'warroom'" 
           :autopilotActive="systemState.autopilot"
@@ -146,10 +150,9 @@
           <div class="tab-content">
             <OverviewPanel v-if="activeTab === 'overview'" :node-id="store.selected.id" />
             <Gns3Panel    v-if="activeTab === 'gns3-api'" :node-id="store.selected.id" />
-            <DiagPanel    v-if="activeTab === 'diag'"     :node-id="store.selected.id" />
+            <SystemPanel  v-if="activeTab === 'system'"   :node-id="store.selected.id" />
             <DockerPanel  v-if="activeTab === 'docker'"   :node-id="store.selected.id" />
             <DatabasePanel v-if="activeTab === 'database'" :node-id="store.selected.id" />
-            <ConfigPanel  v-if="activeTab === 'config'"   :node-id="store.selected.id" />
             <ExecPanel    v-if="activeTab === 'exec'"     :node-id="store.selected.id" />
             <ActiveDefensePanel v-if="activeTab === 'defense'" :node-id="store.selected.id" />
             <CapturePanel v-if="activeTab === 'capture'"  :node-id="store.selected.id" />
@@ -269,17 +272,18 @@
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useNodesStore } from '@/stores/nodes'
 import { api } from '@/api/client'
-import DiagPanel from './components/DiagPanel.vue'
+import SystemPanel from './components/SystemPanel.vue'
 import DockerPanel from './components/DockerPanel.vue'
 import DatabasePanel from './components/DatabasePanel.vue'
 import ExecPanel from './components/ExecPanel.vue'
-import ConfigPanel from './components/ConfigPanel.vue'
 import CapturePanel from './components/CapturePanel.vue'
 import OverviewPanel from './components/OverviewPanel.vue'
 import Terminal  from './components/Terminal.vue'
 import NodeForm  from './components/NodeForm.vue'
 import TopologyView from './components/TopologyView.vue'
+import WifiView from './components/WifiView.vue'
 import ThreatMap from './components/ThreatMap.vue'
+import ThreatTimeline from './components/ThreatTimeline.vue'
 import ActiveDefensePanel from './components/ActiveDefensePanel.vue'
 import AiChatSidebar from './components/AiChatSidebar.vue'
 import SettingsModal from './components/SettingsModal.vue'
@@ -326,7 +330,7 @@ window.addEventListener('auth-expired', () => {
 })
 
 const store       = useNodesStore()
-const viewMode    = ref<'node' | 'topology' | 'threat' | 'warroom'>('node')
+const viewMode    = ref<'node' | 'topology' | 'threat' | 'history' | 'warroom'>('node')
 const activeTab   = ref<'overview' | 'gns3-api' | 'diag' | 'config' | 'exec' | 'defense' | 'capture' | 'terminal'>('overview')
 const showAddForm = ref(false)
 const showEdit    = ref(false)
@@ -406,10 +410,9 @@ const dynamicTabs = computed(() => {
     list.push({ id: 'gns3-api', label: 'GNS3 CONTROL' })
   }
   list.push(
-    { id: 'diag',     label: 'DIAGNOSTICS' },
+    { id: 'system',   label: 'SYSTEM' },
     { id: 'docker',   label: 'DOCKER' },
     { id: 'database', label: 'DATABASE' },
-    { id: 'config',   label: 'CONFIG' },
     { id: 'exec',     label: 'EXECUTE' },
     { id: 'defense',  label: 'ACTIVE DEFENSE' },
     { id: 'capture',  label: 'CAPTURE' },

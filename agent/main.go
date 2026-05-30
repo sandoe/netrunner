@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/binary"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -13,6 +14,10 @@ import (
 	"time"
 
 	"github.com/nxadm/tail"
+	"github.com/cilium/ebpf/ringbuf"
+	"golang.org/x/sys/unix"
+
+	"netrunner-agent/bpf"
 )
 
 type Event struct {
@@ -59,8 +64,151 @@ func main() {
 	go tailLog("/var/log/ufw.log", parseUFWLog)
 	go tailLog("/var/log/syslog", parseUFWLog)
 
+	// Start eBPF DPI
+	go startDPI()
+
 	// Keep main thread alive
 	select {}
+}
+
+func htons(i uint16) uint16 {
+	return (i<<8)&0xff00 | i>>8
+}
+
+type bpfEvent struct {
+	Saddr            uint32
+	Daddr            uint32
+	Sport            uint16
+	Dport            uint16
+	RuleId           uint32
+}
+
+type ApiRule struct {
+	ID        uint32 `json:"id"`
+	Name      string `json:"name"`
+	Port      uint16 `json:"port"`
+	Signature string `json:"signature"`
+	Severity  string `json:"severity"`
+}
+
+type ApiRulesResponse struct {
+	Rules []ApiRule `json:"rules"`
+}
+
+var activeRules = make(map[uint32]ApiRule)
+
+func loadRules(objs *bpf.DpiObjects) {
+	client := &http.Client{Timeout: 5 * time.Second}
+	req, err := http.NewRequest("GET", targetURL+"/api/rules/active", nil)
+	if err != nil {
+		log.Printf("Failed to create rules request: %v", err)
+		return
+	}
+
+	req.Header.Set("Authorization", "Bearer "+authToken)
+	resp, err := client.Do(req)
+	if err != nil {
+		log.Printf("Failed to fetch rules: %v", err)
+		return
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		log.Printf("Non-OK response fetching rules: %v", resp.Status)
+		return
+	}
+
+	var rulesResp ApiRulesResponse
+	if err := json.NewDecoder(resp.Body).Decode(&rulesResp); err != nil {
+		log.Printf("Failed to decode rules: %v", err)
+		return
+	}
+
+	// Update maps
+	for i, rule := range rulesResp.Rules {
+		activeRules[rule.ID] = rule
+
+		var sig [8]uint8
+		sigLen := len(rule.Signature)
+		if sigLen > 8 {
+			sigLen = 8
+		}
+		for j := 0; j < sigLen; j++ {
+			sig[j] = rule.Signature[j]
+		}
+
+		bpfRule := bpf.DpiRule{
+			RuleId:    rule.ID,
+			Dport:     rule.Port,
+			SigLen:    uint16(sigLen),
+			Signature: sig,
+		}
+
+		if err := objs.RulesMap.Put(uint32(i), bpfRule); err != nil {
+			log.Printf("Failed to load rule %d into BPF map: %v", rule.ID, err)
+		}
+	}
+	log.Printf("Loaded %d DPI rules into BPF Map.", len(rulesResp.Rules))
+}
+
+func startDPI() {
+	var objs bpf.DpiObjects
+	if err := bpf.LoadDpiObjects(&objs, nil); err != nil {
+		log.Printf("Failed to load eBPF objects: %v. Are you running as root?", err)
+		return
+	}
+	defer objs.Close()
+
+	// Load dynamic rules into map
+	loadRules(&objs)
+
+	sock, err := unix.Socket(unix.AF_PACKET, unix.SOCK_RAW, int(htons(unix.ETH_P_ALL)))
+	if err != nil {
+		log.Printf("Failed to create raw socket: %v", err)
+		return
+	}
+	defer unix.Close(sock)
+
+	if err := unix.SetsockoptInt(sock, unix.SOL_SOCKET, unix.SO_ATTACH_BPF, objs.SocketDpi.FD()); err != nil {
+		log.Printf("Failed to attach BPF to socket: %v", err)
+		return
+	}
+
+	rb, err := ringbuf.NewReader(objs.Events)
+	if err != nil {
+		log.Printf("Failed to open ringbuf: %v", err)
+		return
+	}
+	defer rb.Close()
+
+	log.Printf("eBPF DPI started.")
+
+	for {
+		rec, err := rb.Read()
+		if err != nil {
+			log.Printf("Ringbuf read error: %v", err)
+			continue
+		}
+
+		var ev bpfEvent
+		if err := binary.Read(bytes.NewBuffer(rec.RawSample), binary.LittleEndian, &ev); err != nil {
+			log.Printf("Failed to parse event: %v", err)
+			continue
+		}
+
+		// Lookup rule
+		rule, ok := activeRules[ev.RuleId]
+		if !ok {
+			log.Printf("Unknown rule ID matched: %d", ev.RuleId)
+			continue
+		}
+
+		sendEvent(Event{
+			Type:     fmt.Sprintf("eBPF DPI: %s", rule.Name),
+			Severity: rule.Severity,
+			SourceIP: fmt.Sprintf("%d.%d.%d.%d", ev.Saddr&0xff, (ev.Saddr>>8)&0xff, (ev.Saddr>>16)&0xff, ev.Saddr>>24),
+		})
+	}
 }
 
 func tailLog(filepath string, parser func(string)) {

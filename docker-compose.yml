@@ -8,8 +8,52 @@ services:
     container_name: netrunner-platform
     ports:
       - "8000:8000"
+      - "8001:8001/udp"
     volumes:
       - ./data:/app/data
     environment:
-      - DATABASE_URL=sqlite+aiosqlite:///app/data/netrunner.db
+      - DATABASE_URL=sqlite+aiosqlite:////app/data/netrunner.db
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     restart: unless-stopped
+
+  terminal-mux:
+    build:
+      context: ./mux
+      dockerfile: Dockerfile
+    container_name: netrunner-mux
+    ports:
+      - "8081:8081"
+    environment:
+      - BACKEND_HOST=http://netrunner:8000
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      - netrunner
+    restart: unless-stopped
+
+  test-sw1:
+    build:
+      context: ./test-switch
+      dockerfile: Dockerfile
+    container_name: netrunner-sw1
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+    networks:
+      - lldp-net
+
+  test-sw2:
+    build:
+      context: ./test-switch
+      dockerfile: Dockerfile
+    container_name: netrunner-sw2
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+    networks:
+      - lldp-net
+
+networks:
+  lldp-net:
+    driver: bridge

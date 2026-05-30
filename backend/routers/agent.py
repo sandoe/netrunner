@@ -35,15 +35,26 @@ async def receive_event(event: AgentEvent, token: str = Depends(verify_agent_tok
     # Find a node that matches the token? For simplicity, we just broadcast as "Global Infrastructure" 
     # unless we pass the node ID from the agent.
     # To keep it simple, let's just pick any monitored node or a generic target.
+    from ..core.db import load_nodes_db, save_threat_event_db
+    import time
+    import random
+    
     nodes = await load_nodes_db()
     monitored = [n for n in nodes.values() if n.get("threat_monitoring")]
     target_host = "127.0.0.1"
     target_name = "Monitored Node"
+    node_id = "unknown"
     
     if monitored:
         target_host = monitored[0].get("host", target_host)
         target_name = monitored[0].get("name", target_name)
+        node_id = monitored[0].get("id", node_id)
 
+    # Generate a unique event ID
+    event_id = f"evt_{int(time.time()*1000)}_{random.randint(1000, 9999)}"
+    timestamp = time.time()
+
+    # Inject to real-time map queue
     await cti_engine.inject_agent_event(
         queue=cti_queue,
         target_host=target_host,
@@ -52,6 +63,19 @@ async def receive_event(event: AgentEvent, token: str = Depends(verify_agent_tok
         severity=event.severity,
         attacker_ip=event.source_ip
     )
+
+    # Save to history database
+    db_event = {
+        "id": event_id,
+        "timestamp": timestamp,
+        "node_id": node_id,
+        "source_ip": event.source_ip,
+        "target_ip": target_host,
+        "type": event.type,
+        "severity": event.severity
+    }
+    await save_threat_event_db(db_event)
+
     return {"status": "ok"}
 
 @router.get("/download/{arch}")

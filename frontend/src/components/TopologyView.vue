@@ -11,8 +11,11 @@
       </div>
       <div class="toolbar-group">
         <button class="btn-tool" @click="fit">CENTER</button>
-        <button class="btn-tool btn-discover" @click="doDiscover" :disabled="discovering">
-          <span class="icon">{{ discovering ? '⌛' : '📡' }}</span> SCAN NETWORK
+        <button class="btn-tool" @click="toggleLayout">
+          <span class="icon">🕸️</span> {{ layoutMode === 'floating' ? 'FLOATING' : 'HIERARCHICAL' }}
+        </button>
+        <button class="btn-tool btn-discover" @click="doAutoDiscover" :disabled="discovering">
+          <span class="icon">{{ discovering ? '⌛' : '📡' }}</span> AUTO-DISCOVER
         </button>
         <button class="btn-tool btn-gns3" @click="pickGns3Project" :disabled="syncing">
           <span class="icon">{{ syncing ? '⌛' : '☁️' }}</span> GNS3 SYNC
@@ -41,6 +44,7 @@
 import { ref, onMounted, watch, onUnmounted } from 'vue'
 import ForceGraph3D from '3d-force-graph'
 import * as THREE from 'three'
+import SpriteText from 'three-spritetext'
 import { useNodesStore } from '@/stores/nodes'
 import { api } from '@/api/client'
 
@@ -50,11 +54,39 @@ let graph: any = null
 let resizeObserver: ResizeObserver | null = null
 
 const mode = ref<'select' | 'draw'>('select')
+const layoutMode = ref<'floating' | 'hierarchical'>('floating')
 const drawSource = ref<string | null>(null)
 const discovering = ref(false)
 const syncing = ref(false)
 const debugStats = ref<{nodes: number, links: number} | null>(null)
 const initError = ref<string | null>(null)
+const telemetryData = ref<Record<string, Record<string, any>>>({})
+let telemetryWs: WebSocket | null = null
+
+function toggleLayout() {
+  layoutMode.value = layoutMode.value === 'floating' ? 'hierarchical' : 'floating'
+  if (graph && typeof graph.dagMode === 'function') {
+    graph.dagMode(layoutMode.value === 'hierarchical' ? 'td' : null)
+    if (layoutMode.value === 'hierarchical') {
+      graph.dagLevelDistance(60)
+    }
+  }
+}
+
+async function doAutoDiscover() {
+  discovering.value = true
+  try {
+    const res = await api.autoDiscoverLinks()
+    alert(`Auto-discovery complete!\nFound ${res.new_links} new links via LLDP.`)
+    await store.fetchData() // Refresh store to pull new links
+    updateGraph()
+  } catch (e) {
+    alert(String(e))
+  } finally {
+    discovering.value = false
+  }
+}
+
 
 // Ghost nodes from discovery (persisted in localStorage)
 const getInitialGhostNodes = () => {
@@ -495,6 +527,8 @@ function initGraph() {
     // 4. Custom D3 Physics Force for Vertical Platform Layering
     if (typeof g.d3Force === 'function') {
       g.d3Force('layer', (alpha: number) => {
+        if (layoutMode.value === 'hierarchical') return // Skip layering if hierarchical
+        
         const nodes = g.graphData().nodes
         nodes.forEach((node: any) => {
           let targetY = -60 // default to local deck
@@ -539,13 +573,27 @@ function initGraph() {
     if (typeof g.linkDirectionalParticles === 'function') {
       g.linkDirectionalParticles(link => {
         if (!link || typeof link !== 'object') return 0
-        return link.active ? 3 : (link.isGhostLink ? 2 : 0)
+        let mbps = 0
+        if (link.source && link.source.id && telemetryData.value[link.source.id]) {
+          Object.values(telemetryData.value[link.source.id]).forEach(iface => {
+            mbps += iface.mbps_tx || 0
+          })
+        }
+        if (mbps > 0) return Math.min(10, Math.ceil(mbps))
+        return link.active ? 1 : (link.isGhostLink ? 2 : 0)
       })
     }
     
     if (typeof g.linkDirectionalParticleSpeed === 'function') {
       g.linkDirectionalParticleSpeed(link => {
         if (!link || typeof link !== 'object') return 0.01
+        let mbps = 0
+        if (link.source && link.source.id && telemetryData.value[link.source.id]) {
+          Object.values(telemetryData.value[link.source.id]).forEach(iface => {
+            mbps += iface.mbps_tx || 0
+          })
+        }
+        if (mbps > 0) return 0.01 + Math.min(0.05, mbps * 0.005)
         return link.isGhostLink ? 0.005 : 0.01
       })
     }
@@ -561,6 +609,41 @@ function initGraph() {
       g.linkDirectionalParticleColor(link => {
         if (!link || typeof link !== 'object') return '#00ff9d'
         return link.isGhostLink ? 'rgba(255, 45, 110, 0.8)' : '#00ff9d'
+      })
+    }
+    
+    // Add Telemetry Text Sprites on Links
+    if (typeof g.linkThreeObjectExtend === 'function') {
+      g.linkThreeObjectExtend(true)
+      g.linkThreeObject(link => {
+        let mbps = 0
+        if (link.source && link.source.id && telemetryData.value[link.source.id]) {
+          Object.values(telemetryData.value[link.source.id]).forEach(iface => {
+            mbps += iface.mbps_tx || 0
+          })
+        }
+        if (mbps > 0.05) { // Only show if significant
+          const sprite = new SpriteText(`${mbps.toFixed(1)} Mbps`)
+          sprite.color = '#00ff9d'
+          sprite.textHeight = 3
+          sprite.padding = 1
+          sprite.backgroundColor = 'rgba(0,0,0,0.6)'
+          sprite.borderRadius = 2
+          return sprite
+        }
+        return null
+      })
+      g.linkPositionUpdate((sprite, { start, end }) => {
+        if (sprite && sprite.position) {
+          const middlePos = Object.assign(...['x', 'y', 'z'].map(c => ({
+            [c]: start[c as keyof typeof start] + (end[c as keyof typeof end] - start[c as keyof typeof start]) / 2
+          })))
+          Object.assign(sprite.position, middlePos)
+          
+          // Hover the text slightly above the line
+          sprite.position.y += 2
+        }
+        return false // don't block default link positioning
       })
     }
     
@@ -660,14 +743,46 @@ watch(() => store.selectedId, () => {
   updateGraph()
 })
 
+// Watch telemetry to update graph
+watch(telemetryData, () => {
+  if (graph) {
+    // Trigger a re-evaluation of link particles and objects
+    if (typeof graph.linkDirectionalParticles === 'function') {
+      graph.linkDirectionalParticles(graph.linkDirectionalParticles())
+    }
+  }
+}, { deep: true })
+
 onMounted(() => {
-  initGraph()
-  updateGraph()
+  store.fetchData().then(() => {
+    initGraph()
+    updateGraph()
+  }).catch(e => {
+    initError.value = String(e)
+  })
+
+  // Start WS for telemetry
+  const wsHost = window.location.hostname === 'localhost' ? 'localhost:8000' : window.location.host
+  telemetryWs = new WebSocket(`ws://${wsHost}/ws/telemetry`)
+  telemetryWs.onmessage = (event) => {
+    try {
+      const data = JSON.parse(event.data)
+      if (data.type === 'init') {
+        telemetryData.value = data.cache || {}
+      } else if (data.type === 'update') {
+        if (!telemetryData.value[data.node_id]) {
+          telemetryData.value[data.node_id] = {}
+        }
+        telemetryData.value[data.node_id][data.interface] = data
+      }
+    } catch (e) {}
+  }
 })
 
 onUnmounted(() => {
   stopAnimationLoop()
   if (resizeObserver) resizeObserver.disconnect()
+  if (telemetryWs) telemetryWs.close()
   if (graph && canvasRef.value) {
     canvasRef.value.innerHTML = ''
   }

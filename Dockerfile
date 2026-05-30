@@ -7,9 +7,13 @@ COPY frontend/ ./
 RUN npm run build
 
 # Stage 2: Build the Go agent
-FROM golang:1.22-alpine AS agent-builder
+FROM golang:alpine AS agent-builder
+RUN apk add --no-cache clang llvm linux-headers bpftool make libbpf-dev
 WORKDIR /app/agent
 COPY agent/ ./
+RUN go mod tidy
+# Generate eBPF bindings
+RUN go generate ./...
 # Build AMD64
 RUN GOOS=linux GOARCH=amd64 go build -o /netrunner-agent-amd64 main.go
 # Build ARM64
