@@ -157,8 +157,8 @@ onMounted(load)
 .card { border: 1px solid var(--border, #1a2540); border-radius: 6px; padding: 16px; background: rgba(0, 0, 0, 0.25); }
 .card-title { color: #00e5ff; font-size: 11px; letter-spacing: 2px; margin-bottom: 14px; }
 
-.create-form .row { display: flex; gap: 10px; align-items: flex-end; }
-.fg { display: flex; flex-direction: column; flex: 1; }
+.create-form .row { display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; }
+.fg { display: flex; flex-direction: column; flex: 1 1 140px; min-width: 0; }
 .fg-role { flex: 0 0 110px; }
 .fg label { font-size: 10px; color: #6b7a99; margin-bottom: 5px; letter-spacing: 1px; }
 .fg input, .fg select {

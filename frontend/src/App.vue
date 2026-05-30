@@ -13,16 +13,18 @@
           <button class="btn-icon" @click="toggleGlobalFullscreen" :title="isGlobalFullscreen ? 'Exit Fullscreen' : 'Fullscreen'">
             {{ isGlobalFullscreen ? '📺' : '🖥️' }}
           </button>
-          <button v-if="userRole === 'admin'" class="btn-icon" @click="showUsers = true" title="User management">👤</button>
           <button class="btn-icon" @click="showSettings = true" title="Settings">⚙️</button>
           <button class="btn-add" @click="showAddForm = true" title="Add node">+</button>
         </div>
       </div>
 
       <div class="user-bar">
-        <span class="user-id">{{ currentUsername || 'operator' }}</span>
+        <span class="user-id" :title="currentUsername || 'operator'">{{ currentUsername || 'operator' }}</span>
         <span class="user-role" :class="userRole">{{ userRole }}</span>
-        <button class="btn-logout" @click="logout" title="Log out">⏻ LOGOUT</button>
+        <div class="user-actions">
+          <button v-if="userRole === 'admin'" class="btn-user-action" @click="showUsers = true" title="User management">👤</button>
+          <button class="btn-user-action btn-logout" @click="logout" title="Log out">⏻</button>
+        </div>
       </div>
 
       <div class="sidebar-stats">
@@ -674,12 +676,14 @@ onUnmounted(() => {
 .btn-add:hover { background: var(--cyan); color: var(--bg); box-shadow: var(--shadow-c); }
 
 .user-bar { display: flex; align-items: center; gap: 8px; padding: 8px 20px; border-bottom: 1px solid var(--border); font-family: var(--font-co); }
-.user-bar .user-id { color: var(--textwh); font-size: 12px; }
-.user-bar .user-role { font-size: 9px; letter-spacing: 1px; padding: 1px 6px; border-radius: 3px; text-transform: uppercase; }
+.user-bar .user-id { color: var(--textwh); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 110px; }
+.user-bar .user-role { flex-shrink: 0; font-size: 9px; letter-spacing: 1px; padding: 1px 6px; border-radius: 3px; text-transform: uppercase; }
 .user-bar .user-role.admin { background: rgba(255,45,110,0.15); color: var(--pink); border: 1px solid rgba(255,45,110,0.4); }
 .user-bar .user-role.analyst { background: rgba(0,229,255,0.1); color: var(--cyan); border: 1px solid var(--cyan-d); }
-.btn-logout { margin-left: auto; background: none; border: 1px solid var(--border2); color: var(--textbr); font-size: 10px; letter-spacing: 1px; padding: 4px 10px; border-radius: 4px; cursor: pointer; font-family: var(--font-hd); transition: all .2s; }
-.btn-logout:hover { border-color: var(--pink); color: var(--pink); box-shadow: 0 0 10px rgba(255,45,110,0.2); }
+.user-actions { margin-left: auto; display: flex; gap: 6px; flex-shrink: 0; }
+.btn-user-action { width: 26px; height: 26px; display: flex; align-items: center; justify-content: center; background: none; border: 1px solid var(--border2); color: var(--textbr); font-size: 13px; border-radius: 4px; cursor: pointer; transition: all .2s; }
+.btn-user-action:hover { border-color: var(--cyan); color: var(--cyan); box-shadow: 0 0 8px rgba(0,229,255,0.2); }
+.btn-logout:hover { border-color: var(--pink); color: var(--pink); box-shadow: 0 0 8px rgba(255,45,110,0.2); }
 
 .sidebar-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; padding: 14px 20px; border-bottom: 1px solid var(--border); }
 .sidebar-stat { background: linear-gradient(180deg, rgba(0,229,255,.08), rgba(16,24,40,.5)); border: 1px solid var(--border); border-radius: var(--r); padding: 10px; }
