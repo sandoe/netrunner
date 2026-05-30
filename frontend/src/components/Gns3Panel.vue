@@ -17,7 +17,11 @@
               <span class="spinner"></span>
               <span>SYNCHRONIZING TELEMETRY...</span>
             </div>
-            
+
+            <div v-if="hudError" class="hud-error" :title="hudError">
+              ⚠ HYPERVISOR LINK ERROR — {{ hudError }}
+            </div>
+
             <div class="stats-row">
               <div class="stat-gauge">
                 <div class="gauge-label">NODE CPU UTILIZATION</div>
@@ -207,6 +211,7 @@ const store = useNodesStore()
 const projectId = ref('')
 const nodeId = ref('')
 const loadingMetrics = ref(false)
+const hudError = ref('')
 const powerBusy = ref(false)
 const powerError = ref('')
 const explorerLoading = ref(false)
@@ -240,7 +245,8 @@ async function fetchGns3Details() {
   try {
     const res = await api.gns3ApiCall(props.nodeId, 'GET', '/projects/{project_id}/nodes/{node_id}')
     const raw = res.response
-    
+    hudError.value = ''
+
     // Save project_id/node_id to local ref
     if (raw) {
       projectId.value = raw.project_id || ''
@@ -266,11 +272,12 @@ async function fetchGns3Details() {
     }
   } catch (e) {
     console.error('Failed to load GNS3 live details:', e)
-    // If not discovered yet, extract from store node metadata
+    hudError.value = (e as any)?.message || String(e)
+    // Keep last-known UUIDs; fall back to store metadata if we have none yet.
     const selected = store.nodes[props.nodeId]
     if (selected?.metadata?.gns3) {
-      projectId.value = selected.metadata.gns3.project_id || ''
-      nodeId.value = selected.metadata.gns3.node_id || ''
+      projectId.value = projectId.value || selected.metadata.gns3.project_id || ''
+      nodeId.value = nodeId.value || selected.metadata.gns3.node_id || ''
     }
   } finally {
     loadingMetrics.value = false
@@ -521,6 +528,21 @@ watch(() => props.nodeId, () => {
   font-size: 10px;
   letter-spacing: 2px;
   color: var(--cyan);
+}
+
+.hud-error {
+  margin-bottom: 12px;
+  padding: 6px 10px;
+  background: rgba(255, 45, 110, 0.08);
+  border: 1px solid var(--pink);
+  border-radius: var(--r);
+  color: var(--pink);
+  font-family: var(--font-co);
+  font-size: 9px;
+  line-height: 1.4;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 /* Gauges */

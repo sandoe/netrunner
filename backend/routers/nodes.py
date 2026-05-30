@@ -293,26 +293,31 @@ async def api_node_disconnect(nid: str):
     return {"ok": True}
 
 
-async def _discover_gns3_node_details(node: dict) -> tuple[Optional[str], Optional[str]]:
-    """Attempt to discover GNS3 project_id and node_id for a GNS3 node by its console port and name."""
+async def _discover_gns3_node_details(node: dict) -> tuple[Optional[str], Optional[str], Optional[int]]:
+    """Discover (project_id, node_id, console_port) for a GNS3 node.
+
+    Matches by console port first, then falls back to the node name — GNS3
+    reassigns console ports when a node restarts, so a name match lets us
+    recover (and self-correct the stored port) instead of going stale.
+    Returns (None, None, None) if nothing matches.
+    """
     from .gns3 import _gns3_req
     port = node.get("port")
     node_name = node.get("name", "").strip().lower()
-    if not port:
-        return None, None
     try:
         projects = await _gns3_req("GET", "/projects")
         if not projects:
-            return None, None
-        
-        # Sort projects to prioritize "opened" status
+            return None, None, None
+
+        # Prioritise "opened" projects
         sorted_projects = sorted(
-            projects, 
+            projects,
             key=lambda p: 0 if p.get("status") == "opened" else 1
         )
-        
-        best_match = None
-        
+
+        port_match = None   # console port matches
+        name_match = None   # name matches (port may have drifted)
+
         for proj in sorted_projects:
             proj_id = proj.get("project_id")
             if not proj_id:
@@ -321,24 +326,23 @@ async def _discover_gns3_node_details(node: dict) -> tuple[Optional[str], Option
                 proj_nodes = await _gns3_req("GET", f"/projects/{proj_id}/nodes")
             except Exception:
                 continue
-            if not proj_nodes:
-                continue
-            for gn in proj_nodes:
-                if gn.get("console") == port:
-                    gn_name = gn.get("name", "").strip().lower()
-                    if node_name and gn_name == node_name:
-                        # Perfect match: port and name match
-                        return proj_id, gn.get("node_id")
-                    elif not best_match:
-                        # Port matches, keep as fallback candidate
-                        best_match = (proj_id, gn.get("node_id"))
-        
-        if best_match:
-            return best_match
-            
+            for gn in (proj_nodes or []):
+                gn_name = gn.get("name", "").strip().lower()
+                gn_console = gn.get("console")
+                # Best possible: both name and console port match
+                if node_name and gn_name == node_name and port and gn_console == port:
+                    return proj_id, gn.get("node_id"), gn_console
+                if port and gn_console == port and not port_match:
+                    port_match = (proj_id, gn.get("node_id"), gn_console)
+                if node_name and gn_name == node_name and not name_match:
+                    name_match = (proj_id, gn.get("node_id"), gn_console)
+
+        # Prefer a console-port match; otherwise fall back to the name match.
+        return port_match or name_match or (None, None, None)
+
     except Exception as e:
         print(f"[GNS3 Discovery Error] {e}")
-    return None, None
+    return None, None, None
 
 
 @router.post("/nodes/{nid}/reboot")
@@ -367,7 +371,7 @@ async def api_node_reboot(nid: str, body: Optional[dict] = None):
                 force_rediscover = True
                 
         if not project_id or not node_id or force_rediscover:
-            new_project_id, new_node_id = await _discover_gns3_node_details(node)
+            new_project_id, new_node_id, new_console = await _discover_gns3_node_details(node)
             if new_project_id and new_node_id:
                 project_id = new_project_id
                 node_id = new_node_id
@@ -377,10 +381,12 @@ async def api_node_reboot(nid: str, body: Optional[dict] = None):
                     "project_id": project_id,
                     "node_id": node_id
                 }
+                if new_console and new_console != nodes[nid].get("port"):
+                    nodes[nid]["port"] = new_console
                 await save_node_db(nodes[nid])
             elif not project_id or not node_id:
                 raise HTTPException(
-                    400, 
+                    400,
                     "Could not discover GNS3 project ID or node ID for this node. Ensure the node is active in GNS3."
                 )
                 
@@ -461,7 +467,7 @@ async def api_node_gns3_api(nid: str, payload: Gns3ApiRequest):
             force_rediscover = True
             
     if not project_id or not node_id or force_rediscover:
-        new_project_id, new_node_id = await _discover_gns3_node_details(node)
+        new_project_id, new_node_id, new_console = await _discover_gns3_node_details(node)
         if new_project_id and new_node_id:
             project_id = new_project_id
             node_id = new_node_id
@@ -471,6 +477,9 @@ async def api_node_gns3_api(nid: str, payload: Gns3ApiRequest):
                 "project_id": project_id,
                 "node_id": node_id
             }
+            # Self-correct a drifted console port so telnet + future lookups work
+            if new_console and new_console != nodes[nid].get("port"):
+                nodes[nid]["port"] = new_console
             await save_node_db(nodes[nid])
         elif not project_id or not node_id:
             raise HTTPException(
