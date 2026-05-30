@@ -133,6 +133,9 @@ function connect(nodeId: string) {
     ws.close()
     ws = null
   }
+  // Start each session with a clean screen so output from a previously
+  // selected node never bleeds into this one.
+  term?.reset()
   connecting.value = true
   connected.value  = false
 

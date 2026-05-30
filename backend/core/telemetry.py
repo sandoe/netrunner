@@ -70,8 +70,15 @@ async def poll_telemetry_loop():
                 except Exception as e:
                     pass
 
-            # Poll all nodes concurrently
-            tasks = [poll_node(nid, n) for nid, n in nodes.items()]
+            # Only poll over SSH: it runs in a separate exec channel and never
+            # disturbs an interactive session. Telnet (e.g. GNS3 consoles) has a
+            # single shared byte-stream, so injecting `cat /proc/net/dev` there
+            # would flood the user's open terminal. Skip those nodes.
+            tasks = [
+                poll_node(nid, n)
+                for nid, n in nodes.items()
+                if (n.get("transport") or "telnet").lower() == "ssh"
+            ]
             if tasks:
                 await asyncio.gather(*tasks)
                 
