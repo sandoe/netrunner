@@ -36,6 +36,22 @@ async def test_internal_node_creds_for_telnet(client: AsyncClient, anon_client: 
     assert (await anon_client.get("/api/internal/node/nope")).status_code == 404
 
 @pytest.mark.asyncio
+async def test_edit_without_password_keeps_it(client: AsyncClient, anon_client: AsyncClient):
+    created = await client.post("/api/nodes", json={
+        "name": "sshbox", "host": "10.0.0.7", "port": 22,
+        "transport": "ssh", "username": "root", "password": "keepme",
+    })
+    nid = created.json()["id"]
+
+    # Edit host only — payload omits password (frontend drops blank password)
+    r = await client.put(f"/api/nodes/{nid}", json={"host": "192.168.122.121"})
+    assert r.status_code == 200
+
+    creds = (await anon_client.get(f"/api/internal/node/{nid}")).json()
+    assert creds["host"] == "192.168.122.121"
+    assert creds["password"] == "keepme"   # password preserved
+
+@pytest.mark.asyncio
 async def test_get_nodes_empty(client: AsyncClient):
     response = await client.get("/api/nodes")
     assert response.status_code == 200

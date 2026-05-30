@@ -76,9 +76,14 @@ async function submit() {
   saving.value = true
   error.value  = ''
   try {
-    const payload = {
+    const payload: any = {
       ...form.value,
       tags: tagsInput.value.split(',').map(t => t.trim()).filter(Boolean),
+    }
+    // On edit, a blank password means "keep the existing one" — don't send it,
+    // otherwise the backend would overwrite the stored password with empty.
+    if (isEdit.value && !form.value.password) {
+      delete payload.password
     }
     if (isEdit.value) {
       await store.update(props.node!.id, payload)

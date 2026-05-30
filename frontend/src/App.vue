@@ -137,6 +137,7 @@
                 <button @click="doDisconnect" class="btn-action" :disabled="connBusy">DISCONNECT</button>
                 <button @click="doReboot" class="btn-action btn-reboot" :disabled="connBusy">REBOOT</button>
               </template>
+              <button @click="showEdit = true" class="btn-action btn-edit" title="Edit connection (host, port, transport, credentials)">EDIT</button>
               <button @click="detectType" class="btn-action">DETECT</button>
               <button @click="doBackup"   class="btn-action">BACKUP</button>
               <button @click="doRollback" class="btn-action">ROLLBACK</button>
@@ -839,6 +840,7 @@ onUnmounted(() => {
   text-shadow: 0 0 5px #ff0055;
 }
 
+.btn-edit { border-color: var(--cyan-d); color: var(--cyan); }
 .btn-reboot { border-color: #ffaa00; color: #ffaa00; }
 .btn-reboot:hover:not(:disabled) {
   background: rgba(255, 170, 0, 0.2);
