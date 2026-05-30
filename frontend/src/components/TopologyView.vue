@@ -78,7 +78,7 @@ async function doAutoDiscover() {
   try {
     const res = await api.autoDiscoverLinks()
     alert(`Auto-discovery complete!\nFound ${res.new_links} new links via LLDP.`)
-    await store.fetchData() // Refresh store to pull new links
+    await store.refresh() // Refresh store to pull new links
     updateGraph()
   } catch (e) {
     alert(String(e))
@@ -754,7 +754,7 @@ watch(telemetryData, () => {
 }, { deep: true })
 
 onMounted(() => {
-  store.fetchData().then(() => {
+  store.refresh().then(() => {
     initGraph()
     updateGraph()
   }).catch(e => {
