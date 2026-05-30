@@ -162,10 +162,9 @@
             <SystemPanel  v-if="activeTab === 'system'"   :node-id="store.selected.id" />
             <DockerPanel  v-if="activeTab === 'docker'"   :node-id="store.selected.id" />
             <DatabasePanel v-if="activeTab === 'database'" :node-id="store.selected.id" />
-            <ExecPanel    v-if="activeTab === 'exec'"     :node-id="store.selected.id" />
             <ActiveDefensePanel v-if="activeTab === 'defense'" :node-id="store.selected.id" />
             <CapturePanel v-if="activeTab === 'capture'"  :node-id="store.selected.id" />
-            <Terminal     v-if="activeTab === 'terminal'" :node="store.selected" />
+            <ShellPanel   v-if="activeTab === 'terminal'" :node="store.selected" />
           </div>
         </div>
       </transition>
@@ -285,10 +284,9 @@ import { api } from '@/api/client'
 import SystemPanel from './components/SystemPanel.vue'
 import DockerPanel from './components/DockerPanel.vue'
 import DatabasePanel from './components/DatabasePanel.vue'
-import ExecPanel from './components/ExecPanel.vue'
 import CapturePanel from './components/CapturePanel.vue'
 import OverviewPanel from './components/OverviewPanel.vue'
-import Terminal  from './components/Terminal.vue'
+import ShellPanel from './components/ShellPanel.vue'
 import NodeForm  from './components/NodeForm.vue'
 import TopologyView from './components/TopologyView.vue'
 import WifiView from './components/WifiView.vue'
@@ -354,8 +352,11 @@ window.addEventListener('auth-expired', () => {
 const store       = useNodesStore()
 const viewMode    = ref<'node' | 'topology' | 'threat' | 'history' | 'warroom'>(
   (localStorage.getItem('netrunner_view_mode') as any) || 'node')
-const activeTab   = ref<'overview' | 'gns3-api' | 'diag' | 'config' | 'exec' | 'defense' | 'capture' | 'terminal'>(
-  (localStorage.getItem('netrunner_active_tab') as any) || 'overview')
+const activeTab   = ref<'overview' | 'gns3-api' | 'diag' | 'config' | 'defense' | 'capture' | 'terminal'>(
+  // 'exec' was merged into the TERMINAL tab; migrate any persisted value
+  (((localStorage.getItem('netrunner_active_tab') as any) || 'overview') === 'exec'
+    ? 'terminal'
+    : (localStorage.getItem('netrunner_active_tab') as any) || 'overview'))
 watch(viewMode, v => localStorage.setItem('netrunner_view_mode', v))
 watch(activeTab, t => localStorage.setItem('netrunner_active_tab', t))
 const showAddForm = ref(false)
@@ -440,7 +441,6 @@ const dynamicTabs = computed(() => {
     { id: 'system',   label: 'SYSTEM' },
     { id: 'docker',   label: 'DOCKER' },
     { id: 'database', label: 'DATABASE' },
-    { id: 'exec',     label: 'EXECUTE' },
     { id: 'defense',  label: 'ACTIVE DEFENSE' },
     { id: 'capture',  label: 'CAPTURE' },
     { id: 'terminal', label: 'TERMINAL' }

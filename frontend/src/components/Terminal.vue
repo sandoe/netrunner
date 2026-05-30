@@ -86,8 +86,13 @@ function initTerminal() {
   term.loadAddon(fitAddon)
   term.loadAddon(new WebLinksAddon())
   term.open(termEl.value)
-  fitAddon.fit()
-  term.focus()
+  // Fit only once the container actually has dimensions — fitting synchronously
+  // on mount (before flex layout settles) yields 0 rows and hides the cursor.
+  fitSoon()
+
+  // Clicking anywhere in the padded container should focus the terminal,
+  // otherwise the block cursor renders as inactive/invisible.
+  termEl.value.addEventListener('mousedown', () => term?.focus())
 
   term.onData((data) => {
     if (ws && ws.readyState === WebSocket.OPEN) {
@@ -101,8 +106,25 @@ function initTerminal() {
     }
   })
 
-  resizeObserver = new ResizeObserver(() => fitAddon?.fit())
+  resizeObserver = new ResizeObserver(() => fitSoon())
   resizeObserver.observe(wrapEl.value!)
+}
+
+// Fit + focus on the next frame, but only when the element has a real size.
+// Retries briefly while the layout is still 0×0 (e.g. tab just became visible).
+let fitTries = 0
+function fitSoon() {
+  requestAnimationFrame(() => {
+    const el = termEl.value
+    if (!term || !fitAddon || !el) return
+    if (el.clientWidth < 10 || el.clientHeight < 10) {
+      if (fitTries++ < 20) setTimeout(fitSoon, 50)
+      return
+    }
+    fitTries = 0
+    try { fitAddon.fit() } catch { /* ignore */ }
+    term.focus()
+  })
 }
 
 function connect(nodeId: string) {
@@ -126,7 +148,7 @@ function connect(nodeId: string) {
         connecting.value = false
         if (msg.connected) {
           term?.write('\r\n\x1b[1;32m[SYSTEM] Neural link established.\x1b[0m\r\n')
-          term?.focus()
+          fitSoon()
         }
       } else if (msg.type === 'error') {
         term?.write(`\r\n\x1b[1;31m[ERROR] Connection failed: ${msg.data}\x1b[0m\r\n`)
