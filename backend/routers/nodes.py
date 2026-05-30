@@ -384,12 +384,19 @@ async def api_node_reboot(nid: str, body: Optional[dict] = None):
                 if new_console and new_console != nodes[nid].get("port"):
                     nodes[nid]["port"] = new_console
                 await save_node_db(nodes[nid])
+            elif force_rediscover:
+                raise HTTPException(
+                    409,
+                    "This node's GNS3 project is closed (or its console port changed) "
+                    "and it wasn't found in any open project. Open the project in GNS3, "
+                    "or re-run GNS3 SYNC to refresh this node's mapping."
+                )
             elif not project_id or not node_id:
                 raise HTTPException(
                     400,
-                    "Could not discover GNS3 project ID or node ID for this node. Ensure the node is active in GNS3."
+                    "Could not discover GNS3 project ID or node ID for this node. Ensure the node is active in an open GNS3 project."
                 )
-                
+
         # Send reload request via GNS3 API
         from .gns3 import _gns3_req
         try:
@@ -481,10 +488,19 @@ async def api_node_gns3_api(nid: str, payload: Gns3ApiRequest):
             if new_console and new_console != nodes[nid].get("port"):
                 nodes[nid]["port"] = new_console
             await save_node_db(nodes[nid])
+        elif force_rediscover:
+            # Cached IDs point at a closed/stale project and the node wasn't
+            # found in any OPEN project — don't fall through to a raw 403.
+            raise HTTPException(
+                409,
+                "This node's GNS3 project is closed (or its console port changed) "
+                "and it wasn't found in any open project. Open the project in GNS3, "
+                "or re-run GNS3 SYNC to refresh this node's mapping."
+            )
         elif not project_id or not node_id:
             raise HTTPException(
                 400,
-                "Could not auto-discover GNS3 IDs. Ensure the node is currently running in a GNS3 project."
+                "Could not auto-discover GNS3 IDs. Ensure the node is currently running in an open GNS3 project."
             )
             
     # 2. Format path placeholders: replace '{project_id}' and '{node_id}'
