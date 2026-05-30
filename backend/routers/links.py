@@ -12,6 +12,7 @@ from pydantic import BaseModel
 from .nodes import load_nodes, _get_node_with_creds
 from ..core.session import session_manager
 from ..core.db import load_links_db, save_link_db, delete_link_db
+from ..core.discovery import discover_topology
 
 router = APIRouter()
 
@@ -49,6 +50,14 @@ class Link(LinkCreate):
 # ---------------------------------------------------------------------------
 # Routes
 # ---------------------------------------------------------------------------
+
+@router.get("/links/auto-discover")
+async def auto_discover_links():
+    try:
+        new_count = await discover_topology()
+        return {"status": "ok", "new_links": new_count}
+    except Exception as e:
+        raise HTTPException(500, f"Auto-discovery failed: {e}")
 
 @router.get("/links", response_model=List[Link])
 async def get_links():

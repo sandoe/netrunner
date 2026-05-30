@@ -229,10 +229,11 @@ class SshClient:
             port=self.port,
             username=self.username,
             password=self.password,
-            timeout=self.timeout,
+            timeout=60,
             look_for_keys=False,
             allow_agent=False,
-            banner_timeout=10,
+            banner_timeout=60,
+            auth_timeout=60,
         )
         transport = self.client.get_transport()
         if transport:
@@ -274,6 +275,7 @@ class SessionManager:
         self._lock = threading.Lock()
         self._cmd_locks: dict[str, threading.Lock] = {}
         self._no_auto_open: set[str] = set()
+        self._failed_attempts: dict[str, float] = {}
 
     def _cmd_lock(self, nid: str) -> threading.Lock:
         with self._lock:
@@ -283,24 +285,31 @@ class SessionManager:
 
     async def open(self, nid: str, node: dict, auto: bool = False) -> tuple[bool, Optional[str]]:
         """Open a session. Returns (success, error_message)."""
+        import time
         with self._lock:
             if nid in self._no_auto_open and auto:
                 return False, "Node intentionally disconnected"
+            if auto and self._failed_attempts.get(nid, 0) > time.time():
+                return False, "Cooldown active due to recent failure"
             self._no_auto_open.discard(nid)
             
         transport = (node.get("transport") or "telnet").lower()
         
         # Use a thread for the blocking connection part
         def _do_connect():
+            target_host = node["host"]
+            if target_host in ("127.0.0.1", "localhost", "0.0.0.0"):
+                target_host = "host.docker.internal"
+
             if transport == "ssh":
-                cl = SshClient(node["host"], node["port"], node.get("username") or "root", node.get("password", ""))
+                cl = SshClient(target_host, node["port"], node.get("username") or "root", node.get("password", ""))
                 try:
                     cl.connect()
                     return cl, None
                 except Exception as e:
                     return None, str(e)
             else:
-                cl = TelnetClient(node["host"], node["port"])
+                cl = TelnetClient(target_host, node["port"])
                 try:
                     cl.connect()
                     # Send Ctrl+C to interrupt any running or stuck processes
@@ -324,13 +333,17 @@ class SessionManager:
         loop = asyncio.get_event_loop()
         cl, err = await loop.run_in_executor(None, _do_connect)
         
-        if cl:
-            with self._lock:
+        with self._lock:
+            if cl:
                 old = self._sessions.pop(nid, None)
                 if old: old.close()
                 self._sessions[nid] = cl
-            return True, None
-        return False, err
+                self._failed_attempts.pop(nid, None)
+                return True, None
+            else:
+                import time
+                self._failed_attempts[nid] = time.time() + 60
+                return False, err
 
     def get_session(self, nid: str) -> Optional[TelnetClient | SshClient]:
         with self._lock:

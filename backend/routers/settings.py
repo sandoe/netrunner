@@ -92,11 +92,12 @@ async def test_db_connection(body: dict):
         raise HTTPException(400, "Missing URL")
     
     from sqlalchemy.ext.asyncio import create_async_engine
+    from sqlalchemy import text
     try:
         # Create a temporary engine to test
         temp_engine = create_async_engine(url)
         async with temp_engine.connect() as conn:
-            await conn.execute(select(1))
+            await conn.execute(text("SELECT 1"))
         await temp_engine.dispose()
         return {"status": "ok"}
     except Exception as e:
