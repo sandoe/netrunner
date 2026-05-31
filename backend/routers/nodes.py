@@ -343,7 +343,7 @@ async def api_node_system_snapshot(nid: str):
         "cat /proc/loadavg",
         "cat /proc/uptime",
         "df -P / | tail -1",
-        "ps -eo user,pcpu,pmem,comm --sort=-pcpu 2>/dev/null | head -9",
+        "ps -eo pid,user,pcpu,pmem,comm --sort=-pcpu 2>/dev/null | head -9",
         "hostname",
         "uname -sr",
     ]
@@ -372,13 +372,13 @@ async def api_node_system_snapshot(nid: str):
         snap["disk"] = {"used_pct": int(f[4].rstrip("%")), "size": f[1], "used": f[2], "avail": f[3]}
     except Exception:
         snap["disk"] = None
-    # top processes
+    # top processes (pid user cpu mem comm)
     procs = []
     for line in out(3).splitlines()[1:]:
-        p = line.split(None, 3)
-        if len(p) == 4:
+        p = line.split(None, 4)
+        if len(p) == 5:
             try:
-                procs.append({"user": p[0], "cpu": float(p[1]), "mem": float(p[2]), "cmd": p[3]})
+                procs.append({"pid": int(p[0]), "user": p[1], "cpu": float(p[2]), "mem": float(p[3]), "cmd": p[4]})
             except Exception:
                 pass
     snap["processes"] = procs
@@ -390,6 +390,72 @@ async def api_node_system_snapshot(nid: str):
     snap["net_rx"] = v.get("net_rx")
     snap["net_tx"] = v.get("net_tx")
     return snap
+
+
+async def _node_run_one(nid: str, cmd: str):
+    from ..core.session import session_manager
+    nodes = await load_nodes()
+    if nid not in nodes:
+        raise HTTPException(404, "Node not found")
+    if not session_manager.is_connected(nid):
+        raise HTTPException(409, "Node not connected")
+    node = await _get_node_with_creds(nid, nodes)
+    res, err = await session_manager.run(nid, node, [cmd])
+    if err or not res:
+        return "", err or "no output"
+    return res[0].get("output", ""), res[0].get("error")
+
+
+class KillRequest(BaseModel):
+    pid: int
+    signal: str = "TERM"   # TERM | KILL
+
+@router.post("/nodes/{nid}/system/kill")
+async def api_node_kill(nid: str, body: KillRequest):
+    sig = "KILL" if body.signal.upper() == "KILL" else "TERM"
+    out, err = await _node_run_one(nid, f"kill -{sig} {int(body.pid)} 2>&1 || sudo -n kill -{sig} {int(body.pid)} 2>&1")
+    return {"status": "ok", "pid": body.pid, "signal": sig, "output": out, "error": err}
+
+
+@router.get("/nodes/{nid}/system/logs")
+async def api_node_logs(nid: str, lines: int = 120):
+    n = max(10, min(500, int(lines)))
+    cmd = (f"journalctl -n {n} --no-pager 2>/dev/null "
+           f"|| tail -n {n} /var/log/syslog 2>/dev/null "
+           f"|| tail -n {n} /var/log/messages 2>/dev/null "
+           f"|| dmesg | tail -n {n}")
+    out, err = await _node_run_one(nid, cmd)
+    return {"lines": out.split("\n") if out else [], "error": err}
+
+
+@router.get("/nodes/{nid}/system/services")
+async def api_node_services(nid: str):
+    out, err = await _node_run_one(
+        nid,
+        "systemctl list-units --type=service --all --no-pager --no-legend --plain 2>/dev/null | head -80")
+    services = []
+    for line in (out or "").splitlines():
+        f = line.split(None, 4)
+        if len(f) >= 4 and f[0].endswith(".service"):
+            services.append({
+                "name": f[0][:-8], "load": f[1], "active": f[2], "sub": f[3],
+                "desc": f[4] if len(f) > 4 else "",
+            })
+    return {"services": services, "error": err if not services else None}
+
+
+class ServiceAction(BaseModel):
+    name: str
+    action: str   # start | stop | restart
+
+@router.post("/nodes/{nid}/system/service")
+async def api_node_service_action(nid: str, body: ServiceAction):
+    if body.action not in ("start", "stop", "restart"):
+        raise HTTPException(400, "Invalid action")
+    svc = re.sub(r"[^a-zA-Z0-9._@-]", "", body.name)
+    out, err = await _node_run_one(
+        nid, f"sudo -n systemctl {body.action} {svc} 2>&1 || systemctl {body.action} {svc} 2>&1")
+    return {"status": "ok", "service": svc, "action": body.action, "output": out, "error": err}
 
 
 @router.get("/nodes/connections")

@@ -20,6 +20,26 @@
       </div>
     </div>
 
+    <div class="sec sec-grow" :class="{ collapsed: isC('services') }">
+      <div class="sec-head" @click="toggle('services')">
+        <span class="sec-title">🧩 SERVICES</span>
+        <span class="sec-chev">⌄</span>
+      </div>
+      <div v-show="!isC('services')" class="sec-body grow">
+        <SystemServices :node-id="nodeId" />
+      </div>
+    </div>
+
+    <div class="sec sec-grow" :class="{ collapsed: isC('logs') }">
+      <div class="sec-head" @click="toggle('logs')">
+        <span class="sec-title">📜 LOGS</span>
+        <span class="sec-chev">⌄</span>
+      </div>
+      <div v-show="!isC('logs')" class="sec-body grow">
+        <SystemLogs :node-id="nodeId" />
+      </div>
+    </div>
+
     <div class="sec sec-grow" :class="{ collapsed: isC('config') }">
       <div class="sec-head" @click="toggle('config')">
         <span class="sec-title">🛠️ CONFIGURATION</span>
@@ -37,11 +57,14 @@ import { ref } from 'vue'
 import DiagPanel from './DiagPanel.vue'
 import ConfigPanel from './ConfigPanel.vue'
 import SystemVitals from './SystemVitals.vue'
+import SystemServices from './SystemServices.vue'
+import SystemLogs from './SystemLogs.vue'
 
 defineProps<{ nodeId: string }>()
 
 const KEY = 'nr_system_collapsed'
-const collapsed = ref<Set<string>>(new Set(JSON.parse(localStorage.getItem(KEY) || '[]')))
+// Collapse the heavier sections (services/logs) by default
+const collapsed = ref<Set<string>>(new Set(JSON.parse(localStorage.getItem(KEY) || '["services","logs"]')))
 function isC(k: string) { return collapsed.value.has(k) }
 function toggle(k: string) {
   const s = new Set(collapsed.value)

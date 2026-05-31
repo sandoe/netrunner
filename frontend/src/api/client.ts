@@ -167,6 +167,10 @@ export const api = {
   // Metrics
   nodeMetricsHistory: (nid: string) => req<{ status: string; history: { time: number; cpu: number; ram: number; net_tx: number; net_rx: number }[] }>('GET', `/nodes/${nid}/metrics/history`),
   nodeSystemSnapshot: (nid: string) => req<any>('GET', `/nodes/${nid}/system/snapshot`),
+  nodeKill: (nid: string, pid: number, signal = 'TERM') => req<any>('POST', `/nodes/${nid}/system/kill`, { pid, signal }),
+  nodeLogs: (nid: string, lines = 120) => req<{ lines: string[], error: string | null }>('GET', `/nodes/${nid}/system/logs?lines=${lines}`),
+  nodeServices: (nid: string) => req<{ services: any[], error: string | null }>('GET', `/nodes/${nid}/system/services`),
+  nodeServiceAction: (nid: string, name: string, action: string) => req<any>('POST', `/nodes/${nid}/system/service`, { name, action }),
 
 
   // Preview
