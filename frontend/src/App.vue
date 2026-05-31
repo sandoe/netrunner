@@ -10,6 +10,9 @@
           <span class="logo-sub">OS v1.0.0</span>
         </div>
         <div class="header-tools">
+          <button class="btn-icon" @click="toggleAudio" :title="audioEnabled ? 'Mute NOC audio' : 'Enable NOC voice + alarms'">
+            {{ audioEnabled ? '🔊' : '🔇' }}
+          </button>
           <button class="btn-icon btn-bell" @click="openAlerts" title="Alerts">
             🔔<span v-if="unreadCount" class="bell-badge">{{ unreadCount > 9 ? '9+' : unreadCount }}</span>
           </button>
@@ -188,6 +191,24 @@
     <SettingsModal v-if="showSettings" @close="showSettings = false" />
     <UserManagementModal v-if="showUsers" @close="showUsers = false" />
 
+    <!-- Command palette (Ctrl/Cmd+K) -->
+    <div v-if="showPalette" class="cmd-overlay" @click.self="showPalette = false">
+      <div class="cmd-box">
+        <input ref="cmdInput" v-model="paletteQuery" class="cmd-input" placeholder="› command or node…  (Ctrl+K)" @keydown="paletteKeydown" />
+        <div class="cmd-list">
+          <div
+            v-for="(c, i) in paletteResults" :key="c.id"
+            class="cmd-item" :class="{ active: i === paletteIndex }"
+            @click="runPaletteItem(c)" @mouseenter="paletteIndex = i"
+          >
+            <span class="cmd-icon">{{ c.icon }}</span><span class="cmd-label">{{ c.label }}</span>
+          </div>
+          <div v-if="paletteResults.length === 0" class="cmd-empty">No matches.</div>
+        </div>
+        <div class="cmd-hint">↑↓ navigate · ↵ run · esc close</div>
+      </div>
+    </div>
+
     <!-- Alerts feed -->
     <div v-if="showAlerts" class="alerts-overlay" @click.self="showAlerts = false">
       <div class="alerts-panel">
@@ -310,7 +331,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { useNodesStore } from '@/stores/nodes'
 import { api } from '@/api/client'
 import SystemPanel from './components/SystemPanel.vue'
@@ -320,6 +341,7 @@ import CapturePanel from './components/CapturePanel.vue'
 import OverviewPanel from './components/OverviewPanel.vue'
 import ShellPanel from './components/ShellPanel.vue'
 import NetworkPulse from './components/NetworkPulse.vue'
+import { useNocAudio } from '@/composables/useNocAudio'
 import NodeForm  from './components/NodeForm.vue'
 import TopologyView from './components/TopologyView.vue'
 import WifiView from './components/WifiView.vue'
@@ -345,6 +367,9 @@ const selectedConsoleless = computed(() => {
   const nt = (store.selected as any)?.metadata?.gns3?.node_type
   return !!nt && CONSOLELESS_TYPES.includes(nt)
 })
+
+// NOC audio (voice + synth alarms on alerts)
+const { enabled: audioEnabled, toggle: toggleAudio, announce: announceEvent } = useNocAudio()
 
 // Infrastructure events / alerts
 interface EventItem { id: number; ts: number; severity: string; node_id: string; node_name: string; kind: string; message: string }
@@ -375,6 +400,7 @@ async function fetchEvents() {
       for (const e of incoming.filter(e => e.id > prevMax).reverse()) {
         if (e.severity === 'critical' || e.severity === 'warning') {
           flash(`${sevIcon(e.severity)} ${e.message}`, 'err')
+          announceEvent(e)
         }
       }
     }
@@ -385,6 +411,68 @@ async function fetchEvents() {
 function openAlerts() {
   showAlerts.value = true
   if (events.value.length) seenEventId.value = events.value[0].id  // mark read
+}
+
+// --- Command palette (Ctrl/Cmd+K) ---
+const showPalette = ref(false)
+const paletteQuery = ref('')
+const paletteIndex = ref(0)
+const cmdInput = ref<HTMLInputElement | null>(null)
+
+async function connectById(id: string) {
+  try { await api.connectNode(id); store.manuallyDisconnected.delete(id); await store.refreshConnections(); flash('Connected') }
+  catch (e) { flash(String(e), 'err') }
+}
+async function disconnectById(id: string) {
+  try { await api.disconnectNode(id); store.manuallyDisconnected.add(id); await store.refreshConnections() }
+  catch (e) { flash(String(e), 'err') }
+}
+
+interface Cmd { id: string; label: string; icon: string; run: () => void }
+const allCommands = computed<Cmd[]>(() => {
+  const cmds: Cmd[] = []
+  const views: [string, string][] = [
+    ['pulse', '⚡ Network Pulse'], ['node', '🖥️ Nodes'], ['topology', '🕸️ Topology'],
+    ['threat', '🌐 Threat Map'], ['history', '🕗 History'], ['wifi', '📶 WiFi & CSI'], ['warroom', '🚨 War Room'],
+  ]
+  for (const [vm, label] of views) cmds.push({ id: 'view-' + vm, label: 'Go to ' + label, icon: '↦', run: () => { viewMode.value = vm as any } })
+  for (const n of store.nodeList) {
+    cmds.push({ id: 'sel-' + n.id, label: `Select ${n.name}`, icon: '📍', run: () => { store.select(n.id); viewMode.value = 'node' as any } })
+    if (store.isConnected(n.id)) cmds.push({ id: 'disc-' + n.id, label: `Disconnect ${n.name}`, icon: '■', run: () => disconnectById(n.id) })
+    else cmds.push({ id: 'conn-' + n.id, label: `Connect ${n.name}`, icon: '▶', run: () => connectById(n.id) })
+  }
+  cmds.push({ id: 'add', label: 'Add node', icon: '➕', run: () => { showAddForm.value = true } })
+  if (userRole.value === 'admin') cmds.push({ id: 'users', label: 'User management', icon: '👤', run: () => { showUsers.value = true } })
+  cmds.push({ id: 'settings', label: 'Settings', icon: '⚙️', run: () => { showSettings.value = true } })
+  cmds.push({ id: 'alerts', label: 'Open alerts', icon: '🔔', run: openAlerts })
+  cmds.push({ id: 'audio', label: audioEnabled.value ? 'Mute NOC audio' : 'Enable NOC audio', icon: '🔊', run: toggleAudio })
+  cmds.push({ id: 'logout', label: 'Log out', icon: '⏻', run: logout })
+  return cmds
+})
+const paletteResults = computed<Cmd[]>(() => {
+  const q = paletteQuery.value.trim().toLowerCase()
+  const list = q ? allCommands.value.filter(c => c.label.toLowerCase().includes(q)) : allCommands.value
+  return list.slice(0, 14)
+})
+watch(paletteQuery, () => { paletteIndex.value = 0 })
+
+function openPalette() {
+  showPalette.value = true; paletteQuery.value = ''; paletteIndex.value = 0
+  nextTick(() => cmdInput.value?.focus())
+}
+function runPaletteItem(c: Cmd) { showPalette.value = false; c.run() }
+function paletteKeydown(e: KeyboardEvent) {
+  const n = paletteResults.value.length
+  if (e.key === 'ArrowDown') { e.preventDefault(); paletteIndex.value = Math.min(paletteIndex.value + 1, n - 1) }
+  else if (e.key === 'ArrowUp') { e.preventDefault(); paletteIndex.value = Math.max(0, paletteIndex.value - 1) }
+  else if (e.key === 'Enter') { e.preventDefault(); const c = paletteResults.value[paletteIndex.value]; if (c) runPaletteItem(c) }
+  else if (e.key === 'Escape') { showPalette.value = false }
+}
+function globalKeydown(e: KeyboardEvent) {
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+    e.preventDefault()
+    if (loggedIn.value) { showPalette.value ? (showPalette.value = false) : openPalette() }
+  }
 }
 
 // Active reachability (TCP probe) shown as a dot/latency in the node list
@@ -741,6 +829,7 @@ onMounted(() => {
   window.addEventListener('error', handleWindowError)
   window.addEventListener('unhandledrejection', handleUnhandledRejection)
   document.addEventListener('fullscreenchange', handleGlobalNativeFullscreenChange)
+  window.addEventListener('keydown', globalKeydown)
 
   if (loggedIn.value) {
     store.refresh()
@@ -756,6 +845,7 @@ onUnmounted(() => {
   window.removeEventListener('error', handleWindowError)
   window.removeEventListener('unhandledrejection', handleUnhandledRejection)
   document.removeEventListener('fullscreenchange', handleGlobalNativeFullscreenChange)
+  window.removeEventListener('keydown', globalKeydown)
 
   if (connTimer) clearInterval(connTimer)
   if (sysTimer) clearInterval(sysTimer)
@@ -954,6 +1044,17 @@ onUnmounted(() => {
 .node-reach.l2 { color: #ffbe0b; }
 .btn-pulse { color: var(--cyan); font-weight: 700; }
 .btn-pulse.active { box-shadow: inset 0 0 12px rgba(0,229,255,0.25); }
+
+.cmd-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.55); z-index: 11000; display: flex; justify-content: center; align-items: flex-start; padding-top: 14vh; backdrop-filter: blur(3px); }
+.cmd-box { width: 560px; max-width: 92vw; background: rgba(10,16,30,0.98); border: 1px solid var(--cyan-d); border-radius: 10px; box-shadow: 0 20px 60px rgba(0,0,0,0.6), 0 0 30px rgba(0,229,255,0.15); overflow: hidden; }
+.cmd-input { width: 100%; box-sizing: border-box; background: transparent; border: none; border-bottom: 1px solid var(--border); color: var(--textwh); font-family: var(--font-co); font-size: 16px; padding: 16px 18px; outline: none; }
+.cmd-list { max-height: 50vh; overflow-y: auto; padding: 6px; }
+.cmd-item { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 6px; cursor: pointer; font-family: var(--font-co); font-size: 13px; color: var(--text); }
+.cmd-item.active { background: rgba(0,229,255,0.12); color: var(--textwh); box-shadow: inset 2px 0 0 var(--cyan); }
+.cmd-icon { width: 18px; text-align: center; }
+.cmd-label { flex: 1; }
+.cmd-empty { padding: 16px; text-align: center; color: var(--text); font-size: 13px; }
+.cmd-hint { padding: 8px 14px; border-top: 1px solid var(--border); font-family: var(--font-co); font-size: 10px; color: var(--text); letter-spacing: 1px; }
 
 .btn-bell { position: relative; }
 .bell-badge {
