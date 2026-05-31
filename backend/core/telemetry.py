@@ -18,6 +18,21 @@ node_vitals: Dict[str, dict] = {}
 vitals_history: Dict[str, list] = {}
 # Previous CPU jiffies for delta computation: node_id -> (busy, total)
 _prev_cpu: Dict[str, tuple] = {}
+# Per-node alert latch so we emit once on crossing a threshold, not every poll
+_alert_state: Dict[str, dict] = {}
+CPU_ALERT = 90.0
+RAM_ALERT = 90.0
+
+
+def _check_threshold(nid, name, metric, value, limit):
+    st = _alert_state.setdefault(nid, {})
+    over = value is not None and value >= limit
+    if over and not st.get(metric):
+        st[metric] = True
+        from .events import record_event
+        record_event("warning", nid, name, metric, f"{name} {metric.upper()} high: {value}%")
+    elif not over and st.get(metric):
+        st[metric] = False
 
 telemetry_queue = asyncio.Queue()
 
@@ -88,6 +103,9 @@ async def poll_telemetry_loop():
                     current_time = time.time()
                     cpu = _parse_cpu(stat_out, nid)
                     ram = _parse_mem(mem_out)
+                    _name = node.get("name") or nid
+                    _check_threshold(nid, _name, "cpu", cpu, CPU_ALERT)
+                    _check_threshold(nid, _name, "ram", ram, RAM_ALERT)
 
                     # --- per-interface network (drives topology particles) ---
                     if nid not in telemetry_cache:

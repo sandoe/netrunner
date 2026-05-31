@@ -269,6 +269,13 @@ async def api_node_delete(nid: str):
     return {"ok": True}
 
 
+@router.get("/events")
+async def api_events():
+    """Recent infrastructure events/alerts (reachability, CPU/RAM thresholds)."""
+    from ..core.events import recent_events
+    return {"events": recent_events()}
+
+
 @router.get("/nodes/reachability")
 async def api_node_reachability():
     """Latest TCP-reachability probe per node (reachable + connect latency)."""

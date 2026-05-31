@@ -10,6 +10,9 @@
           <span class="logo-sub">OS v1.0.0</span>
         </div>
         <div class="header-tools">
+          <button class="btn-icon btn-bell" @click="openAlerts" title="Alerts">
+            🔔<span v-if="unreadCount" class="bell-badge">{{ unreadCount > 9 ? '9+' : unreadCount }}</span>
+          </button>
           <button class="btn-icon" @click="toggleGlobalFullscreen" :title="isGlobalFullscreen ? 'Exit Fullscreen' : 'Fullscreen'">
             {{ isGlobalFullscreen ? '📺' : '🖥️' }}
           </button>
@@ -183,6 +186,26 @@
     <SettingsModal v-if="showSettings" @close="showSettings = false" />
     <UserManagementModal v-if="showUsers" @close="showUsers = false" />
 
+    <!-- Alerts feed -->
+    <div v-if="showAlerts" class="alerts-overlay" @click.self="showAlerts = false">
+      <div class="alerts-panel">
+        <div class="alerts-head">
+          <span>🔔 ALERTS &amp; EVENTS</span>
+          <button class="alerts-close" @click="showAlerts = false">×</button>
+        </div>
+        <div class="alerts-body">
+          <div v-for="e in events" :key="e.id" class="alert-row" :class="e.severity">
+            <span class="alert-sev">{{ sevIcon(e.severity) }}</span>
+            <div class="alert-meta">
+              <div class="alert-msg">{{ e.message }}</div>
+              <div class="alert-sub">{{ e.kind }} · {{ eventAgo(e.ts) }}</div>
+            </div>
+          </div>
+          <div v-if="events.length === 0" class="alerts-empty">No events yet — all clear. ✅</div>
+        </div>
+      </div>
+    </div>
+
     <!-- Reboot Modal -->
     <div v-if="showRebootModal" class="modal-overlay reboot-overlay" @click.self="showRebootModal = false">
       <div class="cyber-modal-card reboot-card">
@@ -320,6 +343,47 @@ const selectedConsoleless = computed(() => {
   return !!nt && CONSOLELESS_TYPES.includes(nt)
 })
 
+// Infrastructure events / alerts
+interface EventItem { id: number; ts: number; severity: string; node_id: string; node_name: string; kind: string; message: string }
+const events = ref<EventItem[]>([])
+const showAlerts = ref(false)
+const seenEventId = ref(0)
+let eventsBaselineSet = false
+const unreadCount = computed(() => events.value.filter(e => e.id > seenEventId.value).length)
+
+function sevIcon(s: string) { return s === 'critical' ? '🔴' : s === 'warning' ? '🟡' : '🔵' }
+function eventAgo(ts: number) {
+  const s = Math.max(0, Math.floor(Date.now() / 1000 - ts))
+  if (s < 60) return `${s}s ago`
+  if (s < 3600) return `${Math.floor(s / 60)}m ago`
+  return `${Math.floor(s / 3600)}h ago`
+}
+
+async function fetchEvents() {
+  try {
+    const res = await api.events()
+    const incoming = res.events  // newest first
+    const prevMax = events.value.length ? events.value[0].id : 0
+    if (!eventsBaselineSet) {
+      // Don't toast historical events on first load
+      seenEventId.value = incoming.length ? incoming[0].id : 0
+      eventsBaselineSet = true
+    } else {
+      for (const e of incoming.filter(e => e.id > prevMax).reverse()) {
+        if (e.severity === 'critical' || e.severity === 'warning') {
+          flash(`${sevIcon(e.severity)} ${e.message}`, 'err')
+        }
+      }
+    }
+    events.value = incoming
+  } catch { /* non-fatal */ }
+}
+
+function openAlerts() {
+  showAlerts.value = true
+  if (events.value.length) seenEventId.value = events.value[0].id  // mark read
+}
+
 // Active reachability (TCP probe) shown as a dot/latency in the node list
 const reachability = ref<Record<string, { reachable: boolean, latency_ms: number | null }>>({})
 async function fetchReachability() {
@@ -375,6 +439,7 @@ function onAuthenticated(role: string) {
   store.refresh()
   pollSystem()
   fetchReachability()
+  fetchEvents()
 }
 
 // Automatically logout when token expires
@@ -678,10 +743,11 @@ onMounted(() => {
     store.refresh()
     pollSystem()
     fetchReachability()
+    fetchEvents()
   }
   connTimer = setInterval(() => { if (loggedIn.value) store.refreshConnections() }, 4000)
   sysTimer  = setInterval(() => { if (loggedIn.value) pollSystem() }, 2000)
-  reachTimer = setInterval(() => { if (loggedIn.value) fetchReachability() }, 5000)
+  reachTimer = setInterval(() => { if (loggedIn.value) { fetchReachability(); fetchEvents() } }, 5000)
 })
 onUnmounted(() => {
   window.removeEventListener('error', handleWindowError)
@@ -883,6 +949,38 @@ onUnmounted(() => {
 .node-reach.up { color: var(--green); }
 .node-reach.down { color: var(--pink); }
 .node-reach.l2 { color: #ffbe0b; }
+
+.btn-bell { position: relative; }
+.bell-badge {
+  position: absolute; top: -6px; right: -8px;
+  background: var(--pink); color: #fff; font-family: var(--font-co);
+  font-size: 8px; font-weight: bold; line-height: 1;
+  padding: 2px 4px; border-radius: 8px; min-width: 14px; text-align: center;
+}
+.alerts-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 9000; backdrop-filter: blur(3px); }
+.alerts-panel {
+  position: absolute; top: 60px; right: 24px; width: 380px; max-width: 92vw;
+  max-height: 70vh; display: flex; flex-direction: column;
+  background: rgba(10,16,30,0.97); border: 1px solid var(--border);
+  border-radius: var(--r); box-shadow: 0 12px 40px rgba(0,0,0,0.6);
+  font-family: var(--font-co); overflow: hidden;
+}
+.alerts-head {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 12px 16px; border-bottom: 1px solid var(--border);
+  font-family: var(--font-hd); font-size: 12px; letter-spacing: 1px; color: var(--cyan);
+}
+.alerts-close { background: none; border: none; color: #888; font-size: 22px; cursor: pointer; line-height: 1; }
+.alerts-close:hover { color: var(--pink); }
+.alerts-body { overflow-y: auto; padding: 6px; }
+.alert-row { display: flex; gap: 10px; padding: 10px; border-radius: 6px; border-left: 3px solid var(--border2); margin-bottom: 4px; }
+.alert-row.critical { border-left-color: var(--pink); background: rgba(255,45,110,0.06); }
+.alert-row.warning  { border-left-color: #ffbe0b; background: rgba(255,190,11,0.06); }
+.alert-row.info     { border-left-color: var(--cyan); }
+.alert-sev { font-size: 12px; }
+.alert-msg { color: var(--textwh); font-size: 12px; }
+.alert-sub { color: var(--text); font-size: 10px; margin-top: 2px; text-transform: uppercase; letter-spacing: 1px; }
+.alerts-empty { padding: 24px; text-align: center; color: var(--text); font-size: 12px; }
 .btn-reboot { border-color: #ffaa00; color: #ffaa00; }
 .btn-reboot:hover:not(:disabled) {
   background: rgba(255, 170, 0, 0.2);
