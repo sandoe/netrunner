@@ -220,15 +220,22 @@
             <button class="alerts-close" @click="showAlerts = false">×</button>
           </div>
         </div>
+        <div class="alerts-filter">
+          <button class="af-chip" :class="{ active: alertFilter === 'all' }" @click="alertFilter = 'all'">ALL · {{ events.length }}</button>
+          <button class="af-chip" :class="{ active: alertFilter === 'important' }" @click="alertFilter = 'important'">IMPORTANT · {{ alertCounts.critical + alertCounts.warning }}</button>
+          <span class="af-counts">🔴 {{ alertCounts.critical }} · 🟡 {{ alertCounts.warning }} · 🔵 {{ alertCounts.info }}</span>
+        </div>
         <div class="alerts-body">
-          <div v-for="e in events" :key="e.id" class="alert-row" :class="e.severity">
+          <div v-for="e in filteredAlerts" :key="e.id" class="alert-row" :class="e.severity">
             <span class="alert-sev">{{ sevIcon(e.severity) }}</span>
             <div class="alert-meta">
               <div class="alert-msg">{{ e.message }}</div>
               <div class="alert-sub">{{ e.kind }} · {{ eventAgo(e.ts) }}</div>
             </div>
           </div>
-          <div v-if="events.length === 0" class="alerts-empty">No events yet — all clear. ✅</div>
+          <div v-if="filteredAlerts.length === 0" class="alerts-empty">
+            {{ events.length === 0 ? 'No events yet — all clear. ✅' : 'No important alerts. ✅' }}
+          </div>
         </div>
       </div>
     </div>
@@ -384,6 +391,16 @@ const showAlerts = ref(false)
 const seenEventId = ref(0)
 let eventsBaselineSet = false
 const unreadCount = computed(() => events.value.filter(e => e.id > seenEventId.value).length)
+
+const alertFilter = ref<'all' | 'important'>('all')
+const alertCounts = computed(() => ({
+  critical: events.value.filter(e => e.severity === 'critical').length,
+  warning: events.value.filter(e => e.severity === 'warning').length,
+  info: events.value.filter(e => e.severity === 'info').length,
+}))
+const filteredAlerts = computed(() => alertFilter.value === 'important'
+  ? events.value.filter(e => e.severity !== 'info')
+  : events.value)
 
 function sevIcon(s: string) { return s === 'critical' ? '🔴' : s === 'warning' ? '🟡' : '🔵' }
 function eventAgo(ts: number) {
@@ -1102,6 +1119,10 @@ onUnmounted(() => {
 .alerts-clear:hover { border-color: var(--cyan); color: var(--cyan); }
 .alerts-close { background: none; border: none; color: #888; font-size: 22px; cursor: pointer; line-height: 1; }
 .alerts-close:hover { color: var(--pink); }
+.alerts-filter { display: flex; align-items: center; gap: 8px; padding: 8px 14px; border-bottom: 1px solid var(--border); }
+.af-chip { background: var(--bg3); border: 1px solid var(--border); color: var(--text); font-family: var(--font-hd); font-size: 9px; letter-spacing: 1px; padding: 4px 10px; border-radius: 4px; cursor: pointer; }
+.af-chip.active { background: var(--bg4); color: var(--cyan); border-color: var(--cyan-d); }
+.af-counts { margin-left: auto; font-family: var(--font-co); font-size: 10px; color: var(--text); }
 .alerts-body { overflow-y: auto; padding: 6px; }
 .alert-row { display: flex; gap: 10px; padding: 10px; border-radius: 6px; border-left: 3px solid var(--border2); margin-bottom: 4px; }
 .alert-row.critical { border-left-color: var(--pink); background: rgba(255,45,110,0.06); }

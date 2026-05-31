@@ -73,7 +73,10 @@
 
       <!-- Live event ticker -->
       <div class="panel event-feed">
-        <div class="panel-head">LIVE EVENTS</div>
+        <div class="panel-head feed-head">
+          <span>LIVE EVENTS</span>
+          <button v-if="events.length" class="feed-clear" @click="clearEvents">CLEAR</button>
+        </div>
         <div class="feed-body">
           <div v-for="e in events" :key="e.id" class="feed-row" :class="e.severity">
             <span class="feed-sev">{{ sevIcon(e.severity) }}</span>
@@ -156,6 +159,9 @@ const nodeRows = computed(() => store.nodeList.map(n => {
   return { id: n.id, name: n.name, state, dot, lat, cpu: v?.cpu, ram: v?.ram }
 }).sort((a, b) => (a.state === 'down' ? -1 : 1) - (b.state === 'down' ? -1 : 1) || a.name.localeCompare(b.name)))
 
+async function clearEvents() {
+  try { await api.clearEvents(); events.value = [] } catch { /* non-fatal */ }
+}
 function sevIcon(s: string) { return s === 'critical' ? '🔴' : s === 'warning' ? '🟡' : '🔵' }
 function ago(ts: number) {
   const s = Math.max(0, Math.floor(Date.now() / 1000 - ts))
@@ -202,6 +208,9 @@ onUnmounted(() => { if (timer) clearInterval(timer) })
 @media (max-width: 1000px) { .pulse-grid { grid-template-columns: 1fr; } .pulse-tiles { grid-template-columns: repeat(3, 1fr); } }
 .panel { background: rgba(8,14,26,0.6); border: 1px solid var(--border); border-radius: var(--r); display: flex; flex-direction: column; overflow: hidden; }
 .panel-head { padding: 10px 14px; font-family: var(--font-hd); font-size: 10px; letter-spacing: 2px; color: var(--cyan); border-bottom: 1px solid var(--border); }
+.feed-head { display: flex; justify-content: space-between; align-items: center; }
+.feed-clear { background: none; border: 1px solid var(--border2); color: var(--text); font-family: var(--font-hd); font-size: 8px; letter-spacing: 1px; padding: 3px 8px; border-radius: 4px; cursor: pointer; }
+.feed-clear:hover { border-color: var(--cyan); color: var(--cyan); }
 
 .matrix-body { padding: 12px; display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 10px; }
 .ncard { background: rgba(0,0,0,0.3); border: 1px solid var(--border); border-left: 3px solid #444; border-radius: 6px; padding: 10px; }
