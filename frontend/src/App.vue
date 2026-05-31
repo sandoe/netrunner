@@ -77,7 +77,10 @@
               ></div>
               <div class="node-meta">
                 <div class="node-name">{{ node.name }}</div>
-                <div class="node-host">{{ node.host }}:{{ node.port }}</div>
+                <div class="node-host">
+                  {{ node.host }}:{{ node.port }}
+                  <span v-if="reachOf(node.id)" class="node-reach" :class="reachOf(node.id)!.cls">{{ reachOf(node.id)!.text }}</span>
+                </div>
                 <div class="node-tags" v-if="node.tags && node.tags.length">
                   <span v-for="tag in node.tags.slice(0, 3)" :key="tag" class="tag-chip">{{ tag }}</span>
                 </div>
@@ -317,6 +320,21 @@ const selectedConsoleless = computed(() => {
   return !!nt && CONSOLELESS_TYPES.includes(nt)
 })
 
+// Active reachability (TCP probe) shown as a dot/latency in the node list
+const reachability = ref<Record<string, { reachable: boolean, latency_ms: number | null }>>({})
+async function fetchReachability() {
+  try { reachability.value = await api.nodeReachability() } catch { /* non-fatal */ }
+}
+function reachOf(id: string): { cls: string, text: string } | null {
+  const nt = (store.nodes[id] as any)?.metadata?.gns3?.node_type
+  if (nt && CONSOLELESS_TYPES.includes(nt)) return { cls: 'l2', text: '⚡ L2' }
+  const r = reachability.value[id]
+  if (!r) return null
+  return r.reachable
+    ? { cls: 'up', text: `🟢 ${r.latency_ms}ms` }
+    : { cls: 'down', text: '🔴 offline' }
+}
+
 function onEditNode(id: string) {
   store.select(id)
   showEdit.value = true
@@ -356,6 +374,7 @@ function onAuthenticated(role: string) {
   loggedIn.value = true
   store.refresh()
   pollSystem()
+  fetchReachability()
 }
 
 // Automatically logout when token expires
@@ -649,6 +668,7 @@ async function pollSystem() {
 
 let connTimer: ReturnType<typeof setInterval> | null = null
 let sysTimer: ReturnType<typeof setInterval> | null = null
+let reachTimer: ReturnType<typeof setInterval> | null = null
 onMounted(() => {
   window.addEventListener('error', handleWindowError)
   window.addEventListener('unhandledrejection', handleUnhandledRejection)
@@ -657,17 +677,20 @@ onMounted(() => {
   if (loggedIn.value) {
     store.refresh()
     pollSystem()
+    fetchReachability()
   }
   connTimer = setInterval(() => { if (loggedIn.value) store.refreshConnections() }, 4000)
   sysTimer  = setInterval(() => { if (loggedIn.value) pollSystem() }, 2000)
+  reachTimer = setInterval(() => { if (loggedIn.value) fetchReachability() }, 5000)
 })
-onUnmounted(() => { 
+onUnmounted(() => {
   window.removeEventListener('error', handleWindowError)
   window.removeEventListener('unhandledrejection', handleUnhandledRejection)
   document.removeEventListener('fullscreenchange', handleGlobalNativeFullscreenChange)
 
   if (connTimer) clearInterval(connTimer)
   if (sysTimer) clearInterval(sysTimer)
+  if (reachTimer) clearInterval(reachTimer)
 })
 </script>
 
@@ -856,6 +879,10 @@ onUnmounted(() => {
 
 .btn-edit { border-color: var(--cyan-d); color: var(--cyan); }
 .l2-note { font-family: var(--font-hd); font-size: 9px; letter-spacing: 1px; color: var(--text); border: 1px dashed var(--border2); padding: 6px 10px; border-radius: var(--r); opacity: 0.8; }
+.node-reach { margin-left: 8px; font-size: 9px; white-space: nowrap; }
+.node-reach.up { color: var(--green); }
+.node-reach.down { color: var(--pink); }
+.node-reach.l2 { color: #ffbe0b; }
 .btn-reboot { border-color: #ffaa00; color: #ffaa00; }
 .btn-reboot:hover:not(:disabled) {
   background: rgba(255, 170, 0, 0.2);

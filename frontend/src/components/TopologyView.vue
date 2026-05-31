@@ -20,6 +20,9 @@
         <button class="btn-tool btn-gns3" @click="pickGns3Project" :disabled="syncing">
           <span class="icon">{{ syncing ? '⌛' : '☁️' }}</span> GNS3 SYNC
         </button>
+        <button class="btn-tool" :class="{ active: showReachPanel }" @click="showReachPanel = !showReachPanel">
+          <span class="icon">📶</span> REACHABILITY
+        </button>
       </div>
       <div class="toolbar-info" v-if="mode === 'draw'">
         CLICK SOURCE NODE, THEN TARGET NODE TO LINK.
@@ -32,6 +35,20 @@
       </div>
     </div>
     <div ref="canvasRef" class="cy-canvas"></div>
+
+    <!-- Reachability overview -->
+    <div v-if="showReachPanel" class="reach-panel">
+      <div class="reach-head">
+        <span>📶 REACHABILITY</span>
+        <button class="reach-close" @click="showReachPanel = false">×</button>
+      </div>
+      <div v-for="row in reachRows" :key="row.id" class="reach-row" @click="store.select(row.id)">
+        <span class="reach-dot" :style="{ background: row.color }"></span>
+        <span class="reach-name">{{ row.name }}</span>
+        <span class="reach-lat">{{ row.label }}</span>
+      </div>
+      <div v-if="reachRows.length === 0" class="reach-empty">No nodes.</div>
+    </div>
 
     <!-- Right-click node context menu -->
     <template v-if="ctxMenu.show">
@@ -59,7 +76,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, watch, onUnmounted } from 'vue'
+import { ref, onMounted, watch, onUnmounted, computed } from 'vue'
 import ForceGraph3D from '3d-force-graph'
 import * as THREE from 'three'
 import SpriteText from 'three-spritetext'
@@ -69,6 +86,23 @@ import { api, wsTokenParam, wsBase } from '@/api/client'
 const store = useNodesStore()
 const emit = defineEmits<{ editNode: [string] }>()
 const canvasRef = ref<HTMLElement | null>(null)
+
+// Reachability overview panel
+const showReachPanel = ref(false)
+const reachRows = computed(() => {
+  return store.nodeList.map((n: any) => {
+    if (isConsoleless(n.id)) {
+      return { id: n.id, name: n.name, color: '#ffbe0b', label: 'L2 fabric' }
+    }
+    const r = nodeReach.value[n.id]
+    if (!r) return { id: n.id, name: n.name, color: '#555', label: '—' }
+    return {
+      id: n.id, name: n.name,
+      color: r.reachable ? '#00ff9d' : '#ff2d6e',
+      label: r.reachable ? `${r.latency_ms} ms` : 'offline',
+    }
+  }).sort((a, b) => a.name.localeCompare(b.name))
+})
 
 // Right-click context menu on nodes
 const ctxMenu = ref<{ show: boolean, x: number, y: number, nodeId: string, name: string }>(
@@ -83,6 +117,20 @@ function isConsoleless(id: string): boolean {
 // or it's L2 fabric (a switch/hub is always up — you don't log into it).
 function nodeUp(id: string): boolean {
   return store.isConnected(id) || isConsoleless(id)
+}
+// Reachability health of a link from the active TCP probes ('up' | 'down' | 'unknown')
+function endId(e: any): string { return typeof e === 'object' ? e?.id : e }
+function linkHealth(link: any): 'up' | 'down' | 'unknown' {
+  const ends = [endId(link.source), endId(link.target)]
+  let known = 0, up = 0
+  for (const id of ends) {
+    if (isConsoleless(id)) { known++; up++; continue }
+    const r = nodeReach.value[id]
+    if (r) { known++; if (r.reachable) up++ }
+  }
+  if (known === 0) return 'unknown'
+  if (up < known) return 'down'
+  return known === 2 ? 'up' : 'unknown'
 }
 function closeCtx() { ctxMenu.value.show = false }
 function ctxEdit() { store.select(ctxMenu.value.nodeId); emit('editNode', ctxMenu.value.nodeId); closeCtx() }
@@ -672,7 +720,10 @@ function initGraph() {
       g.linkColor(link => {
         if (!link || typeof link !== 'object') return 'rgba(26, 37, 64, 0.5)'
         if (link.isGhostLink) return 'rgba(255, 45, 110, 0.4)'
-        return link.active ? '#00ff9d' : 'rgba(26, 37, 64, 0.5)'
+        const h = linkHealth(link)
+        if (h === 'down') return 'rgba(255, 45, 110, 0.7)'              // unreachable endpoint → red
+        if (h === 'up') return link.active ? '#00ff9d' : 'rgba(0, 255, 157, 0.45)'
+        return link.active ? '#00ff9d' : 'rgba(26, 37, 64, 0.5)'       // unknown → legacy
       })
     }
     
@@ -1069,6 +1120,30 @@ onUnmounted(() => {
   border: 1px dashed #ffbe0b;
   color: #ffbe0b;
 }
+
+.reach-panel {
+  position: absolute; top: 20px; right: 20px; z-index: 12;
+  width: 230px; max-height: 60%; overflow-y: auto;
+  background: rgba(10, 16, 30, 0.92); border: 1px solid var(--border);
+  border-radius: var(--r); backdrop-filter: blur(8px); padding: 6px;
+  font-family: var(--font-co);
+}
+.reach-head {
+  display: flex; justify-content: space-between; align-items: center;
+  font-family: var(--font-hd); font-size: 10px; letter-spacing: 1px;
+  color: var(--cyan); padding: 4px 6px 8px; border-bottom: 1px solid var(--border);
+}
+.reach-close { background: none; border: none; color: #888; font-size: 16px; cursor: pointer; line-height: 1; }
+.reach-close:hover { color: var(--pink); }
+.reach-row {
+  display: flex; align-items: center; gap: 8px; padding: 6px;
+  font-size: 11px; color: var(--textwh); cursor: pointer; border-radius: 4px;
+}
+.reach-row:hover { background: rgba(0, 229, 255, 0.08); }
+.reach-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+.reach-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.reach-lat { color: var(--text); font-size: 10px; }
+.reach-empty { padding: 10px; color: var(--text); font-size: 11px; }
 
 .ctx-backdrop { position: fixed; inset: 0; z-index: 49; }
 .ctx-menu {

@@ -46,6 +46,7 @@ export const api = {
   gns3ApiCall: (id: string, method: string, path: string, body?: any) => 
     req<{ status: string; url: string; response: any }>('POST', `/nodes/${id}/gns3-api`, { method, path, body }),
   listConnections: () => req<Record<string, { connected: boolean }>>('GET', '/nodes/connections'),
+  nodeReachability: () => req<Record<string, { reachable: boolean, latency_ms: number | null, ts: number }>>('GET', '/nodes/reachability'),
   detectDevice: (id: string) => req<{ device_type: string }>('POST', `/nodes/${id}/detect`),
   defenseScan: (id: string) => req<{ output: string }>('POST', `/nodes/${id}/defense/scan`),
   isolateNode: (id: string, action: 'isolate' | 'restore') => 
