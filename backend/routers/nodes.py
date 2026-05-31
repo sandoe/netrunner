@@ -326,6 +326,72 @@ async def api_node_vitals():
     return node_vitals
 
 
+@router.get("/nodes/{nid}/system/snapshot")
+async def api_node_system_snapshot(nid: str):
+    """Live system snapshot for the SYSTEM tab: load, uptime, disk, top
+    processes, hostname/kernel — plus CPU/RAM from the telemetry vitals."""
+    from ..core.session import session_manager
+    from ..core.telemetry import node_vitals
+    nodes = await load_nodes()
+    if nid not in nodes:
+        raise HTTPException(404, "Node not found")
+    if not session_manager.is_connected(nid):
+        return {"connected": False}
+
+    node = await _get_node_with_creds(nid, nodes)
+    cmds = [
+        "cat /proc/loadavg",
+        "cat /proc/uptime",
+        "df -P / | tail -1",
+        "ps -eo user,pcpu,pmem,comm --sort=-pcpu 2>/dev/null | head -9",
+        "hostname",
+        "uname -sr",
+    ]
+    res, err = await session_manager.run(nid, node, cmds)
+    if err or not res:
+        return {"connected": True, "error": err or "no output"}
+
+    def out(i):
+        return res[i].get("output", "").strip() if i < len(res) else ""
+
+    snap = {"connected": True}
+    # load average
+    try:
+        parts = out(0).split()
+        snap["load"] = [float(parts[0]), float(parts[1]), float(parts[2])]
+    except Exception:
+        snap["load"] = None
+    # uptime seconds
+    try:
+        snap["uptime_secs"] = int(float(out(1).split()[0]))
+    except Exception:
+        snap["uptime_secs"] = None
+    # disk (root)
+    try:
+        f = out(2).split()
+        snap["disk"] = {"used_pct": int(f[4].rstrip("%")), "size": f[1], "used": f[2], "avail": f[3]}
+    except Exception:
+        snap["disk"] = None
+    # top processes
+    procs = []
+    for line in out(3).splitlines()[1:]:
+        p = line.split(None, 3)
+        if len(p) == 4:
+            try:
+                procs.append({"user": p[0], "cpu": float(p[1]), "mem": float(p[2]), "cmd": p[3]})
+            except Exception:
+                pass
+    snap["processes"] = procs
+    snap["hostname"] = out(4)
+    snap["kernel"] = out(5)
+    v = node_vitals.get(nid, {})
+    snap["cpu"] = v.get("cpu")
+    snap["ram"] = v.get("ram")
+    snap["net_rx"] = v.get("net_rx")
+    snap["net_tx"] = v.get("net_tx")
+    return snap
+
+
 @router.get("/nodes/connections")
 async def api_node_connections():
     active = set(session_manager.active_ids())

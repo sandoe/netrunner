@@ -1,5 +1,6 @@
 <template>
   <div class="system-panel" ref="containerRef">
+    <SystemVitals :node-id="nodeId" />
     <div class="split-pane">
       <div class="pane pane-diag" :style="{ flexBasis: diagSize + '%', flexGrow: 0 }">
         <DiagPanel :node-id="nodeId" />
@@ -16,6 +17,7 @@
 import { ref, onMounted, onUnmounted } from 'vue'
 import DiagPanel from './DiagPanel.vue'
 import ConfigPanel from './ConfigPanel.vue'
+import SystemVitals from './SystemVitals.vue'
 
 defineProps<{
   nodeId: string
@@ -95,7 +97,8 @@ onUnmounted(() => {
 .split-pane {
   display: flex;
   flex-direction: column;
-  height: 100%;
+  flex: 1;
+  min-height: 0;
   width: 100%;
 }
 

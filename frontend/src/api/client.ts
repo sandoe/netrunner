@@ -166,6 +166,7 @@ export const api = {
 
   // Metrics
   nodeMetricsHistory: (nid: string) => req<{ status: string; history: { time: number; cpu: number; ram: number; net_tx: number; net_rx: number }[] }>('GET', `/nodes/${nid}/metrics/history`),
+  nodeSystemSnapshot: (nid: string) => req<any>('GET', `/nodes/${nid}/system/snapshot`),
 
 
   // Preview
