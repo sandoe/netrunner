@@ -39,8 +39,11 @@
       <div class="ctx-menu" :style="{ left: ctxMenu.x + 'px', top: ctxMenu.y + 'px' }">
         <div class="ctx-title">{{ ctxMenu.name }}</div>
         <button class="ctx-item" @click="ctxEdit">✎ Reconfigure (IP, telnet/SSH…)</button>
-        <button v-if="!store.isConnected(ctxMenu.nodeId)" class="ctx-item ok" @click="ctxConnect">▶ Connect</button>
-        <button v-else class="ctx-item warn" @click="ctxDisconnect">■ Disconnect</button>
+        <template v-if="!isConsoleless(ctxMenu.nodeId)">
+          <button v-if="!store.isConnected(ctxMenu.nodeId)" class="ctx-item ok" @click="ctxConnect">▶ Connect</button>
+          <button v-else class="ctx-item warn" @click="ctxDisconnect">■ Disconnect</button>
+        </template>
+        <div v-else class="ctx-note">⚡ L2 device — no console</div>
       </div>
     </template>
 
@@ -67,6 +70,12 @@ const canvasRef = ref<HTMLElement | null>(null)
 // Right-click context menu on nodes
 const ctxMenu = ref<{ show: boolean, x: number, y: number, nodeId: string, name: string }>(
   { show: false, x: 0, y: 0, nodeId: '', name: '' })
+// GNS3 node types that have no usable interactive console (L2 fabric etc.)
+const CONSOLELESS = new Set(['ethernet_switch', 'ethernet_hub', 'frame_relay_switch', 'atm_switch', 'cloud', 'nat'])
+function isConsoleless(id: string): boolean {
+  const nt = (store.nodes[id] as any)?.metadata?.gns3?.node_type
+  return !!nt && CONSOLELESS.has(nt)
+}
 function closeCtx() { ctxMenu.value.show = false }
 function ctxEdit() { store.select(ctxMenu.value.nodeId); emit('editNode', ctxMenu.value.nodeId); closeCtx() }
 async function ctxConnect() {
@@ -1006,6 +1015,7 @@ onUnmounted(() => {
 .ctx-item:hover { background: rgba(0, 229, 255, 0.12); }
 .ctx-item.ok:hover { background: rgba(0, 255, 157, 0.12); color: var(--green); }
 .ctx-item.warn:hover { background: rgba(255, 45, 110, 0.12); color: var(--pink); }
+.ctx-note { padding: 8px 10px; font-size: 11px; color: var(--text); font-style: italic; }
 
 .init-error {
   position: absolute;

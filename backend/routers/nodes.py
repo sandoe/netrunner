@@ -54,6 +54,7 @@ async def _node_public(nid: str, node: dict) -> dict:
         "has_password": await has_credentials(nid),
         "created": node.get("created"),
         "tags": node.get("tags", []),
+        "metadata": node.get("metadata", {}),
     }
 
 

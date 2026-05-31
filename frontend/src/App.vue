@@ -132,10 +132,13 @@
               </div>
             </div>
             <div class="header-actions">
-              <button v-if="!store.isConnected(store.selected.id)" @click="doConnect" class="btn-action" :disabled="connBusy">CONNECT</button>
+              <span v-if="selectedConsoleless" class="l2-note" title="GNS3 L2 device (switch/hub/cloud) — no interactive console">⚡ L2 DEVICE — NO CONSOLE</span>
               <template v-else>
-                <button @click="doDisconnect" class="btn-action" :disabled="connBusy">DISCONNECT</button>
-                <button @click="doReboot" class="btn-action btn-reboot" :disabled="connBusy">REBOOT</button>
+                <button v-if="!store.isConnected(store.selected.id)" @click="doConnect" class="btn-action" :disabled="connBusy">CONNECT</button>
+                <template v-else>
+                  <button @click="doDisconnect" class="btn-action" :disabled="connBusy">DISCONNECT</button>
+                  <button @click="doReboot" class="btn-action btn-reboot" :disabled="connBusy">REBOOT</button>
+                </template>
               </template>
               <button @click="showEdit = true" class="btn-action btn-edit" title="Edit connection (host, port, transport, credentials)">EDIT</button>
               <button @click="detectType" class="btn-action">DETECT</button>
@@ -307,6 +310,12 @@ const loggedIn = ref(!!localStorage.getItem('nr_token'))
 const userRole = ref(localStorage.getItem('nr_role') || 'analyst')
 const currentUsername = ref(localStorage.getItem('nr_username') || '')
 provide('userRole', userRole)
+
+const CONSOLELESS_TYPES = ['ethernet_switch', 'ethernet_hub', 'frame_relay_switch', 'atm_switch', 'cloud', 'nat']
+const selectedConsoleless = computed(() => {
+  const nt = (store.selected as any)?.metadata?.gns3?.node_type
+  return !!nt && CONSOLELESS_TYPES.includes(nt)
+})
 
 function onEditNode(id: string) {
   store.select(id)
@@ -846,6 +855,7 @@ onUnmounted(() => {
 }
 
 .btn-edit { border-color: var(--cyan-d); color: var(--cyan); }
+.l2-note { font-family: var(--font-hd); font-size: 9px; letter-spacing: 1px; color: var(--text); border: 1px dashed var(--border2); padding: 6px 10px; border-radius: var(--r); opacity: 0.8; }
 .btn-reboot { border-color: #ffaa00; color: #ffaa00; }
 .btn-reboot:hover:not(:disabled) {
   background: rgba(255, 170, 0, 0.2);

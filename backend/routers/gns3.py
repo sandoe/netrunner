@@ -159,7 +159,8 @@ async def sync_gns3_project(project_id: str):
                 existing["port"] = console
             existing["transport"] = "telnet"
             existing.setdefault("metadata", {})["gns3"] = {
-                "project_id": project_id, "node_id": gn["node_id"]
+                "project_id": project_id, "node_id": gn["node_id"],
+                "node_type": gn.get("node_type"),
             }
         else:
             new_id = f"gns3_{gn['node_id'][:8]}"
@@ -172,7 +173,10 @@ async def sync_gns3_project(project_id: str):
                 "device_type": "gns3",
                 "tags": ["gns3-imported"],
                 "created": gn.get("created_at"),
-                "metadata": {"gns3": {"project_id": project_id, "node_id": gn["node_id"]}},
+                "metadata": {"gns3": {
+                    "project_id": project_id, "node_id": gn["node_id"],
+                    "node_type": gn.get("node_type"),
+                }},
             }
             found_id = new_id
 
