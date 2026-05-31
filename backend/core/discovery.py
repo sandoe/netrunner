@@ -19,7 +19,7 @@ async def discover_topology():
     # We define a link uniquely by a sorted pair of node IDs
     existing_links = set()
     for l in links.values():
-        pair = tuple(sorted([l.source, l.target]))
+        pair = tuple(sorted([l["source"], l["target"]]))
         existing_links.add(pair)
     
     new_links_count = 0
