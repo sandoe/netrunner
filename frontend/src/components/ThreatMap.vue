@@ -52,17 +52,57 @@
     </div>
     
     <div ref="globeEl" class="globe-container"></div>
+
+    <!-- ATT&CK technique strip: the "HOW" alongside the globe's "WHERE" -->
+    <div class="atk-strip">
+      <span class="atk-strip-lbl">ATT&CK</span>
+      <span v-for="t in TACTIC_LIST" :key="t.id" class="atk-tag" :class="tagState(t.id)" :title="t.label">
+        {{ t.short }}
+      </span>
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, shallowRef, computed } from 'vue'
-import { wsTokenParam, wsBase } from '@/api/client'
+import { wsTokenParam, wsBase, api } from '@/api/client'
 import Globe from 'globe.gl'
 
 const globeEl = ref<HTMLElement | null>(null)
 let globe: any = null
 let ws: WebSocket | null = null
+
+// --- ATT&CK technique strip (the "HOW") ---
+const TACTIC_LIST = [
+  { id: 'discovery', short: 'DISC', label: 'Discovery' },
+  { id: 'initial-access', short: 'INIT', label: 'Initial Access' },
+  { id: 'execution', short: 'EXEC', label: 'Execution' },
+  { id: 'persistence', short: 'PERS', label: 'Persistence' },
+  { id: 'privilege-escalation', short: 'PRIV', label: 'Privilege Escalation' },
+  { id: 'defense-evasion', short: 'EVAS', label: 'Defense Evasion' },
+  { id: 'credential-access', short: 'CRED', label: 'Credential Access' },
+  { id: 'lateral-movement', short: 'LAT', label: 'Lateral Movement' },
+  { id: 'collection', short: 'COLL', label: 'Collection' },
+  { id: 'command-and-control', short: 'C2', label: 'Command & Control' },
+  { id: 'exfiltration', short: 'EXFL', label: 'Exfiltration' },
+  { id: 'impact', short: 'IMPACT', label: 'Impact' },
+]
+const tacticHits = ref<Record<string, number>>({})  // tactic -> last ts
+const atkNow = ref(Date.now() / 1000)
+let atkPoll: any = null, atkTick: any = null
+async function pollAtk() {
+  try {
+    const ev = (await api.events()).events
+    const h: Record<string, number> = {}
+    for (const e of ev) if (e.technique) h[e.technique.tactic] = Math.max(h[e.technique.tactic] || 0, e.ts)
+    tacticHits.value = h
+  } catch { /* non-fatal */ }
+}
+function tagState(id: string) {
+  const ts = tacticHits.value[id]
+  if (!ts) return 'idle'
+  return (atkNow.value - ts) < 20 ? 'hot' : 'seen'
+}
 
 interface ThreatEvent {
   id: string
@@ -133,6 +173,8 @@ async function fetchNodes() {
 }
 
 onMounted(() => {
+  pollAtk(); atkPoll = setInterval(pollAtk, 3000)
+  atkTick = setInterval(() => { atkNow.value = Date.now() / 1000 }, 1000)
   if (!globeEl.value) return
 
   // Initialize Globe
@@ -218,6 +260,8 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
+  if (atkPoll) clearInterval(atkPoll)
+  if (atkTick) clearInterval(atkTick)
   if (ws) {
     ws.close()
   }
@@ -228,6 +272,24 @@ onUnmounted(() => {
   }
 })
 </script>
+
+<style scoped>
+.atk-strip {
+  position: absolute; bottom: 14px; left: 50%; transform: translateX(-50%);
+  display: flex; align-items: center; gap: 6px; z-index: 5;
+  background: rgba(8,12,22,0.75); border: 1px solid rgba(0,229,255,0.25);
+  padding: 7px 12px; border-radius: 8px; backdrop-filter: blur(6px); flex-wrap: wrap;
+  justify-content: center; max-width: 92%;
+}
+.atk-strip-lbl { font-family: var(--font-hd); font-size: 9px; letter-spacing: 2px; color: var(--cyan); margin-right: 4px; }
+.atk-tag {
+  font-family: var(--font-co); font-size: 9px; letter-spacing: 1px; padding: 3px 7px; border-radius: 4px;
+  border: 1px solid #2a3a5a; color: #5a6a85; transition: all 0.4s;
+}
+.atk-tag.seen { border-color: #ffbe0b; color: #ffbe0b; background: rgba(255,190,11,0.08); }
+.atk-tag.hot { border-color: #ff2d6e; color: #fff; background: rgba(255,45,110,0.25); box-shadow: 0 0 12px rgba(255,45,110,0.5); animation: tagpulse 0.9s infinite; }
+@keyframes tagpulse { 50% { box-shadow: 0 0 20px rgba(255,45,110,0.8); } }
+</style>
 
 <style scoped>
 .threat-map-container {

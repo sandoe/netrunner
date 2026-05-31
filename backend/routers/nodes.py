@@ -286,9 +286,33 @@ async def api_clear_events():
 
 async def _run_demo_storm():
     """Choreographed incident for live demos — emits escalating events then a
-    recovery via the real event pipeline, so bell/toasts/voice/pulse all react."""
-    import asyncio
-    from ..core.events import record_event
+    recovery via the real event pipeline, so bell/toasts/voice/pulse all react,
+    AND fires geo attack arcs to the threat globe so both views light up as one
+    incident."""
+    import asyncio, random, time as _t
+    from ..core.events import record_event, _infer_technique
+    from ..core.cti import cti_queue, CITIES, get_ip_geolocation
+
+    _sevmap = {"critical": "critical", "warning": "high", "info": "low"}
+
+    async def _arc(sev, node, msg):
+        try:
+            src = random.choice(CITIES)
+            tgt = await get_ip_geolocation("10.0.0.1", default_name=node)
+            tech = _infer_technique(msg)
+            await cti_queue.put({
+                "id": f"storm_{int(_t.time()*1000)}_{random.randint(1000,9999)}",
+                "timestamp": _t.time(),
+                "source": {"ip": f"{random.randint(11,223)}.{random.randint(0,255)}.{random.randint(0,255)}.{random.randint(1,254)}",
+                           "city": src["name"], "lat": src["lat"], "lng": src["lng"]},
+                "target": {"ip": "10.0.0.1", "city": f"{node} ({tgt['name']})", "lat": tgt["lat"], "lng": tgt["lng"]},
+                "type": (tech["name"] if tech else msg)[:48],
+                "severity": _sevmap.get(sev, "medium"),
+                "targeted": True,
+                "technique": tech,
+            })
+        except Exception:
+            pass
     seq = [
         (0.0, "warning",  "EDGE-02",  "Recon: external port sweep / service enumeration detected"),
         (2.0, "critical", "EDGE-02",  "Exploit attempt on public-facing service — unauthorized access"),
@@ -306,6 +330,8 @@ async def _run_demo_storm():
     for delay, sev, node, msg in seq:
         await asyncio.sleep(delay)
         record_event(sev, "demo", node, "demo", msg)
+        if sev != "info":   # fire a matching attack arc on the globe
+            await _arc(sev, node, msg)
 
 
 @router.post("/demo/storm")
