@@ -96,7 +96,7 @@
     <main class="main">
       <!-- Background Layer -->
       <div class="main-bg" :class="{ 'is-topology': viewMode === 'topology', 'is-threat': viewMode === 'threat' }">
-        <TopologyView v-if="viewMode === 'topology'" />
+        <TopologyView v-if="viewMode === 'topology'" @edit-node="onEditNode" />
         <ThreatMap v-else-if="viewMode === 'threat'" />
         <WifiView v-else-if="viewMode === 'wifi'" />
         <ThreatTimeline v-else-if="viewMode === 'history'" />
@@ -307,6 +307,11 @@ const loggedIn = ref(!!localStorage.getItem('nr_token'))
 const userRole = ref(localStorage.getItem('nr_role') || 'analyst')
 const currentUsername = ref(localStorage.getItem('nr_username') || '')
 provide('userRole', userRole)
+
+function onEditNode(id: string) {
+  store.select(id)
+  showEdit.value = true
+}
 
 function logout() {
   localStorage.removeItem('nr_token')

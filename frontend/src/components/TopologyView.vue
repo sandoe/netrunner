@@ -32,6 +32,18 @@
       </div>
     </div>
     <div ref="canvasRef" class="cy-canvas"></div>
+
+    <!-- Right-click node context menu -->
+    <template v-if="ctxMenu.show">
+      <div class="ctx-backdrop" @click="closeCtx" @contextmenu.prevent="closeCtx"></div>
+      <div class="ctx-menu" :style="{ left: ctxMenu.x + 'px', top: ctxMenu.y + 'px' }">
+        <div class="ctx-title">{{ ctxMenu.name }}</div>
+        <button class="ctx-item" @click="ctxEdit">✎ Reconfigure (IP, telnet/SSH…)</button>
+        <button v-if="!store.isConnected(ctxMenu.nodeId)" class="ctx-item ok" @click="ctxConnect">▶ Connect</button>
+        <button v-else class="ctx-item warn" @click="ctxDisconnect">■ Disconnect</button>
+      </div>
+    </template>
+
     <div v-if="initError" class="init-error">
       <h3>🚨 CORE DISRUPTION DETECTED</h3>
       <p>{{ initError }}</p>
@@ -49,7 +61,24 @@ import { useNodesStore } from '@/stores/nodes'
 import { api, wsTokenParam, wsBase } from '@/api/client'
 
 const store = useNodesStore()
+const emit = defineEmits<{ editNode: [string] }>()
 const canvasRef = ref<HTMLElement | null>(null)
+
+// Right-click context menu on nodes
+const ctxMenu = ref<{ show: boolean, x: number, y: number, nodeId: string, name: string }>(
+  { show: false, x: 0, y: 0, nodeId: '', name: '' })
+function closeCtx() { ctxMenu.value.show = false }
+function ctxEdit() { store.select(ctxMenu.value.nodeId); emit('editNode', ctxMenu.value.nodeId); closeCtx() }
+async function ctxConnect() {
+  const id = ctxMenu.value.nodeId; closeCtx()
+  try { await api.connectNode(id); store.manuallyDisconnected.delete(id); await store.refreshConnections() }
+  catch (e) { alert('Connect failed: ' + String(e)) }
+}
+async function ctxDisconnect() {
+  const id = ctxMenu.value.nodeId; closeCtx()
+  try { await api.disconnectNode(id); store.manuallyDisconnected.add(id); await store.refreshConnections() }
+  catch (e) { alert('Disconnect failed: ' + String(e)) }
+}
 let graph: any = null
 let resizeObserver: ResizeObserver | null = null
 
@@ -695,11 +724,26 @@ function initGraph() {
 
     if (typeof g.onBackgroundClick === 'function') {
       g.onBackgroundClick(() => {
+        closeCtx()
         if (mode.value === 'draw') {
           drawSource.value = null
           updateGraph()
         } else {
           store.select(null)
+        }
+      })
+    }
+
+    if (typeof g.onNodeRightClick === 'function') {
+      g.onNodeRightClick((node: any, event: MouseEvent) => {
+        if (!node) return
+        event.preventDefault?.()
+        ctxMenu.value = {
+          show: true,
+          x: event.clientX,
+          y: event.clientY,
+          nodeId: node.id as string,
+          name: node.name || node.id,
         }
       })
     }
@@ -934,6 +978,34 @@ onUnmounted(() => {
   border: 1px dashed #ffbe0b;
   color: #ffbe0b;
 }
+
+.ctx-backdrop { position: fixed; inset: 0; z-index: 49; }
+.ctx-menu {
+  position: fixed;
+  z-index: 50;
+  min-width: 220px;
+  background: rgba(10, 16, 30, 0.97);
+  border: 1px solid var(--cyan-d);
+  border-radius: var(--r);
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.6), 0 0 16px rgba(0, 229, 255, 0.15);
+  padding: 4px;
+  backdrop-filter: blur(6px);
+  font-family: var(--font-co);
+}
+.ctx-title {
+  padding: 6px 10px; font-size: 11px; color: var(--cyan);
+  border-bottom: 1px solid var(--border); margin-bottom: 4px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.ctx-item {
+  display: block; width: 100%; text-align: left;
+  background: none; border: none; color: var(--textwh);
+  padding: 8px 10px; font-size: 12px; cursor: pointer; border-radius: 4px;
+  font-family: var(--font-co);
+}
+.ctx-item:hover { background: rgba(0, 229, 255, 0.12); }
+.ctx-item.ok:hover { background: rgba(0, 255, 157, 0.12); color: var(--green); }
+.ctx-item.warn:hover { background: rgba(255, 45, 110, 0.12); color: var(--pink); }
 
 .init-error {
   position: absolute;

@@ -100,7 +100,10 @@ async def _gns3_req(method: str, path: str, body: Optional[dict] = None):
             seen = set()
             unique_results = []
             for item in results:
-                key = item.get("project_id") or item.get("node_id") or item.get("name") or str(item)
+                # Use the MOST specific id first. Nodes/links in one project all
+                # share project_id, so keying on it would collapse them to one.
+                key = (item.get("node_id") or item.get("link_id")
+                       or item.get("project_id") or item.get("name") or str(item))
                 if key not in seen:
                     seen.add(key)
                     unique_results.append(item)
@@ -128,29 +131,51 @@ async def sync_gns3_project(project_id: str):
     uuid_map = {}
     
     # 2. Sync Nodes
+    g_node_host = None  # GNS3 VM / compute IP where the consoles live
     for gn in g_nodes:
-        # Check if already exists by name/console
+        host = gn.get("console_host") or "127.0.0.1"
+        if host not in ("127.0.0.1", "0.0.0.0", "localhost"):
+            g_node_host = host
+        console = gn.get("console")
+
+        # Match an existing node by GNS3 node_id, exact name, or — crucially —
+        # console port (unique per GNS3 node). This merges onto manually-added
+        # nodes instead of creating duplicates on re-sync.
         found_id = None
         for nid, n in nodes.items():
-            if n.get("name") == gn["name"]:
+            meta = (n.get("metadata") or {}).get("gns3") or {}
+            if meta.get("node_id") == gn["node_id"] \
+               or n.get("name") == gn["name"] \
+               or (console and n.get("port") == console):
                 found_id = nid
                 break
-        
-        if not found_id:
-            # Create new node
+
+        if found_id:
+            # Refresh the connection details to match GNS3 (host/port can drift)
+            existing = nodes[found_id]
+            if host not in ("127.0.0.1", "0.0.0.0", "localhost"):
+                existing["host"] = host
+            if console:
+                existing["port"] = console
+            existing["transport"] = "telnet"
+            existing.setdefault("metadata", {})["gns3"] = {
+                "project_id": project_id, "node_id": gn["node_id"]
+            }
+        else:
             new_id = f"gns3_{gn['node_id'][:8]}"
             nodes[new_id] = {
                 "id": new_id,
                 "name": gn["name"],
-                "host": gn.get("console_host", "127.0.0.1"),
-                "port": gn.get("console", 0),
+                "host": host,
+                "port": console or 0,
                 "transport": "telnet",
                 "device_type": "gns3",
                 "tags": ["gns3-imported"],
-                "created": gn.get("created_at")
+                "created": gn.get("created_at"),
+                "metadata": {"gns3": {"project_id": project_id, "node_id": gn["node_id"]}},
             }
             found_id = new_id
-        
+
         uuid_map[gn["node_id"]] = found_id
 
     # 3. Sync Links
