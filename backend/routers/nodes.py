@@ -269,6 +269,13 @@ async def api_node_delete(nid: str):
     return {"ok": True}
 
 
+@router.get("/nodes/reachability")
+async def api_node_reachability():
+    """Latest TCP-reachability probe per node (reachable + connect latency)."""
+    from ..core.reachability import reach_status
+    return reach_status
+
+
 @router.get("/nodes/connections")
 async def api_node_connections():
     active = set(session_manager.active_ids())

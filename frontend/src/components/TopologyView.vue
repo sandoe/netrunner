@@ -128,6 +128,8 @@ const initError = ref<string | null>(null)
 const telemetryData = ref<Record<string, Record<string, any>>>({})
 // Real per-node vitals (CPU/RAM/net) from the telemetry poller
 const nodeVitals = ref<Record<string, { cpu: number | null, ram: number | null, net_tx: number, net_rx: number }>>({})
+// Active TCP reachability per node (online + connect latency)
+const nodeReach = ref<Record<string, { reachable: boolean, latency_ms: number | null }>>({})
 let telemetryWs: WebSocket | null = null
 
 function toggleLayout() {
@@ -597,13 +599,24 @@ function initGraph() {
     }
     if (typeof g.nodeLabel === 'function') {
       g.nodeLabel((n: any) => {
+        let label = n.name
+        // Reachability line
+        if (isConsoleless(n.id)) {
+          label += `\n⚡ L2 fabric (no console)`
+        } else {
+          const r = nodeReach.value[n.id]
+          if (r) label += r.reachable
+            ? `\n🟢 reachable · ${r.latency_ms} ms`
+            : `\n🔴 unreachable`
+        }
+        // Live vitals line (connected SSH nodes)
         const v = nodeVitals.value[n.id]
         if (v && (v.cpu !== null || v.ram !== null)) {
           const cpu = v.cpu !== null ? `${v.cpu}%` : '–'
           const ram = v.ram !== null ? `${v.ram}%` : '–'
-          return `${n.name}\nCPU ${cpu} · RAM ${ram} · ↓${v.net_rx} ↑${v.net_tx} Mbps`
+          label += `\nCPU ${cpu} · RAM ${ram} · ↓${v.net_rx} ↑${v.net_tx} Mbps`
         }
-        return n.name
+        return label
       })
     }
     
@@ -919,6 +932,9 @@ onMounted(() => {
         nodeVitals.value[data.node_id] = {
           cpu: data.cpu, ram: data.ram, net_tx: data.net_tx, net_rx: data.net_rx,
         }
+      } else if (data.type === 'reach') {
+        nodeReach.value[data.node_id] = { reachable: data.reachable, latency_ms: data.latency_ms }
+        refreshVisuals()
       }
     } catch (e) {}
   }

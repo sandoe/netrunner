@@ -51,6 +51,8 @@ async def lifespan(app: FastAPI):
     chaos._chaos_task = asyncio.create_task(chaos.chaos_loop())
     telemetry._telemetry_task = asyncio.create_task(telemetry.broadcast_telemetry())
     telemetry._poll_task = asyncio.create_task(poll_telemetry_loop())
+    from .core.reachability import reachability_loop
+    telemetry._reach_task = asyncio.create_task(reachability_loop(telemetry.telemetry_queue))
     wifi._broadcast_csi_task = asyncio.create_task(wifi.broadcast_csi())
     wifi._broadcast_mesh_task = asyncio.create_task(wifi.broadcast_mesh())
     await start_csi_engine()
