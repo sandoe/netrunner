@@ -1,4 +1,5 @@
 <template>
+  <BootSequence v-if="showBoot" @done="showBoot = false" />
   <LoginView v-if="!loggedIn" @authenticated="onAuthenticated" />
   <div v-else class="app">
     <div class="scanline"></div>
@@ -342,6 +343,7 @@ import OverviewPanel from './components/OverviewPanel.vue'
 import ShellPanel from './components/ShellPanel.vue'
 import NetworkPulse from './components/NetworkPulse.vue'
 import { useNocAudio } from '@/composables/useNocAudio'
+import BootSequence from './components/BootSequence.vue'
 import NodeForm  from './components/NodeForm.vue'
 import TopologyView from './components/TopologyView.vue'
 import WifiView from './components/WifiView.vue'
@@ -360,6 +362,7 @@ import { provide } from 'vue'
 const loggedIn = ref(!!localStorage.getItem('nr_token'))
 const userRole = ref(localStorage.getItem('nr_role') || 'analyst')
 const currentUsername = ref(localStorage.getItem('nr_username') || '')
+const showBoot = ref(false)
 provide('userRole', userRole)
 
 const CONSOLELESS_TYPES = ['ethernet_switch', 'ethernet_hub', 'frame_relay_switch', 'atm_switch', 'cloud', 'nat']
@@ -428,6 +431,11 @@ async function disconnectById(id: string) {
   catch (e) { flash(String(e), 'err') }
 }
 
+async function runDemoStorm() {
+  try { await api.demoStorm(); flash('⚡ Incident simulation started…') }
+  catch (e) { flash(String(e), 'err') }
+}
+
 interface Cmd { id: string; label: string; icon: string; run: () => void }
 const allCommands = computed<Cmd[]>(() => {
   const cmds: Cmd[] = []
@@ -446,6 +454,7 @@ const allCommands = computed<Cmd[]>(() => {
   cmds.push({ id: 'settings', label: 'Settings', icon: '⚙️', run: () => { showSettings.value = true } })
   cmds.push({ id: 'alerts', label: 'Open alerts', icon: '🔔', run: openAlerts })
   cmds.push({ id: 'audio', label: audioEnabled.value ? 'Mute NOC audio' : 'Enable NOC audio', icon: '🔊', run: toggleAudio })
+  if (userRole.value === 'admin') cmds.push({ id: 'storm', label: 'Simulate incident (demo storm)', icon: '⚡', run: runDemoStorm })
   cmds.push({ id: 'logout', label: 'Log out', icon: '⏻', run: logout })
   return cmds
 })
@@ -527,6 +536,7 @@ function onAuthenticated(role: string) {
   userRole.value = role
   currentUsername.value = localStorage.getItem('nr_username') || ''
   loggedIn.value = true
+  showBoot.value = true
   store.refresh()
   pollSystem()
   fetchReachability()

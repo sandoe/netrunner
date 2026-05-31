@@ -12,8 +12,9 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Response
+from fastapi import APIRouter, HTTPException, Response, Depends
 from fastapi.responses import FileResponse
+from .auth import require_admin
 from pydantic import BaseModel, field_validator
 
 from ..core.session import session_manager
@@ -274,6 +275,34 @@ async def api_events():
     """Recent infrastructure events/alerts (reachability, CPU/RAM thresholds)."""
     from ..core.events import recent_events
     return {"events": recent_events()}
+
+
+async def _run_demo_storm():
+    """Choreographed incident for live demos — emits escalating events then a
+    recovery via the real event pipeline, so bell/toasts/voice/pulse all react."""
+    import asyncio
+    from ..core.events import record_event
+    seq = [
+        (0.0, "critical", "PERIM-01", "Perimeter firewall OFFLINE — uplink lost"),
+        (2.5, "warning",  "CORE-RTR", "Core router CPU spike: 97%"),
+        (2.5, "critical", "PC-1",     "Intrusion detected — lateral movement PC-1 → DB-01"),
+        (3.0, "warning",  "DB-01",    "Database RAM critical: 94%"),
+        (3.5, "critical", "EDGE-02",  "Data exfiltration attempt BLOCKED on EDGE-02"),
+        (3.0, "info",     "SOAR",     "SOAR playbook engaged — isolating PC-1"),
+        (3.0, "info",     "PERIM-01", "Perimeter firewall back ONLINE"),
+        (2.5, "info",     "NETRUNNER","Threat contained — all systems nominal"),
+    ]
+    for delay, sev, node, msg in seq:
+        await asyncio.sleep(delay)
+        record_event(sev, "demo", node, "demo", msg)
+
+
+@router.post("/demo/storm")
+async def api_demo_storm(admin: dict = Depends(require_admin)):
+    """Kick off the demo incident (fire-and-forget)."""
+    import asyncio
+    asyncio.create_task(_run_demo_storm())
+    return {"status": "storm_started"}
 
 
 @router.get("/nodes/reachability")
