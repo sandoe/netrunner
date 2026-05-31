@@ -290,13 +290,17 @@ async def _run_demo_storm():
     import asyncio
     from ..core.events import record_event
     seq = [
-        (0.0, "critical", "PERIM-01", "Perimeter firewall OFFLINE — uplink lost"),
-        (2.5, "warning",  "CORE-RTR", "Core router CPU spike: 97%"),
-        (2.5, "critical", "PC-1",     "Intrusion detected — lateral movement PC-1 → DB-01"),
-        (3.0, "warning",  "DB-01",    "Database RAM critical: 94%"),
-        (3.5, "critical", "EDGE-02",  "Data exfiltration attempt BLOCKED on EDGE-02"),
-        (3.0, "info",     "SOAR",     "SOAR playbook engaged — isolating PC-1"),
-        (3.0, "info",     "PERIM-01", "Perimeter firewall back ONLINE"),
+        (0.0, "warning",  "EDGE-02",  "Recon: external port sweep / service enumeration detected"),
+        (2.0, "critical", "EDGE-02",  "Exploit attempt on public-facing service — unauthorized access"),
+        (2.2, "warning",  "EDGE-02",  "Brute force / credential spray against SSH"),
+        (2.5, "critical", "PC-1",     "Malware payload / script execution on PC-1"),
+        (2.2, "warning",  "PC-1",     "Privilege escalation to root detected"),
+        (2.2, "warning",  "PC-1",     "Defense evasion: attempt to clear logs / disable agent"),
+        (2.5, "critical", "DB-01",    "Lateral movement PC-1 → DB-01 via remote services (SMB)"),
+        (2.2, "warning",  "DB-01",    "Credential dumping / hash harvest on DB-01"),
+        (2.5, "critical", "DB-01",    "Data staged and exfiltration over C2 BLOCKED"),
+        (2.2, "critical", "PERIM-01", "Network denial of service — perimeter uplink lost"),
+        (2.5, "info",     "SOAR",     "SOAR playbook engaged — isolating PC-1"),
         (2.5, "info",     "NETRUNNER","Threat contained — all systems nominal"),
     ]
     for delay, sev, node, msg in seq:

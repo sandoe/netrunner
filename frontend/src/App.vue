@@ -64,6 +64,7 @@
         <button :class="{ active: viewMode === 'node' }" @click="viewMode = 'node'">NODES</button>
         <button :class="{ active: viewMode === 'topology' }" @click="viewMode = 'topology'">TOPOLOGY</button>
         <button :class="{ active: viewMode === 'threat' }" @click="viewMode = 'threat'">THREAT MAP</button>
+        <button :class="{ active: viewMode === 'attack' }" @click="viewMode = 'attack'">🎯 ATT&CK</button>
         <button :class="{ active: viewMode === 'history' }" @click="viewMode = 'history'">HISTORY</button>
         <button :class="{ active: viewMode === 'wifi' }" @click="viewMode = 'wifi'">WIFI & CSI</button>
         <button class="btn-warroom" :class="{ active: viewMode === 'warroom' }" @click="viewMode = 'warroom'">🚨 WAR ROOM</button>
@@ -122,6 +123,7 @@
       <!-- Background Layer -->
       <div class="main-bg" :class="{ 'is-topology': viewMode === 'topology', 'is-threat': viewMode === 'threat' }">
         <NetworkPulse v-if="viewMode === 'pulse'" />
+        <AttackMatrix v-else-if="viewMode === 'attack'" />
         <TopologyView v-else-if="viewMode === 'topology'" @edit-node="onEditNode" />
         <ThreatMap v-else-if="viewMode === 'threat'" />
         <WifiView v-else-if="viewMode === 'wifi'" />
@@ -366,6 +368,7 @@ import CapturePanel from './components/CapturePanel.vue'
 import OverviewPanel from './components/OverviewPanel.vue'
 import ShellPanel from './components/ShellPanel.vue'
 import NetworkPulse from './components/NetworkPulse.vue'
+import AttackMatrix from './components/AttackMatrix.vue'
 import { useNocAudio } from '@/composables/useNocAudio'
 import { useAmbient } from '@/composables/useAmbient'
 import BootSequence from './components/BootSequence.vue'
@@ -496,7 +499,7 @@ const allCommands = computed<Cmd[]>(() => {
   const cmds: Cmd[] = []
   const views: [string, string][] = [
     ['pulse', '⚡ Network Pulse'], ['node', '🖥️ Nodes'], ['topology', '🕸️ Topology'],
-    ['threat', '🌐 Threat Map'], ['history', '🕗 History'], ['wifi', '📶 WiFi & CSI'], ['warroom', '🚨 War Room'],
+    ['attack', '🎯 ATT&CK Matrix'], ['threat', '🌐 Threat Map'], ['history', '🕗 History'], ['wifi', '📶 WiFi & CSI'], ['warroom', '🚨 War Room'],
   ]
   for (const [vm, label] of views) cmds.push({ id: 'view-' + vm, label: 'Go to ' + label, icon: '↦', run: () => { viewMode.value = vm as any } })
   for (const n of store.nodeList) {
