@@ -575,6 +575,11 @@ function initGraph() {
 
     const g = ForceGraphConstructor()(canvasRef.value)
     
+    // Network graphs have cycles (rings, redundant paths); the hierarchical
+    // (DAG) layout would otherwise throw "Invalid DAG structure". Skip the
+    // offending links gracefully instead of crashing.
+    if (typeof g.onDagError === 'function') g.onDagError(() => false)
+
     // 1. Data & Environment Setup
     if (typeof g.graphData === 'function') g.graphData(getGraphData())
     if (typeof g.backgroundColor === 'function') g.backgroundColor('#00000000') // transparent background
@@ -809,11 +814,32 @@ function initGraph() {
   }
 }
 
+let lastStructureSig = ''
+
+// Re-apply visual accessors so link/node state (active, colour, particles)
+// updates without calling graphData() — which would reheat the force
+// simulation and let repulsion push the nodes further apart every refresh.
+function refreshVisuals() {
+  if (!graph) return
+  for (const fn of ['linkColor', 'linkWidth', 'linkDirectionalParticles',
+                    'linkDirectionalParticleSpeed', 'linkDirectionalParticleColor']) {
+    if (typeof (graph as any)[fn] === 'function') (graph as any)[fn]((graph as any)[fn]())
+  }
+}
+
 function updateGraph() {
   if (!graph) return
   try {
-    const data = getGraphData()
+    const data = getGraphData()  // also mutates cached node/link objects in place
     debugStats.value = { nodes: data.nodes.length, links: data.links.length }
+    const sig = data.nodes.map((n: any) => n.id).sort().join(',') + '|'
+              + data.links.map((l: any) => l.id).sort().join(',')
+    if (sig === lastStructureSig) {
+      // Structure unchanged — just refresh visuals, don't reheat the layout.
+      refreshVisuals()
+      return
+    }
+    lastStructureSig = sig
     if (typeof graph.graphData === 'function') {
       graph.graphData(data)
     }
