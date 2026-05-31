@@ -1085,46 +1085,11 @@ _metrics_cache: dict[str, list[dict]] = {}
 
 @router.get("/nodes/{nid}/metrics/history")
 async def api_node_metrics_history(nid: str):
-    """
-    Returns simulated or cached time-series metrics (CPU, RAM, Net) 
-    for the visual Grafana-style dashboards on the node overview.
-    """
+    """Real time-series vitals (CPU, RAM, Net) collected over SSH by the
+    telemetry poller. Empty until the node is connected and sampled."""
     nodes = await load_nodes()
     if nid not in nodes:
         raise HTTPException(404, "Node not found")
 
-    now = int(time.time())
-    history = _metrics_cache.get(nid, [])
-
-    # If empty, pre-fill with 30 data points (e.g., last 30 seconds)
-    if not history:
-        base_cpu = random.uniform(5.0, 30.0)
-        base_ram = random.uniform(20.0, 60.0)
-        base_net = random.uniform(100.0, 1000.0)
-        
-        for i in range(30, 0, -1):
-            history.append({
-                "time": now - i,
-                "cpu": max(0.0, min(100.0, base_cpu + random.uniform(-5, 5))),
-                "ram": max(0.0, min(100.0, base_ram + random.uniform(-2, 2))),
-                "net_tx": max(0.0, base_net + random.uniform(-50, 50)),
-                "net_rx": max(0.0, base_net * 0.8 + random.uniform(-40, 40))
-            })
-
-    # Add new point based on the last point
-    last = history[-1]
-    history.append({
-        "time": now,
-        "cpu": max(0.0, min(100.0, last["cpu"] + random.uniform(-10, 10))),
-        "ram": max(0.0, min(100.0, last["ram"] + random.uniform(-1, 1))),
-        "net_tx": max(0.0, last["net_tx"] + random.uniform(-100, 100)),
-        "net_rx": max(0.0, last["net_rx"] + random.uniform(-80, 80))
-    })
-
-    # Keep only the last 30 points
-    if len(history) > 30:
-        history = history[-30:]
-
-    _metrics_cache[nid] = history
-
-    return {"status": "success", "history": history}
+    from ..core.telemetry import vitals_history
+    return {"status": "success", "history": list(vitals_history.get(nid, []))}

@@ -61,6 +61,8 @@ const syncing = ref(false)
 const debugStats = ref<{nodes: number, links: number} | null>(null)
 const initError = ref<string | null>(null)
 const telemetryData = ref<Record<string, Record<string, any>>>({})
+// Real per-node vitals (CPU/RAM/net) from the telemetry poller
+const nodeVitals = ref<Record<string, { cpu: number | null, ram: number | null, net_tx: number, net_rx: number }>>({})
 let telemetryWs: WebSocket | null = null
 
 function toggleLayout() {
@@ -460,11 +462,24 @@ function startAnimationLoop() {
             animGroup.rotation.y += 0.01
           }
           
-          // 2. Pulse the breathing neon aura scale
+          // 2. Pulse the breathing neon aura scale — tint + intensify by real CPU load
           const aura = group.children.find((c: any) => c.__isAura)
           if (aura) {
-            const scale = 1.0 + Math.sin(time) * 0.12
+            const v = nodeVitals.value[node.id]
+            const cpu = v && v.cpu !== null ? v.cpu : null
+            // Load-driven aura: faster/larger pulse and green→amber→red tint
+            const load = cpu !== null ? cpu / 100 : 0
+            const speed = 1 + load * 3
+            const scale = 1.0 + Math.sin(time * speed) * (0.12 + load * 0.25)
             aura.scale.setScalar(scale)
+            if (cpu !== null) {
+              // green (0x00ff9d) -> amber (0xffbe0b) -> red (0xff2d6e)
+              const col = cpu < 50
+                ? new THREE.Color(0x00ff9d).lerp(new THREE.Color(0xffbe0b), cpu / 50)
+                : new THREE.Color(0xffbe0b).lerp(new THREE.Color(0xff2d6e), (cpu - 50) / 50)
+              aura.material.color.copy(col)
+              aura.material.opacity = 0.12 + load * 0.25
+            }
           }
         }
       })
@@ -503,7 +518,15 @@ function initGraph() {
       g.nodeThreeObject(node => createThreeNodeObject(node))
     }
     if (typeof g.nodeLabel === 'function') {
-      g.nodeLabel('name')
+      g.nodeLabel((n: any) => {
+        const v = nodeVitals.value[n.id]
+        if (v && (v.cpu !== null || v.ram !== null)) {
+          const cpu = v.cpu !== null ? `${v.cpu}%` : '–'
+          const ram = v.ram !== null ? `${v.ram}%` : '–'
+          return `${n.name}\nCPU ${cpu} · RAM ${ram} · ↓${v.net_rx} ↑${v.net_tx} Mbps`
+        }
+        return n.name
+      })
     }
     
     // 3. Floating Cyber-Grids for Layer Decks
@@ -773,6 +796,10 @@ onMounted(() => {
           telemetryData.value[data.node_id] = {}
         }
         telemetryData.value[data.node_id][data.interface] = data
+      } else if (data.type === 'vitals') {
+        nodeVitals.value[data.node_id] = {
+          cpu: data.cpu, ram: data.ram, net_tx: data.net_tx, net_rx: data.net_rx,
+        }
       }
     } catch (e) {}
   }
