@@ -34,7 +34,11 @@ async def broadcast_threats():
     # Start the generator and monitored-nodes log tailer (supervised so a crash
     # is logged, not silently swallowed — which would kill the threat feed).
     _supervise(cti_engine.stream_threats(cti_queue), "stream_threats")
-    _supervise(cti_engine.tail_monitored_nodes_logs(cti_queue), "tail_monitored_nodes_logs")
+    # Optional log tailer — only if the engine implements it (it doesn't today;
+    # calling a missing method here used to crash the whole broadcast loop and
+    # silently kill the threat feed).
+    if hasattr(cti_engine, "tail_monitored_nodes_logs"):
+        _supervise(cti_engine.tail_monitored_nodes_logs(cti_queue), "tail_monitored_nodes_logs")
     _log.info("[threats] broadcast loop started")
 
     while True:
