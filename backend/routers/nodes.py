@@ -283,6 +283,13 @@ async def api_node_reachability():
     return reach_status
 
 
+@router.get("/nodes/vitals")
+async def api_node_vitals():
+    """Latest real CPU/RAM/net vitals per node (from the telemetry poller)."""
+    from ..core.telemetry import node_vitals
+    return node_vitals
+
+
 @router.get("/nodes/connections")
 async def api_node_connections():
     active = set(session_manager.active_ids())

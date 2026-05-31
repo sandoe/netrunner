@@ -42,6 +42,7 @@
       </div>
 
       <nav class="nav-menu">
+        <button class="btn-pulse" :class="{ active: viewMode === 'pulse' }" @click="viewMode = 'pulse'">⚡ NETWORK PULSE</button>
         <button :class="{ active: viewMode === 'node' }" @click="viewMode = 'node'">NODES</button>
         <button :class="{ active: viewMode === 'topology' }" @click="viewMode = 'topology'">TOPOLOGY</button>
         <button :class="{ active: viewMode === 'threat' }" @click="viewMode = 'threat'">THREAT MAP</button>
@@ -102,7 +103,8 @@
     <main class="main">
       <!-- Background Layer -->
       <div class="main-bg" :class="{ 'is-topology': viewMode === 'topology', 'is-threat': viewMode === 'threat' }">
-        <TopologyView v-if="viewMode === 'topology'" @edit-node="onEditNode" />
+        <NetworkPulse v-if="viewMode === 'pulse'" />
+        <TopologyView v-else-if="viewMode === 'topology'" @edit-node="onEditNode" />
         <ThreatMap v-else-if="viewMode === 'threat'" />
         <WifiView v-else-if="viewMode === 'wifi'" />
         <ThreatTimeline v-else-if="viewMode === 'history'" />
@@ -317,6 +319,7 @@ import DatabasePanel from './components/DatabasePanel.vue'
 import CapturePanel from './components/CapturePanel.vue'
 import OverviewPanel from './components/OverviewPanel.vue'
 import ShellPanel from './components/ShellPanel.vue'
+import NetworkPulse from './components/NetworkPulse.vue'
 import NodeForm  from './components/NodeForm.vue'
 import TopologyView from './components/TopologyView.vue'
 import WifiView from './components/WifiView.vue'
@@ -949,6 +952,8 @@ onUnmounted(() => {
 .node-reach.up { color: var(--green); }
 .node-reach.down { color: var(--pink); }
 .node-reach.l2 { color: #ffbe0b; }
+.btn-pulse { color: var(--cyan); font-weight: 700; }
+.btn-pulse.active { box-shadow: inset 0 0 12px rgba(0,229,255,0.25); }
 
 .btn-bell { position: relative; }
 .bell-badge {
