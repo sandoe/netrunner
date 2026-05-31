@@ -44,6 +44,9 @@
           <button v-else class="ctx-item warn" @click="ctxDisconnect">■ Disconnect</button>
         </template>
         <div v-else class="ctx-note">⚡ L2 device — no console</div>
+        <button class="ctx-item" @click="ctxTogglePin">
+          {{ pinnedId === ctxMenu.nodeId ? '📌 Unpin from centre' : '📌 Pin to centre' }}
+        </button>
       </div>
     </template>
 
@@ -76,6 +79,11 @@ function isConsoleless(id: string): boolean {
   const nt = (store.nodes[id] as any)?.metadata?.gns3?.node_type
   return !!nt && CONSOLELESS.has(nt)
 }
+// A node counts as "up" for link-traffic purposes if it has a live session,
+// or it's L2 fabric (a switch/hub is always up — you don't log into it).
+function nodeUp(id: string): boolean {
+  return store.isConnected(id) || isConsoleless(id)
+}
 function closeCtx() { ctxMenu.value.show = false }
 function ctxEdit() { store.select(ctxMenu.value.nodeId); emit('editNode', ctxMenu.value.nodeId); closeCtx() }
 async function ctxConnect() {
@@ -87,6 +95,25 @@ async function ctxDisconnect() {
   const id = ctxMenu.value.nodeId; closeCtx()
   try { await api.disconnectNode(id); store.manuallyDisconnected.add(id); await store.refreshConnections() }
   catch (e) { alert('Disconnect failed: ' + String(e)) }
+}
+
+// Pin a node to the centre of the layout (others orbit around it). Useful to
+// anchor your gateway/router as the hub instead of letting physics decide.
+const pinnedId = ref<string | null>(null)
+function ctxTogglePin() {
+  const id = ctxMenu.value.nodeId; closeCtx()
+  const setFixed = (nid: string, v: number | undefined) => {
+    const n = nodeCache.get(nid)
+    if (n) { n.fx = v; n.fy = v; n.fz = v }
+  }
+  if (pinnedId.value === id) {
+    setFixed(id, undefined); pinnedId.value = null
+  } else {
+    if (pinnedId.value) setFixed(pinnedId.value, undefined)
+    setFixed(id, 0); pinnedId.value = id
+  }
+  updateGraph()
+  if (graph && typeof graph.d3ReheatSimulation === 'function') graph.d3ReheatSimulation()
 }
 let graph: any = null
 let resizeObserver: ResizeObserver | null = null
@@ -342,10 +369,11 @@ function getGraphData() {
     // Always re-assign source and target to string IDs to let D3 resolve them dynamically on updates
     cached.source = link.source
     cached.target = link.target
-    const isSourceConnected = store.isConnected(link.source)
-    const isTargetConnected = store.isConnected(link.target)
     cached.auto = link.auto_discovered
-    cached.active = isSourceConnected && isTargetConnected
+    // A link carries traffic when both ends are "up". L2 fabric (switch/hub)
+    // can't be "connected" but is always up if a real neighbour is connected,
+    // so traffic still flows e.g. pc1 → switch → router.
+    cached.active = nodeUp(link.source) && nodeUp(link.target)
     cached.isGhostLink = false
     linksList.push(cached)
   })
@@ -818,6 +846,11 @@ watch(() => store.links, () => {
 watch(() => store.selectedId, () => {
   updateGraph()
 })
+
+// Recompute link/node state when connection status changes (connect/disconnect)
+watch(() => store.connections, () => {
+  updateGraph()
+}, { deep: true })
 
 // Watch telemetry to update graph
 watch(telemetryData, () => {
