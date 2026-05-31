@@ -1,8 +1,18 @@
 <template>
   <BootSequence v-if="showBoot" @done="showBoot = false" />
   <LoginView v-if="!loggedIn" @authenticated="onAuthenticated" />
-  <div v-else class="app">
+  <div v-else class="app" :class="{ holo: holoMode }">
     <div class="scanline"></div>
+
+    <!-- HOLO MODE overlay -->
+    <div v-if="holoMode" class="holo-fx">
+      <div class="holo-grid"></div>
+      <div class="holo-scan"></div>
+      <div class="holo-corner tl"></div><div class="holo-corner tr"></div>
+      <div class="holo-corner bl"></div><div class="holo-corner br"></div>
+      <div class="holo-hud">▣ NETRUNNER HOLO-DECK · NEURAL LINK ACTIVE · {{ online }}/{{ monitoredCount }} NODES ONLINE</div>
+    </div>
+
     <!-- Sidebar -->
     <aside class="sidebar">
       <div class="sidebar-header">
@@ -11,6 +21,7 @@
           <span class="logo-sub">OS v1.0.0</span>
         </div>
         <div class="header-tools">
+          <button class="btn-icon" :class="{ 'holo-on': holoMode }" @click="toggleHolo" title="HOLO mode (holographic overlay + ambient)">🛸</button>
           <button class="btn-icon btn-mic" :class="{ listening }" @click="startVoice" title="Voice command (say: network pulse, simulate incident, connect rpi…)">
             🎙️
           </button>
@@ -356,6 +367,7 @@ import OverviewPanel from './components/OverviewPanel.vue'
 import ShellPanel from './components/ShellPanel.vue'
 import NetworkPulse from './components/NetworkPulse.vue'
 import { useNocAudio } from '@/composables/useNocAudio'
+import { useAmbient } from '@/composables/useAmbient'
 import BootSequence from './components/BootSequence.vue'
 import NodeForm  from './components/NodeForm.vue'
 import TopologyView from './components/TopologyView.vue'
@@ -387,6 +399,15 @@ const selectedConsoleless = computed(() => {
 // NOC audio (voice + synth alarms on alerts)
 const { enabled: audioEnabled, toggle: toggleAudio, announce: announceEvent } = useNocAudio()
 
+// HOLO MODE — holographic overlay + reactive ambient drone
+const ambient = useAmbient()
+const holoMode = ref(localStorage.getItem('nr_holo') === 'on')
+function toggleHolo() {
+  holoMode.value = !holoMode.value
+  localStorage.setItem('nr_holo', holoMode.value ? 'on' : 'off')
+  if (holoMode.value) ambient.start(); else ambient.stop()
+}
+
 // Infrastructure events / alerts
 interface EventItem { id: number; ts: number; severity: string; node_id: string; node_name: string; kind: string; message: string }
 const events = ref<EventItem[]>([])
@@ -404,6 +425,9 @@ const alertCounts = computed(() => ({
 const filteredAlerts = computed(() => alertFilter.value === 'important'
   ? events.value.filter(e => e.severity !== 'info')
   : events.value)
+
+// Ambient drone tenses up as alerts accumulate
+watch(alertCounts, (c) => ambient.setIntensity(Math.min(1, c.critical / 3 + c.warning / 8)))
 
 function sevIcon(s: string) { return s === 'critical' ? '🔴' : s === 'warning' ? '🟡' : '🔵' }
 function eventAgo(ts: number) {
@@ -485,6 +509,7 @@ const allCommands = computed<Cmd[]>(() => {
   cmds.push({ id: 'settings', label: 'Settings', icon: '⚙️', run: () => { showSettings.value = true } })
   cmds.push({ id: 'alerts', label: 'Open alerts', icon: '🔔', run: openAlerts })
   cmds.push({ id: 'audio', label: audioEnabled.value ? 'Mute NOC audio' : 'Enable NOC audio', icon: '🔊', run: toggleAudio })
+  cmds.push({ id: 'holo', label: holoMode.value ? 'Disable HOLO mode' : 'Enable HOLO mode', icon: '🛸', run: toggleHolo })
   if (userRole.value === 'admin') cmds.push({ id: 'storm', label: 'Simulate incident (demo storm)', icon: '⚡', run: runDemoStorm })
   cmds.push({ id: 'logout', label: 'Log out', icon: '⏻', run: logout })
   return cmds
@@ -557,6 +582,8 @@ function startVoice() {
 
 // Active reachability (TCP probe) shown as a dot/latency in the node list
 const reachability = ref<Record<string, { reachable: boolean, latency_ms: number | null }>>({})
+const monitoredCount = computed(() => store.nodeList.filter(n => !CONSOLELESS_TYPES.includes((n as any).metadata?.gns3?.node_type)).length)
+const online = computed(() => store.nodeList.filter(n => !CONSOLELESS_TYPES.includes((n as any).metadata?.gns3?.node_type) && reachability.value[n.id]?.reachable).length)
 async function fetchReachability() {
   try { reachability.value = await api.nodeReachability() } catch { /* non-fatal */ }
 }
@@ -917,6 +944,7 @@ onMounted(() => {
     pollSystem()
     fetchReachability()
     fetchEvents()
+    if (holoMode.value) ambient.start()
   }
   connTimer = setInterval(() => { if (loggedIn.value) store.refreshConnections() }, 4000)
   sysTimer  = setInterval(() => { if (loggedIn.value) pollSystem() }, 2000)
@@ -1136,6 +1164,42 @@ onUnmounted(() => {
 .cmd-label { flex: 1; }
 .cmd-empty { padding: 16px; text-align: center; color: var(--text); font-size: 13px; }
 .cmd-hint { padding: 8px 14px; border-top: 1px solid var(--border); font-family: var(--font-co); font-size: 10px; color: var(--text); letter-spacing: 1px; }
+
+.holo-on { filter: drop-shadow(0 0 6px var(--cyan)); }
+
+/* HOLO MODE */
+.holo-fx { position: fixed; inset: 0; z-index: 8000; pointer-events: none; overflow: hidden; animation: holoflick 6s infinite; }
+.holo-grid {
+  position: absolute; inset: -50%;
+  background-image:
+    linear-gradient(rgba(0,229,255,0.07) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(0,229,255,0.07) 1px, transparent 1px);
+  background-size: 44px 44px;
+  transform: perspective(400px) rotateX(58deg) translateY(-10%);
+  animation: holoscroll 16s linear infinite;
+  opacity: 0.5;
+}
+.holo-scan {
+  position: absolute; left: 0; right: 0; height: 140px;
+  background: linear-gradient(180deg, transparent, rgba(0,229,255,0.10), transparent);
+  animation: holosweep 5s linear infinite;
+}
+.holo-corner { position: absolute; width: 46px; height: 46px; border: 2px solid var(--cyan); opacity: 0.6; box-shadow: 0 0 14px rgba(0,229,255,0.4); }
+.holo-corner.tl { top: 12px; left: 12px; border-right: none; border-bottom: none; }
+.holo-corner.tr { top: 12px; right: 12px; border-left: none; border-bottom: none; }
+.holo-corner.bl { bottom: 12px; left: 12px; border-right: none; border-top: none; }
+.holo-corner.br { bottom: 12px; right: 12px; border-left: none; border-top: none; }
+.holo-hud {
+  position: absolute; bottom: 16px; left: 50%; transform: translateX(-50%);
+  font-family: var(--font-hd); font-size: 10px; letter-spacing: 3px; color: var(--cyan);
+  text-shadow: 0 0 10px rgba(0,229,255,0.7); white-space: nowrap; opacity: 0.85;
+}
+.app.holo { animation: holohue 8s infinite; }
+.app.holo .main { box-shadow: inset 0 0 120px rgba(0,229,255,0.06); }
+@keyframes holoscroll { to { background-position: 0 44px; } }
+@keyframes holosweep { 0% { top: -140px; } 100% { top: 100%; } }
+@keyframes holoflick { 0%,97%,100% { opacity: 1; } 98% { opacity: 0.82; } 99% { opacity: 0.94; } }
+@keyframes holohue { 0%,100% { filter: none; } 50% { filter: hue-rotate(-8deg) saturate(1.1); } }
 
 .btn-mic.listening { color: var(--pink); animation: micpulse 1s infinite; }
 @keyframes micpulse { 50% { filter: drop-shadow(0 0 8px var(--pink)); opacity: 0.6; } }
