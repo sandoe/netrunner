@@ -366,9 +366,14 @@ function getGraphData() {
       cached = { id: link.id }
       linkCache.set(link.id, cached)
     }
-    // Always re-assign source and target to string IDs to let D3 resolve them dynamically on updates
-    cached.source = link.source
-    cached.target = link.target
+    // Only (re)assign source/target when they actually change. D3 resolves
+    // string IDs into node objects in place; blindly overwriting them with the
+    // string again (without a graphData reset) makes the simulation choke
+    // ("Cannot create property 'vx' on string ...").
+    const curSrc = typeof cached.source === 'object' ? cached.source?.id : cached.source
+    const curTgt = typeof cached.target === 'object' ? cached.target?.id : cached.target
+    if (curSrc !== link.source) cached.source = link.source
+    if (curTgt !== link.target) cached.target = link.target
     cached.auto = link.auto_discovered
     // A link carries traffic when both ends are "up". L2 fabric (switch/hub)
     // can't be "connected" but is always up if a real neighbour is connected,
@@ -393,9 +398,11 @@ function getGraphData() {
       cached = { id: linkId }
       linkCache.set(linkId, cached)
     }
-    // Always re-assign source and target to string IDs
-    cached.source = srcNode.id
-    cached.target = ghostId
+    // Only reassign on change (D3 resolves these to node objects in place)
+    const curSrc = typeof cached.source === 'object' ? cached.source?.id : cached.source
+    const curTgt = typeof cached.target === 'object' ? cached.target?.id : cached.target
+    if (curSrc !== srcNode.id) cached.source = srcNode.id
+    if (curTgt !== ghostId) cached.target = ghostId
     cached.auto = true
     cached.active = false
     cached.isGhostLink = true
