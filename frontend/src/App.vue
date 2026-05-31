@@ -969,14 +969,15 @@ onUnmounted(() => {
 .sidebar { width: 270px; min-width: 270px; background: var(--bg2); border-right: 1px solid var(--border); display: flex; flex-direction: column; position: relative; }
 .sidebar::after { content: ''; position: absolute; top: 0; right: 0; width: 1px; height: 100%; background: linear-gradient(to bottom, transparent, var(--cyan), transparent); opacity: .4; }
 
-.sidebar-header { padding: 22px 20px 18px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; }
-.header-tools { display: flex; align-items: center; gap: 10px; }
+.sidebar-header { padding: 18px 20px 16px; border-bottom: 1px solid var(--border); display: flex; flex-direction: column; align-items: flex-start; gap: 14px; }
+.header-tools { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; width: 100%; }
+.header-tools .btn-add { margin-left: auto; }
 .logo { line-height: 1; }
 .logo-title { font-family: var(--font-hd); font-size: 15px; font-weight: 900; letter-spacing: 3px; color: var(--green); text-shadow: 0 0 12px rgba(0,255,157,.6); }
 .logo-sub { display: block; font-family: var(--font-co); font-size: 9px; letter-spacing: 2px; color: var(--text); margin-top: 5px; text-transform: uppercase; }
 
-.btn-icon { background: none; border: none; font-size: 16px; cursor: pointer; opacity: 0.6; transition: opacity 0.2s; padding: 0; display: flex; align-items: center; justify-content: center; }
-.btn-icon:hover { opacity: 1; filter: drop-shadow(0 0 5px var(--cyan)); }
+.btn-icon { background: rgba(255,255,255,0.04); border: 1px solid var(--border); border-radius: 6px; font-size: 16px; cursor: pointer; opacity: 0.92; transition: all 0.2s; padding: 5px; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; }
+.btn-icon:hover { opacity: 1; border-color: var(--cyan); filter: drop-shadow(0 0 5px var(--cyan)); background: rgba(0,229,255,0.08); }
 
 .btn-add { width: 28px; height: 28px; border-radius: 50%; background: none; border: 1px solid var(--cyan); color: var(--cyan); font-size: 18px; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all .2s; }
 .btn-add:hover { background: var(--cyan); color: var(--bg); box-shadow: var(--shadow-c); }
