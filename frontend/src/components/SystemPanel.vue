@@ -1,12 +1,31 @@
 <template>
-  <div class="system-panel" ref="containerRef">
-    <SystemVitals :node-id="nodeId" />
-    <div class="split-pane">
-      <div class="pane pane-diag" :style="{ flexBasis: diagSize + '%', flexGrow: 0 }">
+  <div class="system-panel">
+    <div class="sec sec-fixed" :class="{ collapsed: isC('vitals') }">
+      <div class="sec-head" @click="toggle('vitals')">
+        <span class="sec-title">⚡ LIVE VITALS</span>
+        <span class="sec-chev">⌄</span>
+      </div>
+      <div v-show="!isC('vitals')" class="sec-body">
+        <SystemVitals :node-id="nodeId" />
+      </div>
+    </div>
+
+    <div class="sec sec-grow" :class="{ collapsed: isC('diag') }">
+      <div class="sec-head" @click="toggle('diag')">
+        <span class="sec-title">🔍 DIAGNOSTICS</span>
+        <span class="sec-chev">⌄</span>
+      </div>
+      <div v-show="!isC('diag')" class="sec-body grow">
         <DiagPanel :node-id="nodeId" />
       </div>
-      <div class="pane-divider" @mousedown="startDrag" @touchstart="startDrag"></div>
-      <div class="pane pane-config">
+    </div>
+
+    <div class="sec sec-grow" :class="{ collapsed: isC('config') }">
+      <div class="sec-head" @click="toggle('config')">
+        <span class="sec-title">🛠️ CONFIGURATION</span>
+        <span class="sec-chev">⌄</span>
+      </div>
+      <div v-show="!isC('config')" class="sec-body grow">
         <ConfigPanel :node-id="nodeId" />
       </div>
     </div>
@@ -14,74 +33,22 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted } from 'vue'
+import { ref } from 'vue'
 import DiagPanel from './DiagPanel.vue'
 import ConfigPanel from './ConfigPanel.vue'
 import SystemVitals from './SystemVitals.vue'
 
-defineProps<{
-  nodeId: string
-}>()
+defineProps<{ nodeId: string }>()
 
-const containerRef = ref<HTMLElement | null>(null)
-const diagSize = ref(35) // initial 35%
-let isDragging = false
-
-function startDrag(e: MouseEvent | TouchEvent) {
-  e.preventDefault()
-  isDragging = true
-  document.addEventListener('mousemove', onDrag)
-  document.addEventListener('touchmove', onDrag, { passive: false })
-  document.addEventListener('mouseup', stopDrag)
-  document.addEventListener('touchend', stopDrag)
-  document.body.style.cursor = window.innerWidth >= 1200 ? 'col-resize' : 'row-resize'
-  document.body.style.userSelect = 'none'
+const KEY = 'nr_system_collapsed'
+const collapsed = ref<Set<string>>(new Set(JSON.parse(localStorage.getItem(KEY) || '[]')))
+function isC(k: string) { return collapsed.value.has(k) }
+function toggle(k: string) {
+  const s = new Set(collapsed.value)
+  s.has(k) ? s.delete(k) : s.add(k)
+  collapsed.value = s
+  localStorage.setItem(KEY, JSON.stringify([...s]))
 }
-
-function onDrag(e: MouseEvent | TouchEvent) {
-  if (!isDragging || !containerRef.value) return
-  
-  const container = containerRef.value.getBoundingClientRect()
-  const isWide = window.innerWidth >= 1200
-  
-  let clientX, clientY
-  if (e instanceof MouseEvent) {
-    clientX = e.clientX
-    clientY = e.clientY
-  } else {
-    clientX = e.touches[0].clientX
-    clientY = e.touches[0].clientY
-  }
-  
-  let newSize = 0
-  if (isWide) {
-    const delta = clientX - container.left
-    newSize = (delta / container.width) * 100
-  } else {
-    const delta = clientY - container.top
-    newSize = (delta / container.height) * 100
-  }
-  
-  // Clamp between 10% and 90%
-  if (newSize < 10) newSize = 10
-  if (newSize > 90) newSize = 90
-  
-  diagSize.value = newSize
-}
-
-function stopDrag() {
-  isDragging = false
-  document.removeEventListener('mousemove', onDrag)
-  document.removeEventListener('touchmove', onDrag)
-  document.removeEventListener('mouseup', stopDrag)
-  document.removeEventListener('touchend', stopDrag)
-  document.body.style.cursor = ''
-  document.body.style.userSelect = ''
-}
-
-onUnmounted(() => {
-  stopDrag()
-})
 </script>
 
 <style scoped>
@@ -94,51 +61,37 @@ onUnmounted(() => {
   background: var(--bg);
 }
 
-.split-pane {
+.sec {
   display: flex;
   flex-direction: column;
-  flex: 1;
+  border-bottom: 1px solid var(--border);
   min-height: 0;
-  width: 100%;
 }
+/* Vitals is a short strip — never grow. */
+.sec-fixed { flex: 0 0 auto; }
+/* Diagnostics / Config share the remaining height when expanded. */
+.sec-grow:not(.collapsed) { flex: 1 1 0; }
+.sec-grow.collapsed { flex: 0 0 auto; }
 
-@media (min-width: 1200px) {
-  .split-pane {
-    flex-direction: row;
-  }
-}
-
-.pane {
-  flex: 1;
+.sec-head {
   display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  min-height: 100px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 9px 16px;
+  background: var(--bg2);
+  cursor: pointer;
+  user-select: none;
+  font-family: var(--font-hd);
+  font-size: 11px;
+  letter-spacing: 2px;
+  color: var(--cyan);
+  transition: background 0.15s;
+  flex-shrink: 0;
 }
+.sec-head:hover { background: var(--bg3); color: var(--textwh); }
+.sec-chev { transition: transform 0.2s; font-size: 14px; }
+.sec.collapsed .sec-chev { transform: rotate(-90deg); }
 
-.pane-config {
-  flex: 1;
-}
-
-.pane-divider {
-  width: 100%;
-  height: 8px;
-  margin: -2px 0;
-  background: var(--border);
-  cursor: row-resize;
-  z-index: 10;
-  transition: background 0.2s;
-}
-.pane-divider:hover, .pane-divider:active {
-  background: var(--accent);
-}
-
-@media (min-width: 1200px) {
-  .pane-divider {
-    width: 8px;
-    height: 100%;
-    margin: 0 -2px;
-    cursor: col-resize;
-  }
-}
+.sec-body { overflow: hidden; display: flex; flex-direction: column; min-height: 0; }
+.sec-body.grow { flex: 1 1 0; }
 </style>
