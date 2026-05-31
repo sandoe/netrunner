@@ -36,3 +36,9 @@ def record_event(severity: str, node_id: str, node_name: str, kind: str, message
 
 def recent_events(limit: int = 150) -> list:
     return list(itertools.islice(events, 0, limit))
+
+
+def clear_events() -> int:
+    n = len(events)
+    events.clear()
+    return n

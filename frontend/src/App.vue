@@ -215,7 +215,10 @@
       <div class="alerts-panel">
         <div class="alerts-head">
           <span>🔔 ALERTS &amp; EVENTS</span>
-          <button class="alerts-close" @click="showAlerts = false">×</button>
+          <div class="alerts-head-actions">
+            <button v-if="events.length" class="alerts-clear" @click="clearEvents">CLEAR</button>
+            <button class="alerts-close" @click="showAlerts = false">×</button>
+          </div>
         </div>
         <div class="alerts-body">
           <div v-for="e in events" :key="e.id" class="alert-row" :class="e.severity">
@@ -414,6 +417,14 @@ async function fetchEvents() {
 function openAlerts() {
   showAlerts.value = true
   if (events.value.length) seenEventId.value = events.value[0].id  // mark read
+}
+
+async function clearEvents() {
+  try {
+    await api.clearEvents()
+    events.value = []
+    seenEventId.value = 0
+  } catch (e) { flash(String(e), 'err') }
 }
 
 // --- Command palette (Ctrl/Cmd+K) ---
@@ -1086,6 +1097,9 @@ onUnmounted(() => {
   padding: 12px 16px; border-bottom: 1px solid var(--border);
   font-family: var(--font-hd); font-size: 12px; letter-spacing: 1px; color: var(--cyan);
 }
+.alerts-head-actions { display: flex; align-items: center; gap: 10px; }
+.alerts-clear { background: none; border: 1px solid var(--border2); color: var(--text); font-family: var(--font-hd); font-size: 9px; letter-spacing: 1px; padding: 4px 10px; border-radius: 4px; cursor: pointer; }
+.alerts-clear:hover { border-color: var(--cyan); color: var(--cyan); }
 .alerts-close { background: none; border: none; color: #888; font-size: 22px; cursor: pointer; line-height: 1; }
 .alerts-close:hover { color: var(--pink); }
 .alerts-body { overflow-y: auto; padding: 6px; }

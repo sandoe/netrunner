@@ -50,6 +50,7 @@ export const api = {
   nodeVitals: () => req<Record<string, { cpu: number | null, ram: number | null, net_tx: number, net_rx: number, timestamp: number }>>('GET', '/nodes/vitals'),
   events: () => req<{ events: { id: number, ts: number, severity: string, node_id: string, node_name: string, kind: string, message: string }[] }>('GET', '/events'),
   demoStorm: () => req<{ status: string }>('POST', '/demo/storm'),
+  clearEvents: () => req<{ status: string, removed: number }>('DELETE', '/events'),
   detectDevice: (id: string) => req<{ device_type: string }>('POST', `/nodes/${id}/detect`),
   defenseScan: (id: string) => req<{ output: string }>('POST', `/nodes/${id}/defense/scan`),
   isolateNode: (id: string, action: 'isolate' | 'restore') => 

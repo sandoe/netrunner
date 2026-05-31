@@ -277,6 +277,13 @@ async def api_events():
     return {"events": recent_events()}
 
 
+@router.delete("/events")
+async def api_clear_events():
+    """Clear the event/alert feed."""
+    from ..core.events import clear_events
+    return {"status": "cleared", "removed": clear_events()}
+
+
 async def _run_demo_storm():
     """Choreographed incident for live demos — emits escalating events then a
     recovery via the real event pipeline, so bell/toasts/voice/pulse all react."""
