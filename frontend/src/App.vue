@@ -11,6 +11,9 @@
           <span class="logo-sub">OS v1.0.0</span>
         </div>
         <div class="header-tools">
+          <button class="btn-icon btn-mic" :class="{ listening }" @click="startVoice" title="Voice command (say: network pulse, simulate incident, connect rpi…)">
+            🎙️
+          </button>
           <button class="btn-icon" @click="toggleAudio" :title="audioEnabled ? 'Mute NOC audio' : 'Enable NOC voice + alarms'">
             {{ audioEnabled ? '🔊' : '🔇' }}
           </button>
@@ -510,6 +513,46 @@ function globalKeydown(e: KeyboardEvent) {
     e.preventDefault()
     if (loggedIn.value) { showPalette.value ? (showPalette.value = false) : openPalette() }
   }
+}
+
+// --- Voice control (speech → command) ---
+const listening = ref(false)
+let recog: any = null
+function speakBack(text: string) {
+  if (!('speechSynthesis' in window)) return
+  try { const u = new SpeechSynthesisUtterance(text); u.rate = 1.05; u.pitch = 0.9; window.speechSynthesis.speak(u) } catch { /* */ }
+}
+const VOICE_SYN: Record<string, string> = { attack: 'incident', storm: 'incident', map: 'topology', dashboard: 'pulse', disconnect: 'disconnect', mute: 'audio', unmute: 'audio', logout: 'log out' }
+function matchVoice(transcript: string) {
+  let lower = ' ' + transcript.toLowerCase().replace(/[^a-z0-9 ]/g, '') + ' '
+  for (const [k, v] of Object.entries(VOICE_SYN)) lower = lower.replace(new RegExp(`\\b${k}\\b`, 'g'), v)
+  const words = lower.trim().split(/\s+/).filter(w => w.length > 1)
+  let best: any = null, bestScore = 0
+  for (const c of allCommands.value) {
+    const label = c.label.toLowerCase().replace(/[^a-z0-9 ]/g, '')
+    const score = words.reduce((s, w) => s + (label.includes(w) ? 1 : 0), 0)
+    if (score > bestScore) { bestScore = score; best = c }
+  }
+  if (best && bestScore > 0) {
+    const clean = best.label.replace(/[^\w\s]/g, '').trim()
+    flash(`🎙️ "${transcript}" → ${best.label}`)
+    speakBack(clean)
+    best.run()
+  } else {
+    flash(`🎙️ "${transcript}" — no match`, 'err')
+    speakBack('Command not recognized')
+  }
+}
+function startVoice() {
+  const SR = (window as any).webkitSpeechRecognition || (window as any).SpeechRecognition
+  if (!SR) { flash('Voice control not supported in this browser', 'err'); return }
+  if (listening.value && recog) { recog.stop(); return }
+  recog = new SR()
+  recog.lang = 'en-US'; recog.interimResults = false; recog.maxAlternatives = 1
+  recog.onresult = (e: any) => { matchVoice(e.results[0][0].transcript) }
+  recog.onend = () => { listening.value = false }
+  recog.onerror = () => { listening.value = false }
+  try { recog.start(); listening.value = true; flash('🎙️ Listening…') } catch { listening.value = false }
 }
 
 // Active reachability (TCP probe) shown as a dot/latency in the node list
@@ -1094,6 +1137,8 @@ onUnmounted(() => {
 .cmd-empty { padding: 16px; text-align: center; color: var(--text); font-size: 13px; }
 .cmd-hint { padding: 8px 14px; border-top: 1px solid var(--border); font-family: var(--font-co); font-size: 10px; color: var(--text); letter-spacing: 1px; }
 
+.btn-mic.listening { color: var(--pink); animation: micpulse 1s infinite; }
+@keyframes micpulse { 50% { filter: drop-shadow(0 0 8px var(--pink)); opacity: 0.6; } }
 .btn-bell { position: relative; }
 .bell-badge {
   position: absolute; top: -6px; right: -8px;

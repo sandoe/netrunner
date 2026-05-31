@@ -36,6 +36,9 @@
     </div>
     <div ref="canvasRef" class="cy-canvas"></div>
 
+    <!-- Critical-event shockwave -->
+    <div v-if="shockwave" class="shockwave"></div>
+
     <!-- Reachability overview -->
     <div v-if="showReachPanel" class="reach-panel">
       <div class="reach-head">
@@ -86,6 +89,16 @@ import { api, wsTokenParam, wsBase } from '@/api/client'
 const store = useNodesStore()
 const emit = defineEmits<{ editNode: [string] }>()
 const canvasRef = ref<HTMLElement | null>(null)
+
+// Red shockwave when a critical event hits (e.g. the demo storm)
+const shockwave = ref(false)
+let shockTimer: any = null
+function triggerShockwave() {
+  shockwave.value = false
+  requestAnimationFrame(() => { shockwave.value = true })
+  if (shockTimer) clearTimeout(shockTimer)
+  shockTimer = setTimeout(() => { shockwave.value = false }, 1600)
+}
 
 // Reachability overview panel
 const showReachPanel = ref(false)
@@ -986,6 +999,8 @@ onMounted(() => {
       } else if (data.type === 'reach') {
         nodeReach.value[data.node_id] = { reachable: data.reachable, latency_ms: data.latency_ms }
         refreshVisuals()
+      } else if (data.type === 'event' && data.severity === 'critical') {
+        triggerShockwave()
       }
     } catch (e) {}
   }
@@ -1119,6 +1134,17 @@ onUnmounted(() => {
   background: rgba(255, 190, 11, 0.1);
   border: 1px dashed #ffbe0b;
   color: #ffbe0b;
+}
+
+.shockwave {
+  position: absolute; inset: 0; z-index: 11; pointer-events: none;
+  background: radial-gradient(circle at 50% 50%, transparent 0%, rgba(255,45,110,0.25) 100%);
+  animation: shock 1.5s ease-out forwards;
+}
+@keyframes shock {
+  0% { opacity: 0; box-shadow: inset 0 0 0 rgba(255,45,110,0.9); }
+  12% { opacity: 1; box-shadow: inset 0 0 120px 10px rgba(255,45,110,0.7); }
+  100% { opacity: 0; box-shadow: inset 0 0 200px 40px rgba(255,45,110,0); }
 }
 
 .reach-panel {
