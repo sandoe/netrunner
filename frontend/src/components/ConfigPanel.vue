@@ -2716,10 +2716,7 @@ async function applyConfig() {
   results.value = []
   previewError.value = ''
   try {
-    const cmds = persistMode.value
-      ? [previewCommands.value.join('\n')]
-      : previewCommands.value
-    const res = await api.executeNode(props.nodeId, cmds)
+    const res = await api.executeNode(props.nodeId, previewCommands.value)
     results.value = res.results
     
     // Automatically trigger a refresh of live telemetry if no execution errors occurred
