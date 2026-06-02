@@ -110,10 +110,24 @@ def gen_ufw(cfg: dict) -> list[str]:
     return cmds
 
 
+def _nft_value(rule: dict, *keys: str) -> str:
+    for key in keys:
+        value = rule.get(key)
+        if value is not None and str(value).strip():
+            return str(value).strip()
+    return ""
+
+
+def _nft_quote(value: str) -> str:
+    return value.replace("\\", "\\\\").replace('"', '\\"')
+
+
 def _nft_rule_expr(rule: dict) -> str:
     p = []
-    if rule.get("iif"):   p.append(f'iifname "{rule["iif"]}"')
-    if rule.get("oif"):   p.append(f'oifname "{rule["oif"]}"')
+    iifname = _nft_value(rule, "iifname", "iif", "in_iface", "iface")
+    oifname = _nft_value(rule, "oifname", "oif", "out_iface")
+    if iifname: p.append(f'iifname "{_nft_quote(iifname)}"')
+    if oifname: p.append(f'oifname "{_nft_quote(oifname)}"')
     if rule.get("saddr"): p.append(f"ip saddr {rule['saddr']}")
     if rule.get("daddr"): p.append(f"ip daddr {rule['daddr']}")
     proto    = rule.get("protocol", "")

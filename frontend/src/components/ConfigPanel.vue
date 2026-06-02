@@ -1239,8 +1239,8 @@
                     <option value="icmp">icmp</option>
                   </select>
                 </label>
-                <label>In iface <input v-model="r.iif" list="detected-interfaces" placeholder="eth0" /></label>
-                <label>Out iface <input v-model="r.oif" list="detected-interfaces" placeholder="eth1" /></label>
+                <label>In iifname <input v-model="r.iifname" list="detected-interfaces" placeholder="eth0" /></label>
+                <label>Out oifname <input v-model="r.oifname" list="detected-interfaces" placeholder="eth1" /></label>
                 <button class="btn-remove" @click="nftablesForm.rules.splice(i, 1)">✕</button>
               </div>
               <div class="form-row">
@@ -1256,8 +1256,8 @@
                 <label>Comment <input v-model="r.comment" /></label>
               </div>
             </div>
-            <button class="btn-add-sub" @click="nftablesForm.rules.push({ iif: '', oif: '', saddr: '', daddr: '', protocol: '', sport: '', dport: '', ct_state: '', action: 'accept', nat_addr: '', log_prefix: '', comment: '' })">+ Add Rule</button>
-            <button class="btn-add-sub" @click="nftablesForm.rules.unshift({ iif: 'lo', oif: '', saddr: '', daddr: '', protocol: '', sport: '', dport: '', ct_state: '', action: 'accept', nat_addr: '', log_prefix: '', comment: 'loopback' })">+ Allow Loopback</button>
+            <button class="btn-add-sub" @click="nftablesForm.rules.push({ iifname: '', oifname: '', saddr: '', daddr: '', protocol: '', sport: '', dport: '', ct_state: '', action: 'accept', nat_addr: '', log_prefix: '', comment: '' })">+ Add Rule</button>
+            <button class="btn-add-sub" @click="nftablesForm.rules.unshift({ iifname: 'lo', oifname: '', saddr: '', daddr: '', protocol: '', sport: '', dport: '', ct_state: '', action: 'accept', nat_addr: '', log_prefix: '', comment: 'loopback' })">+ Allow Loopback</button>
             <div class="hint">Multi-table setups: edit JSON below directly.</div>
           </div>
 
@@ -1853,8 +1853,8 @@ const defaultNftablesForm     = () => ({
   priority: '0',
   policy: 'drop',
   rules: [
-    { iif: '', oif: '', saddr: '', daddr: '', protocol: '', sport: '', dport: '', ct_state: 'established,related', action: 'accept', nat_addr: '', log_prefix: '', comment: '' },
-    { iif: '', oif: '', saddr: '', daddr: '', protocol: '', sport: '', dport: '', ct_state: '',                      action: 'accept', nat_addr: '', log_prefix: '', comment: '' },
+    { iifname: '', oifname: '', saddr: '', daddr: '', protocol: '', sport: '', dport: '', ct_state: 'established,related', action: 'accept', nat_addr: '', log_prefix: '', comment: '' },
+    { iifname: '', oifname: '', saddr: '', daddr: '', protocol: '', sport: '', dport: '', ct_state: '',                      action: 'accept', nat_addr: '', log_prefix: '', comment: '' },
   ],
 })
 const defaultRpiWifiForm      = () => ({ ssid: '', password: '', country: 'DK', hidden: false })
@@ -2635,7 +2635,13 @@ function syncNftablesForm() {
         hook: f.hook,
         priority: f.priority,
         policy: f.policy,
-        rules: f.rules.map(r => _stripEmpty(r)),
+        rules: f.rules.map(r => _stripEmpty({
+          ...r,
+          iifname: r.iifname || r.iif || '',
+          oifname: r.oifname || r.oif || '',
+          iif: undefined,
+          oif: undefined,
+        })),
       }],
     }],
   }, null, 2)
@@ -3008,8 +3014,11 @@ function selectPort(ifaceName: string) {
   if (!ifaceName) return
 
   if (activeType.value === 'nftables') {
-    const rule = nftablesForm.value.rules.find(r => !r.iif || r.iif === 'lo') || nftablesForm.value.rules[0]
-    if (rule) rule.iif = ifaceName
+    const rule = nftablesForm.value.rules.find(r => !(r.iifname || r.iif) || r.iifname === 'lo' || r.iif === 'lo') || nftablesForm.value.rules[0]
+    if (rule) {
+      rule.iifname = ifaceName
+      rule.iif = ''
+    }
     syncNftablesForm()
     return
   }
