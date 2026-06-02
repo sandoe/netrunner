@@ -1,6 +1,9 @@
 import pytest
 from httpx import AsyncClient
 
+from backend.routers.auth import seed_default_users
+from backend.core.db import delete_user_db, get_user_db
+
 
 async def _token(client: AsyncClient, username, password):
     r = await client.post("/api/auth/login", json={"username": username, "password": password})
@@ -43,3 +46,17 @@ async def test_admin_creates_user_who_can_login(client: AsyncClient):
 async def test_cannot_delete_self_or_last_admin(client: AsyncClient):
     # admin (the caller) cannot delete itself
     assert (await client.delete("/api/auth/users/admin")).status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_default_admin_is_recreated_when_missing(client: AsyncClient):
+    await client.post("/api/auth/users", json={"username": "teacher", "password": "secret", "role": "admin"})
+    await delete_user_db("admin")
+
+    assert await get_user_db("admin") is None
+
+    await seed_default_users()
+
+    code_ok, token = await _token(client, "admin", "admin")
+    assert code_ok == 200
+    assert token

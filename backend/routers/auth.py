@@ -49,6 +49,9 @@ class LoginRequest(BaseModel):
 # plaintext: each user has a random salt and a PBKDF2-HMAC-SHA256 hash, verified
 # in constant time. Default admin/analyst are seeded on first startup; override
 # their initial passwords via NETRUNNER_ADMIN_PASSWORD / NETRUNNER_ANALYST_PASSWORD.
+# Seeding is intentionally idempotent on every startup: existing users are left
+# untouched, while missing default accounts are created so a copied/new database
+# cannot lock students out.
 import hashlib
 import hmac as _hmac
 from datetime import date
@@ -80,7 +83,7 @@ def _verify(user: dict, password: str) -> bool:
 
 
 async def seed_default_users():
-    """Create default admin/analyst on first run (idempotent)."""
+    """Create missing default admin/analyst accounts (idempotent)."""
     using_defaults = []
     for username, default in _DEFAULT_CREDS.items():
         if await get_user_db(username):

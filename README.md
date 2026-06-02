@@ -15,16 +15,40 @@ Netrunner is a comprehensive network and Linux management tool featuring AI-driv
 
 ### Prerequisites
 - Python 3.10+
-- Node.js (for frontend build)
-- `npm`
+- Node.js LTS (includes `npm`)
 
 ### Quick Start
-1. Run `./start.sh` from the root directory.
-2. The script will:
-   - Create a Python virtual environment.
-   - Install dependencies.
-   - Build the frontend.
-   - Start the backend on `http://localhost:8000`.
+Linux/macOS:
+
+```bash
+./start.sh
+```
+
+Windows PowerShell:
+
+```powershell
+.\start.ps1
+```
+
+Windows Command Prompt:
+
+```bat
+start.bat
+```
+
+The launcher will create a Python virtual environment, install backend
+dependencies, install/build the frontend, initialize the SQLite database, and
+start Netrunner on `http://localhost:8000`.
+
+Default login for teaching/local installs:
+
+- Username: `admin`
+- Password: `admin`
+
+Netrunner creates the missing default users on startup. Existing users are not
+overwritten. To choose safer first-run passwords, set
+`NETRUNNER_ADMIN_PASSWORD` and/or `NETRUNNER_ANALYST_PASSWORD` before the first
+start.
 
 ## Architecture
 - **Backend:** FastAPI (Python)
