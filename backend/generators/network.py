@@ -31,6 +31,21 @@ def _safe_name(value: str, fallback: str = "config") -> str:
     return cleaned or fallback
 
 
+def _get_any(d: dict, keys: list[str], default=None):
+    if not isinstance(d, dict):
+        return default
+    for key in keys:
+        value = d.get(key)
+        if value is not None and value != "":
+            return value
+    normalized = {str(k).lower().replace("_", "").replace("-", ""): v for k, v in d.items()}
+    for key in keys:
+        value = normalized.get(key.lower().replace("_", "").replace("-", ""))
+        if value is not None and value != "":
+            return value
+    return default
+
+
 def gen_ip(iface: str, addrs: list[str], action: str = "add") -> list[str]:
     cmds = []
     for a in addrs:
@@ -99,10 +114,16 @@ def gen_interface(cfg: dict) -> list[str]:
 def gen_routes(routes: list[dict], action: str = "add") -> list[str]:
     cmds = []
     for r in routes:
-        parts = ["ip route", action, r["dst"]]
-        if r.get("via"):    parts += ["via",    r["via"]]
-        if r.get("dev"):    parts += ["dev",    r["dev"]]
-        if r.get("metric"): parts += ["metric", str(r["metric"])]
+        dst = _get_any(r, ["dst", "destination", "dest", "prefix", "network"])
+        if not dst:
+            continue
+        parts = ["ip route", action, str(dst)]
+        via = _get_any(r, ["via", "gateway", "next_hop", "nexthop"])
+        dev = _get_any(r, ["dev", "interface", "iface"])
+        metric = _get_any(r, ["metric", "route_metric"])
+        if via:    parts += ["via",    str(via)]
+        if dev:    parts += ["dev",    str(dev)]
+        if metric: parts += ["metric", str(metric)]
         cmds.append(" ".join(parts))
     return cmds
 
@@ -236,11 +257,13 @@ def gen_dhcp_server(cfg: dict) -> list[str]:
 
 
 def gen_nat(cfg: dict) -> list[str]:
-    outbound   = str(cfg.get("outbound_iface", "eth0")).strip() or "eth0"
-    inbound    = str(cfg.get("inbound_iface",  "eth1")).strip() or "eth1"
-    source     = str(cfg.get("source_subnet",  "")).strip()
+    outbound   = str(_get_any(cfg, ["outbound_iface", "out_interface", "wan_iface", "wan", "external_iface"], "eth0")).strip() or "eth0"
+    inbound    = str(_get_any(cfg, ["inbound_iface", "in_interface", "lan_iface", "lan", "internal_iface"], "eth1")).strip() or "eth1"
+    raw_source = _get_any(cfg, ["source_subnet", "inside_subnet", "inside_subnets", "source", "src"], "")
+    source     = raw_source[0] if isinstance(raw_source, list) and raw_source else raw_source
+    source     = str(source or "").strip()
     masquerade = bool(cfg.get("masquerade", True))
-    forwards   = cfg.get("port_forwards") or []
+    forwards   = cfg.get("port_forwards") or cfg.get("forwards") or cfg.get("rules") or []
 
     cmds = [
         "# ── NAT / port forwarding via iptables ─────────────────────",
@@ -267,9 +290,9 @@ def gen_nat(cfg: dict) -> list[str]:
         cmds.append(" ".join(parts))
     for rule in forwards:
         proto       = str(rule.get("proto", "tcp")).strip() or "tcp"
-        ext_port    = str(rule.get("external_port",  "")).strip()
-        target_ip   = str(rule.get("target_ip",      "")).strip()
-        target_port = str(rule.get("target_port",    "")).strip() or ext_port
+        ext_port    = str(_get_any(rule, ["external_port", "ext_port", "port", "dport"], "")).strip()
+        target_ip   = str(_get_any(rule, ["target_ip", "to_ip", "destination_ip", "host"], "")).strip()
+        target_port = str(_get_any(rule, ["target_port", "to_port", "internal_port"], "")).strip() or ext_port
         if not (ext_port and target_ip):
             continue
         cmds.append(

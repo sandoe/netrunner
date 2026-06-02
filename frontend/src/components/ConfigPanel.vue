@@ -2370,6 +2370,132 @@ const formRefsMap: Record<string, any> = {
 
 const isSyncing = ref(false)
 
+function asCsv(value: any): string {
+  return Array.isArray(value) ? value.join(', ') : (value ?? '')
+}
+
+function normalizeRouteForm(parsed: any) {
+  const defaults = defaultRouteForm()
+  const routes = Array.isArray(parsed?.routes) ? parsed.routes : defaults.routes
+  return {
+    ...defaults,
+    routes: routes.map((r: any) => ({
+      dst: r.dst || r.destination || r.dest || r.prefix || r.network || '',
+      via: r.via || r.gateway || r.next_hop || r.nexthop || '',
+      dev: r.dev || r.interface || r.iface || '',
+      metric: r.metric || 0,
+    })),
+    isDelete: (parsed?.action || '').toLowerCase() === 'del' || (parsed?.action || '').toLowerCase() === 'delete',
+  }
+}
+
+function normalizeNatForm(parsed: any) {
+  const defaults = defaultNatForm()
+  const rawSource = parsed?.source_subnet || parsed?.inside_subnet || parsed?.inside_subnets || parsed?.source || parsed?.src || defaults.source_subnet
+  const forwards = parsed?.port_forwards || parsed?.forwards || parsed?.rules || defaults.port_forwards
+  return {
+    ...defaults,
+    outbound_iface: parsed?.outbound_iface || parsed?.out_interface || parsed?.wan_iface || parsed?.wan || parsed?.external_iface || defaults.outbound_iface,
+    inbound_iface: parsed?.inbound_iface || parsed?.in_interface || parsed?.lan_iface || parsed?.lan || parsed?.internal_iface || defaults.inbound_iface,
+    source_subnet: Array.isArray(rawSource) ? (rawSource[0] || '') : rawSource,
+    masquerade: parsed?.masquerade ?? defaults.masquerade,
+    port_forwards: (Array.isArray(forwards) ? forwards : []).map((f: any) => ({
+      proto: f.proto || f.protocol || 'tcp',
+      external_port: f.external_port || f.ext_port || f.port || f.dport || '',
+      target_ip: f.target_ip || f.to_ip || f.destination_ip || f.host || '',
+      target_port: f.target_port || f.to_port || f.internal_port || '',
+    })),
+  }
+}
+
+function normalizeForwardingForm(parsed: any) {
+  const defaults = defaultForwardingForm()
+  if (parsed?.enabled !== undefined) {
+    return { ...defaults, ipv4: Boolean(parsed.enabled), ipv6: defaults.ipv6 }
+  }
+  return { ...defaults, ...parsed }
+}
+
+function normalizePackageForm(parsed: any) {
+  const defaults = defaultPackageForm()
+  const packages = parsed?.packages ?? parsed?.package ?? parsed?.name ?? defaults.packages
+  return { ...defaults, ...parsed, packages: asCsv(packages) }
+}
+
+function normalizeIptablesForm(parsed: any) {
+  const defaults = defaultIptablesForm()
+  const rules = Array.isArray(parsed?.rules) ? parsed.rules : defaults.rules
+  return {
+    ...defaults,
+    ...parsed,
+    rules: rules.map((r: any) => ({
+      table: r.table || 'filter',
+      chain: r.chain || 'INPUT',
+      protocol: r.protocol || r.proto || '',
+      iif: r.iif || r.iifname || r.in_iface || r.iface || r.interface || '',
+      oif: r.oif || r.oifname || r.out_iface || '',
+      saddr: r.saddr || r.source || r.src || '',
+      daddr: r.daddr || r.destination || r.dest || r.dst || '',
+      sport: r.sport || r.source_port || r.src_port || '',
+      dport: r.dport || r.destination_port || r.dest_port || r.port || '',
+      ct_state: r.ct_state || r.ctstate || r.state || '',
+      action: r.action || 'ACCEPT',
+      nat_addr: r.nat_addr || r.to || r.to_addr || '',
+      log_prefix: r.log_prefix || '',
+    })),
+  }
+}
+
+function normalizeUfwForm(parsed: any) {
+  const defaults = defaultUfwForm()
+  const rules = Array.isArray(parsed?.rules) ? parsed.rules : defaults.rules
+  return {
+    ...defaults,
+    ...parsed,
+    rules: rules.map((r: any) => ({
+      direction: r.direction || '',
+      action: r.action || 'allow',
+      iif: r.iif || r.iifname || r.iface || r.interface || r.in_iface || '',
+      protocol: r.protocol || r.proto || '',
+      port: r.port || r.dport || r.destination_port || r.dest_port || '',
+      saddr: r.saddr || r.source || r.src || '',
+      daddr: r.daddr || r.destination || r.dest || r.dst || '',
+      comment: r.comment || '',
+    })),
+  }
+}
+
+function normalizeNftablesForm(parsed: any) {
+  const defaults = defaultNftablesForm()
+  const table = parsed?.tables?.[0]
+  const chain = table?.chains?.[0]
+  const rules = chain?.rules || parsed?.rules || defaults.rules
+  return {
+    ...defaults,
+    family: table?.family || parsed?.family || defaults.family,
+    table_name: table?.name || parsed?.table_name || parsed?.table || defaults.table_name,
+    chain_name: chain?.name || parsed?.chain_name || parsed?.chain || defaults.chain_name,
+    chain_type: chain?.type || parsed?.chain_type || defaults.chain_type,
+    hook: chain?.hook || parsed?.hook || defaults.hook,
+    priority: chain?.priority ?? parsed?.priority ?? defaults.priority,
+    policy: chain?.policy || parsed?.policy || defaults.policy,
+    rules: (Array.isArray(rules) ? rules : []).map((r: any) => ({
+      iifname: r.iifname || r.iif || r.in_iface || r.iface || r.interface || '',
+      oifname: r.oifname || r.oif || r.out_iface || '',
+      saddr: r.saddr || r.source || r.src || '',
+      daddr: r.daddr || r.destination || r.dest || r.dst || '',
+      protocol: r.protocol || r.proto || '',
+      sport: r.sport || r.source_port || r.src_port || '',
+      dport: r.dport || r.destination_port || r.dest_port || r.port || '',
+      ct_state: r.ct_state || r.ctstate || r.state || '',
+      action: r.action || 'accept',
+      nat_addr: r.nat_addr || r.to || r.to_addr || '',
+      log_prefix: r.log_prefix || '',
+      comment: r.comment || '',
+    })),
+  }
+}
+
 function updateFormFromJson(type: string, parsed: any) {
   const formRef = formRefsMap[type]
   if (!formRef) return
@@ -2381,6 +2507,20 @@ function updateFormFromJson(type: string, parsed: any) {
     if (type === 'wireguard') {
       const normalized = normalizeWireguardForm(parsed)
       formRef.value = normalized
+    } else if (type === 'routes') {
+      formRef.value = normalizeRouteForm(parsed)
+    } else if (type === 'nat') {
+      formRef.value = normalizeNatForm(parsed)
+    } else if (type === 'forwarding') {
+      formRef.value = normalizeForwardingForm(parsed)
+    } else if (type === 'package') {
+      formRef.value = normalizePackageForm(parsed)
+    } else if (type === 'iptables') {
+      formRef.value = normalizeIptablesForm(parsed)
+    } else if (type === 'ufw') {
+      formRef.value = normalizeUfwForm(parsed)
+    } else if (type === 'nftables') {
+      formRef.value = normalizeNftablesForm(parsed)
     } else {
       const defaultCreator = defaultsMap[type]
       if (defaultCreator) {
@@ -2446,16 +2586,16 @@ const directJsonGeneratorType = ref('wireguard')
 
 const JSON_BOILERPLATES: Record<string, string> = {
   interface: JSON.stringify({ interface: "eth1", addresses: ["192.168.10.1/24"], gateway: "192.168.10.254", up: true }, null, 2),
-  routes: JSON.stringify({ routes: [{ destination: "10.0.0.0/8", gateway: "192.168.10.254" }] }, null, 2),
+  routes: JSON.stringify({ routes: [{ dst: "10.0.0.0/8", via: "192.168.10.254", dev: "eth0" }] }, null, 2),
   dns: JSON.stringify({ nameservers: ["8.8.8.8", "1.1.1.1"] }, null, 2),
-  nat: JSON.stringify({ action: "setup", out_interface: "eth0", inside_subnets: ["192.168.110.0/24"] }, null, 2),
+  nat: JSON.stringify({ outbound_iface: "eth0", inbound_iface: "eth1", source_subnet: "192.168.110.0/24", masquerade: true, port_forwards: [] }, null, 2),
   wireguard: JSON.stringify({ interface: "wg0", action: "add", addresses: ["10.110.0.1/24"], listen_port: 51820, private_key: "wPOIlmY3PXlwkJ4NP2PzHaetquG+kNHzgv+R/fcMgnw=", peers: [{ public_key: "ZG/F+OQdWRxBHlqkJPsQFlMtlq1URE4WT7sI8g8TlAc=", allowed_ips: ["10.110.0.2/32"], endpoint: "192.168.110.2:51820", persistent_keepalive: 25 }] }, null, 2),
-  forwarding: JSON.stringify({ enabled: true }, null, 2),
+  forwarding: JSON.stringify({ ipv4: true, ipv6: false }, null, 2),
   iptables: JSON.stringify({ defaults: { INPUT: "ACCEPT", FORWARD: "DROP", OUTPUT: "ACCEPT" }, rules: [] }, null, 2),
-  nftables: JSON.stringify({ ruleset: "table inet filter {\n  chain input {\n    type filter hook input priority 0; policy accept;\n  }\n}" }, null, 2),
+  nftables: JSON.stringify({ tables: [{ family: "inet", name: "filter", chains: [{ name: "input", type: "filter", hook: "input", priority: "0", policy: "drop", rules: [{ iifname: "eth0", action: "accept" }] }] }] }, null, 2),
   ufw: JSON.stringify({ enabled: true, defaults: { incoming: "deny", outgoing: "allow" }, rules: [] }, null, 2),
   service: JSON.stringify({ name: "wireguard", action: "start", enabled: true }, null, 2),
-  package: JSON.stringify({ name: "wireguard-tools", action: "install" }, null, 2),
+  package: JSON.stringify({ packages: ["wireguard-tools"], action: "install", manager: "auto" }, null, 2),
   "file-write": JSON.stringify({ path: "/etc/wireguard/wg0.conf", content: "[Interface]\nAddress = 10.110.0.1/24\n", mode: "600", owner: "root", backup: true }, null, 2),
   "remote-desktop": JSON.stringify({ action: "install", protocol: "rdp", username: "root", password: "YOUR_PASSWORD", desktop: "xfce", resolution: "1280x720", port: 3389 }, null, 2),
   "win-ip": JSON.stringify({ interface: "Ethernet", dhcp: false, address: "192.168.1.100/24", gateway: "192.168.1.1", dns: "1.1.1.1, 8.8.8.8" }, null, 2),
@@ -2539,9 +2679,12 @@ function syncServiceForm() {
 }
 
 function syncPackageForm() {
+  const packages = Array.isArray(packageForm.value.packages)
+    ? packageForm.value.packages
+    : String(packageForm.value.packages || '').split(',').map(p => p.trim()).filter(Boolean)
   inputJson.value = JSON.stringify({
     ...packageForm.value,
-    packages: packageForm.value.packages.split(',').map(p => p.trim()).filter(Boolean)
+    packages
   }, null, 2)
 }
 

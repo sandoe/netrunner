@@ -62,7 +62,7 @@ def api_preview(body: dict):
         elif t == "routes":
             cmds = gen_routes(cfg.get("routes", []), cfg.get("action", "add"))
         elif t == "forwarding":
-            cmds = gen_forwarding(cfg.get("ipv4"), cfg.get("ipv6"))
+            cmds = gen_forwarding(cfg.get("ipv4", cfg.get("enabled")), cfg.get("ipv6"))
         elif t == "dhcp":
             cmds = gen_dhcp(cfg.get("interface", "eth0"), cfg.get("action", "renew"))
         elif t == "dns":

@@ -2,6 +2,21 @@
 from __future__ import annotations
 
 
+def _rule_value(rule: dict, *keys: str) -> str:
+    if not isinstance(rule, dict):
+        return ""
+    for key in keys:
+        value = rule.get(key)
+        if value is not None and str(value).strip():
+            return str(value).strip()
+    normalized = {str(k).lower().replace("_", "").replace("-", ""): v for k, v in rule.items()}
+    for key in keys:
+        value = normalized.get(key.lower().replace("_", "").replace("-", ""))
+        if value is not None and str(value).strip():
+            return str(value).strip()
+    return ""
+
+
 def gen_iptables(cfg: dict) -> list[str]:
     cmds = [
         "# ── iptables restore / baseline ─────────────────────────────",
@@ -25,21 +40,30 @@ def gen_iptables(cfg: dict) -> list[str]:
         if table != "filter":
             parts += ["-t", table]
         parts += ["-A", chain]
-        if rule.get("protocol"):   parts += ["-p", str(rule["protocol"])]
-        if rule.get("iif"):        parts += ["-i", str(rule["iif"])]
-        if rule.get("oif"):        parts += ["-o", str(rule["oif"])]
-        if rule.get("saddr"):      parts += ["-s", str(rule["saddr"])]
-        if rule.get("daddr"):      parts += ["-d", str(rule["daddr"])]
-        if rule.get("ct_state"):   parts += ["-m", "conntrack", "--ctstate", str(rule["ct_state"]).upper()]
-        if rule.get("sport"):      parts += ["--sport", str(rule["sport"])]
-        if rule.get("dport"):      parts += ["--dport", str(rule["dport"])]
+        proto = _rule_value(rule, "protocol", "proto")
+        iif = _rule_value(rule, "iif", "iifname", "in_iface", "iface", "interface")
+        oif = _rule_value(rule, "oif", "oifname", "out_iface")
+        saddr = _rule_value(rule, "saddr", "source", "src")
+        daddr = _rule_value(rule, "daddr", "destination", "dest", "dst")
+        ct_state = _rule_value(rule, "ct_state", "ctstate", "state")
+        sport = _rule_value(rule, "sport", "source_port", "src_port")
+        dport = _rule_value(rule, "dport", "destination_port", "dest_port", "port")
+        if proto:    parts += ["-p", proto]
+        if iif:      parts += ["-i", iif]
+        if oif:      parts += ["-o", oif]
+        if saddr:    parts += ["-s", saddr]
+        if daddr:    parts += ["-d", daddr]
+        if ct_state: parts += ["-m", "conntrack", "--ctstate", ct_state.upper()]
+        if sport:    parts += ["--sport", sport]
+        if dport:    parts += ["--dport", dport]
 
         action = str(rule.get("action", "ACCEPT")).upper()
         if action in ("DNAT", "SNAT", "MASQUERADE"):
             parts += ["-j", action]
-            if action in ("DNAT", "SNAT") and rule.get("nat_addr"):
+            nat_addr = _rule_value(rule, "nat_addr", "to", "to_addr")
+            if action in ("DNAT", "SNAT") and nat_addr:
                 flag = "--to-destination" if action == "DNAT" else "--to-source"
-                parts += [flag, str(rule["nat_addr"])]
+                parts += [flag, nat_addr]
         elif action == "LOG":
             parts += ["-j", "LOG"]
             if rule.get("log_prefix"):
@@ -78,28 +102,32 @@ def gen_ufw(cfg: dict) -> list[str]:
             parts += [str(rule["direction"])]
         parts += [action]
 
-        if rule.get("iif"):
-            parts += ["on", str(rule["iif"])]
-        if rule.get("protocol"):
-            proto = str(rule["protocol"]).lower()
-            port  = str(rule.get("port", "")).strip()
+        iif = _rule_value(rule, "iif", "iifname", "iface", "interface", "in_iface")
+        proto = _rule_value(rule, "protocol", "proto").lower()
+        port = _rule_value(rule, "port", "dport", "destination_port", "dest_port")
+        saddr = _rule_value(rule, "saddr", "source", "src")
+        daddr = _rule_value(rule, "daddr", "destination", "dest", "dst")
+        comment = _rule_value(rule, "comment")
+        if iif:
+            parts += ["on", iif]
+        if proto:
             if port:
                 parts.append(f"{port}/{proto}")
-        elif rule.get("port"):
-            parts.append(str(rule["port"]))
+        elif port:
+            parts.append(port)
 
-        if rule.get("saddr"):
-            parts += ["from", str(rule["saddr"])]
+        if saddr:
+            parts += ["from", saddr]
         elif action in ("allow", "deny", "reject", "limit"):
             parts += ["from", "any"]
 
-        if rule.get("daddr"):
-            parts += ["to", str(rule["daddr"])]
-        elif rule.get("port") or rule.get("iif") or rule.get("direction"):
+        if daddr:
+            parts += ["to", daddr]
+        elif port or iif or rule.get("direction"):
             parts += ["to", "any"]
 
-        if rule.get("comment"):
-            parts.append(f"# {rule['comment']}")
+        if comment:
+            parts.append(f"# {comment}")
         cmds.append(" ".join(parts))
 
     if cfg.get("enabled", True):
@@ -111,11 +139,7 @@ def gen_ufw(cfg: dict) -> list[str]:
 
 
 def _nft_value(rule: dict, *keys: str) -> str:
-    for key in keys:
-        value = rule.get(key)
-        if value is not None and str(value).strip():
-            return str(value).strip()
-    return ""
+    return _rule_value(rule, *keys)
 
 
 def _nft_quote(value: str) -> str:
