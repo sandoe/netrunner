@@ -1239,8 +1239,8 @@
                     <option value="icmp">icmp</option>
                   </select>
                 </label>
-                <label>In iface <input v-model="r.iif" /></label>
-                <label>Out iface <input v-model="r.oif" /></label>
+                <label>In iface <input v-model="r.iif" list="detected-interfaces" placeholder="eth0" /></label>
+                <label>Out iface <input v-model="r.oif" list="detected-interfaces" placeholder="eth1" /></label>
                 <button class="btn-remove" @click="nftablesForm.rules.splice(i, 1)">✕</button>
               </div>
               <div class="form-row">
@@ -1257,6 +1257,7 @@
               </div>
             </div>
             <button class="btn-add-sub" @click="nftablesForm.rules.push({ iif: '', oif: '', saddr: '', daddr: '', protocol: '', sport: '', dport: '', ct_state: '', action: 'accept', nat_addr: '', log_prefix: '', comment: '' })">+ Add Rule</button>
+            <button class="btn-add-sub" @click="nftablesForm.rules.unshift({ iif: 'lo', oif: '', saddr: '', daddr: '', protocol: '', sport: '', dport: '', ct_state: '', action: 'accept', nat_addr: '', log_prefix: '', comment: 'loopback' })">+ Allow Loopback</button>
             <div class="hint">Multi-table setups: edit JSON below directly.</div>
           </div>
 
@@ -1852,8 +1853,8 @@ const defaultNftablesForm     = () => ({
   priority: '0',
   policy: 'drop',
   rules: [
-    { iif: 'lo', oif: '', saddr: '', daddr: '', protocol: '', sport: '', dport: '', ct_state: '',                      action: 'accept', nat_addr: '', log_prefix: '', comment: 'loopback' },
-    { iif: '',   oif: '', saddr: '', daddr: '', protocol: '', sport: '', dport: '', ct_state: 'established,related', action: 'accept', nat_addr: '', log_prefix: '', comment: '' },
+    { iif: '', oif: '', saddr: '', daddr: '', protocol: '', sport: '', dport: '', ct_state: 'established,related', action: 'accept', nat_addr: '', log_prefix: '', comment: '' },
+    { iif: '', oif: '', saddr: '', daddr: '', protocol: '', sport: '', dport: '', ct_state: '',                      action: 'accept', nat_addr: '', log_prefix: '', comment: '' },
   ],
 })
 const defaultRpiWifiForm      = () => ({ ssid: '', password: '', country: 'DK', hidden: false })
@@ -3007,6 +3008,65 @@ const interfaceTree = computed(() => {
 })
 
 function selectPort(ifaceName: string) {
+  if (!ifaceName) return
+
+  if (activeType.value === 'nftables') {
+    const rule = nftablesForm.value.rules.find(r => !r.iif || r.iif === 'lo') || nftablesForm.value.rules[0]
+    if (rule) rule.iif = ifaceName
+    syncNftablesForm()
+    return
+  }
+
+  if (activeType.value === 'iptables') {
+    const rule = iptablesForm.value.rules.find(r => !r.iif || r.iif === 'lo') || iptablesForm.value.rules[0]
+    if (rule) rule.iif = ifaceName
+    syncIptablesForm()
+    return
+  }
+
+  if (activeType.value === 'nat') {
+    if (!natForm.value.outbound_iface || natForm.value.outbound_iface === 'lo') {
+      natForm.value.outbound_iface = ifaceName
+    } else if (!natForm.value.inbound_iface || natForm.value.inbound_iface === 'lo') {
+      natForm.value.inbound_iface = ifaceName
+    } else {
+      natForm.value.inbound_iface = ifaceName
+    }
+    syncNatForm()
+    return
+  }
+
+  if (activeType.value === 'vlan-router') {
+    vlanRouterForm.value.interface = ifaceName
+    syncVlanRouterForm()
+    return
+  }
+
+  if (activeType.value === 'vlan-switch') {
+    const port = vlanSwitchForm.value.ports.find(p => !p.iface || p.iface === 'lo') || vlanSwitchForm.value.ports[0]
+    if (port) port.iface = ifaceName
+    syncVlanSwitchForm()
+    return
+  }
+
+  if (activeType.value === 'nmap') {
+    nmapForm.value.interface = ifaceName
+    syncNmapForm()
+    return
+  }
+
+  if (activeType.value === 'wol') {
+    wolForm.value.interface = ifaceName
+    syncWolForm()
+    return
+  }
+
+  if (activeType.value === 'arp-scan') {
+    arpScanForm.value.interface = ifaceName
+    syncArpScanForm()
+    return
+  }
+
   if (activeType.value !== 'interface') {
     activeType.value = 'interface'
   }
