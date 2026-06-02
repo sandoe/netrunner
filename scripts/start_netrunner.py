@@ -12,10 +12,25 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 VENV = ROOT / ".venv"
+PROGRESS_TOTAL = 5
+_progress_step = 0
 
 
 def command(name: str) -> str | None:
     return shutil.which(name)
+
+
+def progress(label: str, status: str = "running") -> None:
+    width = 28
+    filled = int(width * _progress_step / PROGRESS_TOTAL)
+    bar = "#" * filled + "-" * (width - filled)
+    print(f"[{bar}] {_progress_step}/{PROGRESS_TOTAL} {status}: {label}", flush=True)
+
+
+def finish_step(label: str, skipped: bool = False) -> None:
+    global _progress_step
+    _progress_step += 1
+    progress(label, "skip" if skipped else "done")
 
 
 def run(cmd: list[str], cwd: Path = ROOT, env: dict[str, str] | None = None) -> None:
@@ -32,19 +47,26 @@ def venv_python() -> Path:
 def ensure_venv() -> Path:
     py = venv_python()
     if not py.exists():
-        print("Creating Python virtual environment...", flush=True)
+        progress("Creating Python virtual environment")
         run([sys.executable, "-m", "venv", str(VENV)])
+        finish_step("Python virtual environment")
+    else:
+        finish_step("Python virtual environment", skipped=True)
     return py
 
 
 def ensure_backend(py: Path) -> None:
     env = os.environ.copy()
     env.setdefault("PIP_DISABLE_PIP_VERSION_CHECK", "1")
+    progress("Installing backend dependencies")
     run([str(py), "-m", "pip", "install", "-q", "-r", "backend/requirements.txt"], env=env)
+    finish_step("Backend dependencies")
 
 
 def ensure_frontend(skip: bool) -> None:
     if skip:
+        finish_step("Frontend dependencies", skipped=True)
+        finish_step("Frontend build", skipped=True)
         return
     npm = command("npm.cmd" if os.name == "nt" else "npm") or command("npm")
     if not npm:
@@ -53,9 +75,17 @@ def ensure_frontend(skip: bool) -> None:
         )
     frontend = ROOT / "frontend"
     if not (frontend / "node_modules").exists():
+        progress("Installing frontend dependencies")
         run([npm, "install", "--silent"], cwd=frontend)
+        finish_step("Frontend dependencies")
+    else:
+        finish_step("Frontend dependencies", skipped=True)
     if not (frontend / "dist").exists():
+        progress("Building frontend")
         run([npm, "run", "build"], cwd=frontend)
+        finish_step("Frontend build")
+    else:
+        finish_step("Frontend build", skipped=True)
 
 
 def ensure_certs() -> tuple[Path, Path]:
@@ -99,6 +129,7 @@ def main() -> None:
     py = ensure_venv()
     ensure_backend(py)
     ensure_frontend(args.skip_frontend)
+    finish_step("Launcher ready")
 
     url = f"{'https' if args.https else 'http'}://localhost:{args.port}"
     print("", flush=True)
