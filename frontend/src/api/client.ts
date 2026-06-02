@@ -80,6 +80,11 @@ export const api = {
 
   // Settings
   getSettings: () => req<{ 
+    ai_provider: string;
+    ai_api_key_set: boolean;
+    ai_masked_key: string;
+    ai_base_url: string;
+    ai_model: string;
     openai_api_key_set: boolean; 
     masked_key: string; 
     alienvault_api_key_set: boolean;
@@ -88,6 +93,10 @@ export const api = {
     database_url: string;
   }>('GET', '/settings'),
   updateSettings: (body: { 
+    ai_provider?: string;
+    ai_api_key?: string;
+    ai_base_url?: string;
+    ai_model?: string;
     openai_api_key?: string; 
     gns3_server_url?: string;
     database_url?: string;

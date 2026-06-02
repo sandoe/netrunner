@@ -37,9 +37,26 @@
                 </div>
                 <div class="card-body">
                   <div class="form-group">
-                    <label>OPENAI API KEY</label>
+                    <label>AI PROVIDER</label>
+                    <select v-model="aiProvider" class="form-input custom-select">
+                      <option value="openai">OpenAI</option>
+                      <option value="openrouter">OpenRouter / compatible</option>
+                      <option value="ollama">Ollama / local compatible</option>
+                      <option value="custom">Custom OpenAI-compatible API</option>
+                    </select>
+                  </div>
+                  <div class="form-group">
+                    <label>MODEL</label>
+                    <input v-model="aiModel" :placeholder="aiModelPlaceholder" class="form-input" />
+                  </div>
+                  <div class="form-group" v-if="aiProvider !== 'openai'">
+                    <label>BASE URL</label>
+                    <input v-model="aiBaseUrl" :placeholder="aiBaseUrlPlaceholder" class="form-input" />
+                  </div>
+                  <div class="form-group">
+                    <label>{{ aiProvider === 'ollama' ? 'API KEY (OPTIONAL)' : 'API KEY' }}</label>
                     <div class="input-with-hint">
-                      <input v-model="apiKey" type="password" placeholder="sk-..." class="form-input" />
+                      <input v-model="apiKey" type="password" :placeholder="aiKeyPlaceholder" class="form-input" />
                       <div class="hint" v-if="currentKeyMasked">
                         <span class="status-dot active"></span> Active Key: <span class="masked-text">{{ currentKeyMasked }}</span>
                       </div>
@@ -198,6 +215,9 @@ const tabs = [
 ]
 
 const apiKey = ref('')
+const aiProvider = ref('openai')
+const aiBaseUrl = ref('')
+const aiModel = ref('gpt-4o')
 const gns3Url = ref('http://127.0.0.1:3080')
 const currentKeyMasked = ref('')
 const alienvaultKey = ref('')
@@ -230,6 +250,24 @@ const dbStatusLabel = computed(() => {
     }
 })
 
+const aiModelPlaceholder = computed(() => {
+    if (aiProvider.value === 'openrouter') return 'openai/gpt-4o-mini, anthropic/claude-3.5-sonnet, ...'
+    if (aiProvider.value === 'ollama') return 'llama3.1'
+    return 'gpt-4o'
+})
+
+const aiBaseUrlPlaceholder = computed(() => {
+    if (aiProvider.value === 'openrouter') return 'https://openrouter.ai/api/v1'
+    if (aiProvider.value === 'ollama') return 'http://127.0.0.1:11434/v1'
+    return 'https://api.example.com/v1'
+})
+
+const aiKeyPlaceholder = computed(() => {
+    if (aiProvider.value === 'openrouter') return 'OpenRouter API key'
+    if (aiProvider.value === 'ollama') return 'optional'
+    return 'sk-...'
+})
+
 const computedDbUrl = computed(() => {
     const c = dbConfig.value
     if (c.type === 'sqlite') {
@@ -245,7 +283,10 @@ const computedDbUrl = computed(() => {
 async function load() {
   try {
     const res = await api.getSettings()
-    if (res.openai_api_key_set) currentKeyMasked.value = res.masked_key
+    aiProvider.value = res.ai_provider || 'openai'
+    aiBaseUrl.value = res.ai_base_url || ''
+    aiModel.value = res.ai_model || (aiProvider.value === 'ollama' ? 'llama3.1' : 'gpt-4o')
+    if (res.ai_api_key_set || res.openai_api_key_set) currentKeyMasked.value = res.ai_masked_key || res.masked_key
     if (res.alienvault_api_key_set) currentAlienvaultMasked.value = res.masked_alienvault_key
     if (res.gns3_server_url) gns3Url.value = res.gns3_server_url
     
@@ -310,10 +351,13 @@ async function save() {
   saving.value = true
   try {
     const payload: any = { 
+        ai_provider: aiProvider.value,
+        ai_base_url: aiBaseUrl.value,
+        ai_model: aiModel.value,
         gns3_server_url: gns3Url.value,
         database_url: computedDbUrl.value 
     }
-    if (apiKey.value) payload.openai_api_key = apiKey.value
+    if (apiKey.value) payload.ai_api_key = apiKey.value
     if (alienvaultKey.value) payload.alienvault_api_key = alienvaultKey.value
     await api.updateSettings(payload)
     hasChanges.value = true

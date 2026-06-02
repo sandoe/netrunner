@@ -39,7 +39,9 @@ async def lifespan(app: FastAPI):
 
     # Load settings into env
     s = await load_settings()
-    if s.get("openai_api_key"):
+    if s.get("ai_api_key") and (s.get("ai_provider") or "openai").lower() == "openai":
+        os.environ["OPENAI_API_KEY"] = s["ai_api_key"]
+    elif s.get("openai_api_key"):
         os.environ["OPENAI_API_KEY"] = s["openai_api_key"]
 
     # Start background tasks for threats and chaos explicitly since lifespan bypasses on_event("startup")

@@ -25,7 +25,7 @@ class ChatMessage(BaseModel):
 
 class ChatRequest(BaseModel):
     messages: List[ChatMessage]
-    model: str = "gpt-4o"
+    model: Optional[str] = None
 
 # ---------------------------------------------------------------------------
 # Tool Implementations
@@ -143,15 +143,33 @@ TOOLS = [
 
 @router.post("/ai/chat")
 async def chat(req: ChatRequest):
-    api_key = os.environ.get("OPENAI_API_KEY")
-    if not api_key:
-        raise HTTPException(status_code=400, detail="OPENAI_API_KEY not set in backend environment.")
+    from .settings import load_settings
 
-    client = OpenAI(api_key=api_key)
+    settings = await load_settings()
+    provider = (settings.get("ai_provider") or "openai").strip().lower()
+    model = req.model or settings.get("ai_model") or ("llama3.1" if provider == "ollama" else "gpt-4o")
+    api_key = settings.get("ai_api_key") or settings.get("openai_api_key") or os.environ.get("OPENAI_API_KEY")
+    base_url = (settings.get("ai_base_url") or "").strip()
+
+    if provider == "openai":
+        base_url = ""
+    elif provider == "openrouter" and not base_url:
+        base_url = "https://openrouter.ai/api/v1"
+    elif provider == "ollama":
+        base_url = base_url or "http://127.0.0.1:11434/v1"
+        api_key = api_key or "ollama"
+
+    if not api_key:
+        raise HTTPException(status_code=400, detail="AI API key is not set in Settings.")
+
+    client_kwargs = {"api_key": api_key}
+    if base_url:
+        client_kwargs["base_url"] = base_url
+    client = OpenAI(**client_kwargs)
     
     try:
         response = client.chat.completions.create(
-            model=req.model,
+            model=model,
             messages=[{"role": m.role, "content": m.content} for m in req.messages],
             tools=TOOLS,
             tool_choice="auto"
@@ -188,7 +206,7 @@ async def chat(req: ChatRequest):
                 })
             
             final_response = client.chat.completions.create(
-                model=req.model,
+                model=model,
                 messages=messages
             )
             return {"role": "assistant", "content": final_response.choices[0].message.content}
