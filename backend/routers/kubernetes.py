@@ -162,3 +162,27 @@ async def get_kubernetes_status(node_id: str, mock: bool = False, user: dict = D
         }
     else:
         raise HTTPException(status_code=404, detail="Kubernetes cluster not detected or kubectl failed.")
+
+@router.post("/kubernetes/{node_id}/install")
+async def install_kubernetes(node_id: str, user: dict = Depends(get_current_user)):
+    nodes_data = await load_nodes()
+    if node_id not in nodes_data:
+        raise HTTPException(status_code=404, detail="Node not found")
+        
+    node = nodes_data[node_id]
+    
+    # We use session_manager to run the k3s installation script.
+    # The script takes about 20-60 seconds to finish.
+    install_cmd = "curl -sfL https://get.k3s.io | sh -"
+    # If the user is not root, session_manager automatically tries sudo
+    
+    results, err = await session_manager.run(node_id, node, [install_cmd], timeout=120.0)
+    
+    if err or not results:
+        raise HTTPException(status_code=500, detail=f"Installation failed: {err}")
+        
+    # Give it a few seconds to start up
+    import asyncio
+    await asyncio.sleep(5)
+    
+    return {"status": "success", "message": "K3s installed successfully", "logs": results[0]}

@@ -16,11 +16,20 @@
       </div>
     </div>
 
-    <div v-if="error" class="error-box">
-      {{ error }}
+    <div v-if="installing" class="loading-overlay">
+      <div class="spinner"></div>
+      <div class="glitch">INJECTING KUBERNETES (K3S) PAYLOAD...</div>
+      <div class="wait-text">This may take up to 60 seconds. Please wait...</div>
     </div>
 
-    <div v-if="loading" class="loading-overlay">
+    <div v-else-if="error" class="error-box">
+      <div>{{ error }}</div>
+      <button v-if="error.includes('not detected') && !forceMock" class="btn-deploy" @click="installK3s">
+        [ DEPLOY K3S CLUSTER ]
+      </button>
+    </div>
+
+    <div v-else-if="loading" class="loading-overlay">
       <div class="spinner"></div>
       <div>Establishing Kube-API connection...</div>
     </div>
@@ -97,6 +106,7 @@ import { api } from '@/api/client'
 const props = defineProps<{ nodeId: string }>()
 
 const loading = ref(true)
+const installing = ref(false)
 const error = ref('')
 const clusterData = ref<any>(null)
 const forceMock = ref(false)
@@ -141,6 +151,33 @@ async function fetchClusterState(isBackground = true) {
     clusterData.value = null
   } finally {
     loading.value = false
+  }
+}
+
+async function installK3s() {
+  installing.value = true
+  error.value = ''
+  try {
+    const res = await fetch(`/api/kubernetes/${props.nodeId}/install`, {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${localStorage.getItem('nr_token')}` }
+    })
+    
+    if (!res.ok) {
+      let msg = res.statusText
+      try {
+        const errData = await res.json()
+        if (errData.detail) msg = errData.detail
+      } catch (e) {}
+      throw new Error(msg)
+    }
+    
+    // Refresh cluster state once installed
+    await fetchClusterState(false)
+  } catch (err: any) {
+    error.value = err.message || String(err)
+  } finally {
+    installing.value = false
   }
 }
 
@@ -422,8 +459,58 @@ input:checked + .slider:before {
   background: #330a0a;
   border: 1px solid #f85149;
   color: #f85149;
-  padding: 12px;
+  padding: 16px;
   border-radius: 6px;
   margin-bottom: 16px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  text-align: center;
+  font-weight: bold;
+}
+
+.btn-deploy {
+  background: #238636;
+  color: #fff;
+  border: 1px solid rgba(240, 246, 252, 0.1);
+  padding: 10px 20px;
+  border-radius: 6px;
+  font-family: monospace;
+  font-size: 14px;
+  font-weight: bold;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  box-shadow: 0 0 10px rgba(46, 160, 67, 0.4);
+}
+
+.btn-deploy:hover {
+  background: #2ea043;
+  transform: translateY(-2px);
+  box-shadow: 0 0 15px rgba(46, 160, 67, 0.6);
+}
+
+.glitch {
+  color: #58a6ff;
+  font-size: 16px;
+  font-weight: bold;
+  letter-spacing: 2px;
+  animation: glitch-anim 1s infinite alternate;
+}
+
+.wait-text {
+  font-size: 10px;
+  color: #8b949e;
+  margin-top: 12px;
+  letter-spacing: 1px;
+}
+
+@keyframes glitch-anim {
+  0% { opacity: 0.8; transform: skewX(0deg); }
+  20% { opacity: 1; transform: skewX(-2deg); }
+  40% { opacity: 0.9; transform: skewX(1deg); }
+  60% { opacity: 1; transform: skewX(-1deg); }
+  80% { opacity: 0.8; transform: skewX(2deg); }
+  100% { opacity: 1; transform: skewX(0deg); }
 }
 </style>
