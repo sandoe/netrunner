@@ -129,6 +129,7 @@ async function fetchClusterState() {
     clusterData.value = await res.json()
   } catch (err: any) {
     error.value = err.message || String(err)
+    clusterData.value = null
   } finally {
     loading.value = false
   }
