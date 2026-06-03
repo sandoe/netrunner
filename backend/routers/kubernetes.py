@@ -83,14 +83,18 @@ async def get_kubernetes_status(node_id: str, mock: bool = False, user: dict = D
     node = await _get_node_with_creds(node_id, nodes_data)
     
     # Use sudo if available to read K3s kubeconfig, and sh -lc to get the right PATH
-    sudo_prefix = "sudo"
+    # Use sudo if available to read K3s kubeconfig, and sh -lc to get the right PATH
+    sudo_prefix = "sudo -n"
     if "sudo_password" in node and node["sudo_password"]:
         import shlex
         sudo_prefix = f"echo {shlex.quote(node['sudo_password'])} | sudo -S"
 
-    cmd_pods = f"{sudo_prefix} sh -lc 'kubectl get pods -A -o json 2>/dev/null'"
-    cmd_nodes = f"{sudo_prefix} sh -lc 'kubectl get nodes -o json 2>/dev/null'"
-    cmd_deps = f"{sudo_prefix} sh -lc 'kubectl get deployments -A -o json 2>/dev/null'"
+    # We try both standard kubectl and K3s kubeconfig with fallback
+    kubectl_base = "export KUBECONFIG=/etc/rancher/k3s/k3s.yaml; kubectl"
+    
+    cmd_pods = f"{sudo_prefix} sh -lc '{kubectl_base} get pods -A -o json 2>/dev/null' || sh -lc '{kubectl_base} get pods -A -o json 2>/dev/null'"
+    cmd_nodes = f"{sudo_prefix} sh -lc '{kubectl_base} get nodes -o json 2>/dev/null' || sh -lc '{kubectl_base} get nodes -o json 2>/dev/null'"
+    cmd_deps = f"{sudo_prefix} sh -lc '{kubectl_base} get deployments -A -o json 2>/dev/null' || sh -lc '{kubectl_base} get deployments -A -o json 2>/dev/null'"
     
     results, err = await session_manager.run(node_id, node, [cmd_pods, cmd_nodes, cmd_deps], timeout=10.0)
     
@@ -167,8 +171,11 @@ async def get_kubernetes_status(node_id: str, mock: bool = False, user: dict = D
     else:
         raise HTTPException(status_code=404, detail="Kubernetes cluster not detected or kubectl failed.")
 
+class InstallRequest(BaseModel):
+    sudo_password: Optional[str] = None
+
 @router.post("/kubernetes/{node_id}/install")
-async def install_kubernetes(node_id: str, user: dict = Depends(get_current_user)):
+async def install_kubernetes(node_id: str, req: InstallRequest = None, user: dict = Depends(get_current_user)):
     nodes_data = await load_nodes()
     if node_id not in nodes_data:
         raise HTTPException(status_code=404, detail="Node not found")
@@ -180,8 +187,9 @@ async def install_kubernetes(node_id: str, user: dict = Depends(get_current_user
     install_script = "curl -sfL https://get.k3s.io > /tmp/k3s_install.sh && sh /tmp/k3s_install.sh > /tmp/k3s_install.log 2>&1"
     
     sudo_prefix = "sudo"
-    if "sudo_password" in node and node["sudo_password"]:
-        sudo_prefix = f"echo {shlex.quote(node['sudo_password'])} | sudo -S"
+    sudo_pass = (req.sudo_password if req and req.sudo_password else node.get("sudo_password"))
+    if sudo_pass:
+        sudo_prefix = f"echo {shlex.quote(sudo_pass)} | sudo -S"
         
     init_cmd = f"{sudo_prefix} sh -lc 'echo Starting Kubernetes Installation... > /tmp/k3s_install.log'"
     install_cmd = f"{sudo_prefix} sh -lc {shlex.quote(install_script)}"
@@ -203,6 +211,9 @@ async def install_kubernetes(node_id: str, user: dict = Depends(get_current_user
     
     # Clean up the log and script files after successful installation
     await session_manager.run(node_id, node, [f"{sudo_prefix} rm -f /tmp/k3s_install.log /tmp/k3s_install.sh"], timeout=5.0)
+    
+    # Make k3s config readable so polling works without sudo
+    await session_manager.run(node_id, node, [f"{sudo_prefix} chmod 644 /etc/rancher/k3s/k3s.yaml"], timeout=5.0)
     
     out = results[0]["output"] if results and isinstance(results[0], dict) else (results[0] if results else "")
     return {"status": "success", "message": "K3s installed successfully", "logs": out}

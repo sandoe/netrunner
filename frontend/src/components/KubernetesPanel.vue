@@ -98,6 +98,25 @@
         </div>
       </div>
     </div>
+    
+    <!-- Sudo Prompt Modal -->
+    <div v-if="showSudoPrompt" class="modal-overlay" @click.self="cancelSudo">
+      <div class="modal-content sudo-modal">
+        <h2 class="modal-title">Authentication Required</h2>
+        <p class="modal-text">Enter sudo password for this node (leave blank if NOPASSWD):</p>
+        <input
+          v-model="sudoInput"
+          type="password"
+          class="cyber-input"
+          placeholder="Password..."
+          @keyup.enter="submitSudo"
+        />
+        <div class="modal-actions">
+          <button class="btn-cancel" @click="cancelSudo">CANCEL</button>
+          <button class="btn-submit" @click="submitSudo">AUTHENTICATE</button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -114,6 +133,34 @@ const error = ref('')
 let logsInterval: any = null
 const clusterData = ref<any>(null)
 const forceMock = ref(false)
+
+const showSudoPrompt = ref(false)
+const sudoInput = ref('')
+const sudoResolve = ref<((pass: string | null) => void) | null>(null)
+
+function promptSudo(): Promise<string | null> {
+  sudoInput.value = ''
+  showSudoPrompt.value = true
+  setTimeout(() => {
+    const el = document.querySelector('.modal-overlay .cyber-input') as HTMLInputElement
+    if (el) el.focus()
+  }, 50)
+  return new Promise(resolve => {
+    sudoResolve.value = resolve
+  })
+}
+
+function submitSudo() {
+  if (sudoResolve.value) sudoResolve.value(sudoInput.value)
+  showSudoPrompt.value = false
+  sudoResolve.value = null
+}
+
+function cancelSudo() {
+  if (sudoResolve.value) sudoResolve.value(null)
+  showSudoPrompt.value = false
+  sudoResolve.value = null
+}
 
 const clusterHealth = computed(() => clusterData.value?.cluster_health || 'Unknown')
 const isMock = computed(() => clusterData.value?.mock === true)
@@ -177,6 +224,9 @@ async function pollLogs() {
 }
 
 async function installK3s() {
+  const sudoPass = await promptSudo()
+  if (sudoPass === null) return // user cancelled
+
   installing.value = true
   error.value = ''
   installLogs.value = ''
@@ -185,7 +235,11 @@ async function installK3s() {
   try {
     const res = await fetch(`/api/kubernetes/${props.nodeId}/install`, {
       method: 'POST',
-      headers: { 'Authorization': `Bearer ${localStorage.getItem('nr_token')}` }
+      headers: { 
+        'Authorization': `Bearer ${localStorage.getItem('nr_token')}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ sudo_password: sudoPass })
     })
     
     if (!res.ok) {
@@ -560,5 +614,91 @@ input:checked + .slider:before {
   60% { opacity: 1; transform: skewX(-1deg); }
   80% { opacity: 0.8; transform: skewX(2deg); }
   100% { opacity: 1; transform: skewX(0deg); }
+}
+.modal-overlay {
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0,0,0,0.8);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  backdrop-filter: blur(4px);
+}
+
+.modal-content.sudo-modal {
+  background: #0d1117;
+  border: 1px solid #30363d;
+  border-radius: 8px;
+  padding: 24px;
+  width: 400px;
+  max-width: 90%;
+  box-shadow: 0 0 20px rgba(88, 166, 255, 0.2);
+}
+
+.modal-title {
+  margin: 0 0 12px 0;
+  color: #ff7b72;
+  font-size: 18px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+.modal-text {
+  margin: 0 0 16px 0;
+  font-size: 14px;
+  color: #8b949e;
+}
+
+.cyber-input {
+  width: 100%;
+  padding: 10px;
+  background: #010409;
+  border: 1px solid #30363d;
+  color: #c9d1d9;
+  border-radius: 4px;
+  font-family: monospace;
+  margin-bottom: 20px;
+  box-sizing: border-box;
+}
+
+.cyber-input:focus {
+  outline: none;
+  border-color: #58a6ff;
+  box-shadow: 0 0 5px rgba(88, 166, 255, 0.5);
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+}
+
+.btn-cancel {
+  background: transparent;
+  border: 1px solid #30363d;
+  color: #8b949e;
+  padding: 6px 16px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.btn-cancel:hover {
+  background: #21262d;
+  color: #c9d1d9;
+}
+
+.btn-submit {
+  background: #238636;
+  border: 1px solid rgba(240,246,252,0.1);
+  color: #ffffff;
+  padding: 6px 16px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-weight: bold;
+}
+
+.btn-submit:hover {
+  background: #2ea043;
 }
 </style>
