@@ -6,7 +6,7 @@
         <label class="switch-label">
           <span class="switch-text">SIMULATION</span>
           <div class="switch">
-            <input type="checkbox" v-model="forceMock" @change="fetchClusterState" />
+            <input type="checkbox" v-model="forceMock" @change="handleToggle" />
             <span class="slider"></span>
           </div>
         </label>
@@ -114,19 +114,28 @@ const sortedPods = computed(() => {
   })
 })
 
-async function fetchClusterState() {
-  loading.value = true
-  error.value = ''
+async function fetchClusterState(isBackground = true) {
+  // Only show loading spinner on first load or explicit toggle
+  if (!isBackground || (!clusterData.value && !error.value)) {
+    loading.value = true
+  }
+  
   try {
     const res = await fetch(`/api/kubernetes/${props.nodeId}/status?mock=${forceMock.value}`, {
       headers: { 'Authorization': `Bearer ${localStorage.getItem('nr_token')}` }
     })
     
     if (!res.ok) {
-      throw new Error(`API Error: ${res.statusText}`)
+      let msg = res.statusText
+      try {
+        const errData = await res.json()
+        if (errData.detail) msg = errData.detail
+      } catch (e) {}
+      throw new Error(msg)
     }
     
     clusterData.value = await res.json()
+    error.value = ''
   } catch (err: any) {
     error.value = err.message || String(err)
     clusterData.value = null
@@ -135,10 +144,14 @@ async function fetchClusterState() {
   }
 }
 
+function handleToggle() {
+  fetchClusterState(false)
+}
+
 onMounted(() => {
-  fetchClusterState()
+  fetchClusterState(false)
   // Refresh every 10 seconds
-  const interval = setInterval(fetchClusterState, 10000)
+  const interval = setInterval(() => fetchClusterState(true), 10000)
   return () => clearInterval(interval)
 })
 </script>
