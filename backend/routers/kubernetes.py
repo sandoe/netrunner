@@ -1,8 +1,9 @@
 import asyncio
 import json
 import random
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 from fastapi import APIRouter, HTTPException, Depends
+from pydantic import BaseModel
 from .auth import get_current_user
 from .nodes import load_nodes, _get_node_with_creds
 from ..core.session import session_manager
