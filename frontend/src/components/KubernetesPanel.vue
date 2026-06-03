@@ -191,15 +191,27 @@ async function fetchClusterState(isPoll = false) {
   if (installing.value) return
   if (!isPoll) loading.value = true
   try {
-    const res = await api.get(`/api/kubernetes/${props.nodeId}/status?mock=${forceMock.value}`)
-    clusterData.value = res.data
+    const res = await fetch(`/api/kubernetes/${props.nodeId}/status?mock=${forceMock.value}`, {
+      headers: { 'Authorization': `Bearer ${localStorage.getItem('nr_token')}` }
+    })
+    
+    if (!res.ok) {
+      let msg = res.statusText
+      try {
+        const errData = await res.json()
+        if (errData.detail) msg = errData.detail
+      } catch (e) {}
+      throw new Error(msg)
+    }
+    
+    clusterData.value = await res.json()
+    error.value = ''
   } catch (err: any) {
-    if (err.response?.status === 404 && err.response?.data?.detail?.includes("not detected")) {
+    if (err.message && err.message.includes("not detected")) {
       clusterData.value = null
       error.value = "Kubernetes cluster not detected or kubectl failed."
     } else {
       console.error(err)
-      // Only set error if we don't have existing data to prevent UI flashing
       if (!clusterData.value) {
         error.value = err.message || 'Failed to fetch cluster state'
       }
@@ -213,7 +225,11 @@ async function killPod(pod: any) {
   if (forceMock.value) return;
   if (!confirm(`Are you sure you want to kill pod ${pod.name}?`)) return;
   try {
-    await api.delete(`/api/kubernetes/${props.nodeId}/pods/${pod.namespace}/${pod.name}`);
+    const res = await fetch(`/api/kubernetes/${props.nodeId}/pods/${pod.namespace}/${pod.name}`, {
+      method: 'DELETE',
+      headers: { 'Authorization': `Bearer ${localStorage.getItem('nr_token')}` }
+    });
+    if (!res.ok) throw new Error('Failed to delete pod');
     fetchClusterState(true);
   } catch(err) {
     console.error(err);
@@ -224,7 +240,15 @@ async function killPod(pod: any) {
 async function deployTarget(target: string) {
   if (forceMock.value) return;
   try {
-    await api.post(`/api/kubernetes/${props.nodeId}/deploy`, { target });
+    const res = await fetch(`/api/kubernetes/${props.nodeId}/deploy`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${localStorage.getItem('nr_token')}`
+      },
+      body: JSON.stringify({ target })
+    });
+    if (!res.ok) throw new Error('Failed to deploy target');
     fetchClusterState(true);
   } catch(err) {
     console.error(err);
