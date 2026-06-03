@@ -231,3 +231,101 @@ async def get_install_logs(node_id: str, user: dict = Depends(get_current_user))
     
     out = results[0]["output"] if results and isinstance(results[0], dict) else (results[0] if results else "Error fetching logs")
     return {"logs": out}
+
+class DeployRequest(BaseModel):
+    target: str
+
+@router.post("/kubernetes/{node_id}/deploy")
+async def deploy_target(node_id: str, req: DeployRequest, user: dict = Depends(get_current_user)):
+    nodes_data = await load_nodes()
+    if node_id not in nodes_data:
+        raise HTTPException(status_code=404, detail="Node not found")
+        
+    node = nodes_data[node_id]
+    
+    sudo_prefix = "sudo -n"
+    if "sudo_password" in node and node["sudo_password"]:
+        import shlex
+        sudo_prefix = f"echo {shlex.quote(node['sudo_password'])} | sudo -S"
+
+    kubectl_base = "export KUBECONFIG=/etc/rancher/k3s/k3s.yaml; kubectl"
+    
+    manifest_url = ""
+    if req.target == "juice-shop":
+        manifest_url = "https://raw.githubusercontent.com/kubernetes-sigs/kustomize/master/examples/multibases/dev/juice-shop-deployment.yaml"
+        # Since juice shop manifest might be complex, let's just use a simple one:
+        manifest_url = "https://raw.githubusercontent.com/sandoe/netrunner-resources/main/juice-shop.yaml"
+        # Wait, if that doesn't exist, we can just echo a manifest and apply it
+        manifest_cmd = f"""cat << 'EOF' | {kubectl_base} apply -f -
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: juice-shop
+  namespace: default
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: juice-shop
+  template:
+    metadata:
+      labels:
+        app: juice-shop
+    spec:
+      containers:
+      - name: juice-shop
+        image: bkimminich/juice-shop
+        ports:
+        - containerPort: 3000
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: juice-shop
+  namespace: default
+spec:
+  ports:
+  - port: 80
+    targetPort: 3000
+  selector:
+    app: juice-shop
+EOF"""
+    else:
+        raise HTTPException(status_code=400, detail="Unknown target")
+        
+    cmd = f"({sudo_prefix} sh -lc '{manifest_cmd}' || sh -lc '{manifest_cmd}') 2>/dev/null"
+    results, err = await session_manager.run(node_id, node, [cmd], timeout=30.0)
+    
+    if err or not results:
+        raise HTTPException(status_code=500, detail=f"Failed to deploy target: {err}")
+        
+    out = results[0]["output"] if results and isinstance(results[0], dict) else (results[0] if results else "")
+    return {"status": "success", "message": f"Deployed {req.target}", "output": out}
+
+@router.delete("/kubernetes/{node_id}/pods/{namespace}/{pod_name}")
+async def delete_pod(node_id: str, namespace: str, pod_name: str, user: dict = Depends(get_current_user)):
+    nodes_data = await load_nodes()
+    if node_id not in nodes_data:
+        raise HTTPException(status_code=404, detail="Node not found")
+        
+    node = nodes_data[node_id]
+    
+    sudo_prefix = "sudo -n"
+    if "sudo_password" in node and node["sudo_password"]:
+        import shlex
+        sudo_prefix = f"echo {shlex.quote(node['sudo_password'])} | sudo -S"
+
+    kubectl_base = "export KUBECONFIG=/etc/rancher/k3s/k3s.yaml; kubectl"
+    import shlex
+    ns_quoted = shlex.quote(namespace)
+    pod_quoted = shlex.quote(pod_name)
+    
+    cmd = f"({sudo_prefix} sh -lc '{kubectl_base} delete pod {pod_quoted} -n {ns_quoted}' || sh -lc '{kubectl_base} delete pod {pod_quoted} -n {ns_quoted}') 2>/dev/null"
+    
+    results, err = await session_manager.run(node_id, node, [cmd], timeout=15.0)
+    
+    if err or not results:
+        raise HTTPException(status_code=500, detail=f"Failed to delete pod: {err}")
+        
+    out = results[0]["output"] if results and isinstance(results[0], dict) else (results[0] if results else "")
+    return {"status": "success", "message": f"Deleted pod {pod_name}", "output": out}

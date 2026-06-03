@@ -58,7 +58,7 @@
       </div>
 
       <!-- Pod Matrix -->
-      <div class="section-title">POD MATRIX</div>
+      <div class="section-title">POD MATRIX <span style="font-size: 10px; color: #8b949e;">(CLICK TO KILL POD)</span></div>
       <div class="pod-matrix">
         <div 
           v-for="pod in sortedPods" 
@@ -66,6 +66,7 @@
           class="pod-cell"
           :class="pod.status.toLowerCase()"
           :title="`${pod.name}\nNamespace: ${pod.namespace}\nStatus: ${pod.status}\nRestarts: ${pod.restarts}`"
+          @click="killPod(pod)"
         ></div>
       </div>
       
@@ -96,6 +97,17 @@
             <span class="item-value" :class="node.status.toLowerCase()">{{ node.status }}</span>
           </div>
         </div>
+      </div>
+      
+      <!-- Vulnerable Targets -->
+      <div class="section-title" style="margin-top: 20px;">VULNERABLE TARGETS</div>
+      <div class="targets-container">
+        <div class="target-card">
+          <div class="target-header">OWASP Juice Shop</div>
+          <div class="target-desc">Modern web application with security flaws intended for security training.</div>
+          <button class="btn-deploy" @click="deployTarget('juice-shop')">[ DEPLOY TO CLUSTER ]</button>
+        </div>
+        <!-- Add more targets here later -->
       </div>
     </div>
     
@@ -175,33 +187,48 @@ const sortedPods = computed(() => {
   })
 })
 
-async function fetchClusterState(isBackground = true) {
-  // Only show loading spinner on first load or explicit toggle
-  if (!isBackground || (!clusterData.value && !error.value)) {
-    loading.value = true
-  }
-  
+async function fetchClusterState(isPoll = false) {
+  if (installing.value) return
+  if (!isPoll) loading.value = true
   try {
-    const res = await fetch(`/api/kubernetes/${props.nodeId}/status?mock=${forceMock.value}`, {
-      headers: { 'Authorization': `Bearer ${localStorage.getItem('nr_token')}` }
-    })
-    
-    if (!res.ok) {
-      let msg = res.statusText
-      try {
-        const errData = await res.json()
-        if (errData.detail) msg = errData.detail
-      } catch (e) {}
-      throw new Error(msg)
-    }
-    
-    clusterData.value = await res.json()
-    error.value = ''
+    const res = await api.get(`/api/kubernetes/${props.nodeId}/status?mock=${forceMock.value}`)
+    clusterData.value = res.data
   } catch (err: any) {
-    error.value = err.message || String(err)
-    clusterData.value = null
+    if (err.response?.status === 404 && err.response?.data?.detail?.includes("not detected")) {
+      clusterData.value = null
+      error.value = "Kubernetes cluster not detected or kubectl failed."
+    } else {
+      console.error(err)
+      // Only set error if we don't have existing data to prevent UI flashing
+      if (!clusterData.value) {
+        error.value = err.message || 'Failed to fetch cluster state'
+      }
+    }
   } finally {
     loading.value = false
+  }
+}
+
+async function killPod(pod: any) {
+  if (forceMock.value) return;
+  if (!confirm(`Are you sure you want to kill pod ${pod.name}?`)) return;
+  try {
+    await api.delete(`/api/kubernetes/${props.nodeId}/pods/${pod.namespace}/${pod.name}`);
+    fetchClusterState(true);
+  } catch(err) {
+    console.error(err);
+    alert('Failed to kill pod');
+  }
+}
+
+async function deployTarget(target: string) {
+  if (forceMock.value) return;
+  try {
+    await api.post(`/api/kubernetes/${props.nodeId}/deploy`, { target });
+    fetchClusterState(true);
+  } catch(err) {
+    console.error(err);
+    alert('Failed to deploy target');
   }
 }
 
@@ -469,36 +496,58 @@ input:checked + .slider:before {
   background: #30363d;
   border-radius: 2px;
   cursor: pointer;
-  transition: transform 0.1s;
+  transition: all 0.2s ease;
 }
 
 .pod-cell:hover {
-  transform: scale(1.5);
-  z-index: 2;
-  box-shadow: 0 0 10px rgba(255,255,255,0.5);
+  transform: scale(1.3);
+  box-shadow: 0 0 10px rgba(255, 255, 255, 0.5);
+  z-index: 10;
 }
 
-.pod-cell.running { background: #3fb950; }
-.pod-cell.pending { background: #d29922; }
-.pod-cell.crashloopbackoff { background: #f85149; animation: blink 1s infinite; }
-.pod-cell.completed { background: #58a6ff; }
-.pod-cell.error { background: #ff2d6e; animation: blink 0.5s infinite; }
+.pod-cell.running {
+  background: #238636;
+  box-shadow: 0 0 5px rgba(35, 134, 54, 0.5);
+}
 
-@keyframes blink {
-  0%, 100% { opacity: 1; }
+.pod-cell.pending {
+  background: #d29922;
+  animation: pulse 1.5s infinite;
+}
+
+.pod-cell.failed, .pod-cell.error, .pod-cell.crashloopbackoff {
+  background: #f85149;
+  box-shadow: 0 0 5px rgba(248, 81, 73, 0.5);
+}
+
+.pod-cell.terminating {
+  background: #8b949e;
+  animation: fade 1s infinite;
+}
+
+@keyframes pulse {
+  0% { opacity: 0.6; }
+  50% { opacity: 1; }
+  100% { opacity: 0.6; }
+}
+
+@keyframes fade {
+  0% { opacity: 1; }
   50% { opacity: 0.3; }
+  100% { opacity: 1; }
 }
 
+/* List views */
 .split-view {
   display: flex;
-  gap: 16px;
+  gap: 20px;
 }
 
 .list-container {
   flex: 1;
-  background: #161b22;
+  background: #0d1117;
   border: 1px solid #30363d;
-  border-radius: 6px;
+  border-radius: 4px;
   padding: 12px;
 }
 
@@ -507,15 +556,17 @@ input:checked + .slider:before {
   justify-content: space-between;
   font-size: 10px;
   color: #8b949e;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #30363d;
   margin-bottom: 8px;
 }
 
 .list-item {
   display: flex;
   justify-content: space-between;
-  padding: 6px 0;
-  border-bottom: 1px solid #21262d;
   font-size: 12px;
+  padding: 6px 0;
+  border-bottom: 1px solid rgba(48, 54, 61, 0.5);
 }
 
 .list-item:last-child {
@@ -523,20 +574,74 @@ input:checked + .slider:before {
 }
 
 .item-name {
-  color: #e6edf3;
+  color: #c9d1d9;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  max-width: 150px;
+  max-width: 70%;
 }
 
 .item-value {
-  color: #3fb950;
-  font-weight: bold;
+  color: #8b949e;
 }
 
-.item-value.degraded, .item-value.notready {
+.item-value.degraded {
+  color: #d29922;
+}
+
+.item-value.ready {
+  color: #238636;
+}
+
+.item-value.notready {
   color: #f85149;
+}
+
+/* Targets */
+.targets-container {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 16px;
+}
+
+.target-card {
+  background: #0d1117;
+  border: 1px solid #30363d;
+  border-radius: 6px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+}
+
+.target-header {
+  color: #58a6ff;
+  font-weight: bold;
+  font-size: 14px;
+  margin-bottom: 8px;
+}
+
+.target-desc {
+  color: #8b949e;
+  font-size: 12px;
+  margin-bottom: 16px;
+  flex-grow: 1;
+}
+
+.btn-deploy {
+  background: transparent;
+  border: 1px solid #238636;
+  color: #238636;
+  padding: 6px 0;
+  border-radius: 4px;
+  cursor: pointer;
+  font-family: monospace;
+  font-size: 12px;
+  transition: all 0.2s ease;
+}
+
+.btn-deploy:hover {
+  background: rgba(35, 134, 54, 0.1);
+  box-shadow: 0 0 8px rgba(35, 134, 54, 0.4);
 }
 
 .error-box {
