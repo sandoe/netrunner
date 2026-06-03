@@ -1547,6 +1547,38 @@
         </div>
       </div>
     </Transition>
+
+    <!-- Sudo Prompt Modal -->
+    <div v-if="showSudoPrompt" class="modal-overlay">
+      <div class="modal-content cyber-panel">
+        <h3 class="modal-title">Authentication Required</h3>
+        <p class="modal-text">Enter sudo password for this node (leave blank if NOPASSWD):</p>
+        <input 
+          v-model="sudoInput" 
+          type="password" 
+          class="cyber-input" 
+          placeholder="Password..."
+          @keyup.enter="submitSudo"
+        />
+        <div class="modal-actions">
+          <button class="btn-cancel" @click="cancelSudo">CANCEL</button>
+          <button class="btn-submit" @click="submitSudo">AUTHENTICATE</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Installation Progress Modal -->
+    <div v-if="showInstallModal" class="modal-overlay">
+      <div class="modal-content install-modal cyber-panel">
+        <h3 class="modal-title">
+          {{ installStatus === 'running' ? 'Installing Tool...' : (installStatus === 'success' ? 'Installation Complete' : 'Installation Failed') }}
+        </h3>
+        <pre class="install-log">{{ installLog }}</pre>
+        <div class="modal-actions" v-if="installStatus !== 'running'">
+          <button class="btn-submit" @click="closeInstallModal">CLOSE</button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -2824,6 +2856,38 @@ function syncDirectFileForm() {
   }, null, 2)
 }
 
+const showSudoPrompt = ref(false)
+const sudoInput = ref('')
+const sudoResolve = ref<((pass: string | null) => void) | null>(null)
+
+const showInstallModal = ref(false)
+const installLog = ref('')
+const installStatus = ref<'running' | 'success' | 'error'>('running')
+
+function promptSudo(): Promise<string | null> {
+  sudoInput.value = ''
+  showSudoPrompt.value = true
+  setTimeout(() => {
+    const el = document.querySelector('.modal-overlay .cyber-input') as HTMLInputElement
+    if (el) el.focus()
+  }, 50)
+  return new Promise(resolve => {
+    sudoResolve.value = resolve
+  })
+}
+
+function submitSudo() {
+  if (sudoResolve.value) sudoResolve.value(sudoInput.value)
+  showSudoPrompt.value = false
+  sudoResolve.value = null
+}
+
+function cancelSudo() {
+  if (sudoResolve.value) sudoResolve.value(null)
+  showSudoPrompt.value = false
+  sudoResolve.value = null
+}
+
 const syncFnMap: Record<string, () => void> = {}
 
 function selectType(type: string) {
@@ -2891,15 +2955,42 @@ async function applyConfig() {
 async function installMissing(cmd: string) {
     // Extract tool name (first word, e.g. "arp-scan" from "arp-scan localnet")
     const tool = cmd.replace(/^#.*\n/, '').trim().split(' ')[0]
-    installingTool.value = true
+    
+    const sudoPass = await promptSudo()
+    if (sudoPass === null) return // user cancelled
+
+    showInstallModal.value = true
+    installStatus.value = 'running'
+    installLog.value = `[System] Initiating installation for ${tool}...\n`
+    installLog.value += `[System] Awaiting backend execution...\n\n`
+
     try {
-        await api.installTool(props.nodeId, tool)
-        alert(`${tool} installed successfully. You can now retry the command.`)
+        const res = await api.installTool(props.nodeId, tool, sudoPass)
+        if (res.results && res.results.length > 0) {
+            for (const r of res.results) {
+                installLog.value += `\n$ ${r.command}\n`
+                if (r.output) installLog.value += r.output + '\n'
+                if (r.error) installLog.value += r.error + '\n'
+            }
+        }
+        
+        // Basic check if it likely succeeded (apt-get returns 0 typically, but we just check if it contains common errors)
+        const lowerOut = installLog.value.toLowerCase()
+        if (lowerOut.includes('e: unable to locate package') || lowerOut.includes('error:') || lowerOut.includes('command not found')) {
+            installLog.value += '\n[System] Installation appears to have FAILED.\n'
+            installStatus.value = 'error'
+        } else {
+            installLog.value += '\n[System] Installation completed.\n'
+            installStatus.value = 'success'
+        }
     } catch (e) {
-        alert('Installation failed: ' + e)
-    } finally {
-        installingTool.value = false
+        installLog.value += `\n[System] Installation FAILED.\nError: ${e}`
+        installStatus.value = 'error'
     }
+}
+
+function closeInstallModal() {
+  showInstallModal.value = false
 }
 
 // Register sync functions so selectType can call them by key
@@ -2946,6 +3037,18 @@ syncFnMap['direct-file'] = syncDirectFileForm
 syncFnMap['direct-json'] = () => {
   inputJson.value = JSON_BOILERPLATES[directJsonGeneratorType.value] || '{}'
 }
+
+// Telemetry structures
+interface DetectedInterface {
+  name: string
+  status: 'UP' | 'DOWN' | 'UNKNOWN'
+  ips: string[]
+}
+
+const detectedInterfaces = ref<DetectedInterface[]>([])
+const detectingState = ref<'idle' | 'loading' | 'success' | 'error'>('idle')
+const detectingError = ref('')
+const liveRefExpanded = ref(true)
 
 // Auto-update JSON as form fields change
 watch(interfaceForm,   () => { if (activeType.value === 'interface' && !isSyncing.value)   syncInterfaceForm() },   { deep: true })
@@ -3098,18 +3201,6 @@ watch(() => props.nodeId, () => {
   // Refresh live interfaces telemetry when active node changes
   fetchLiveInterfaces()
 })
-
-// Telemetry structures
-interface DetectedInterface {
-  name: string
-  status: 'UP' | 'DOWN' | 'UNKNOWN'
-  ips: string[]
-}
-
-const detectedInterfaces = ref<DetectedInterface[]>([])
-const detectingState = ref<'idle' | 'loading' | 'success' | 'error'>('idle')
-const detectingError = ref('')
-const liveRefExpanded = ref(true)
 
 // --- Premium UI/UX Network Interface Features ---
 
@@ -4805,11 +4896,94 @@ fetchLiveInterfaces()
   letter-spacing: 0.8px;
 }
 .toast-val {
+  color: var(--cyan);
   font-family: var(--font-co);
-  font-size: 11px;
-  font-weight: 600;
+  font-size: 14px;
+}
+
+/* Sudo Modal Styles */
+.modal-overlay {
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0, 0, 0, 0.7);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+.modal-content {
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 24px;
+  width: 360px;
+  box-shadow: 0 0 20px rgba(0, 229, 255, 0.1);
+  text-align: center;
+}
+.modal-title {
+  color: var(--cyan);
+  margin-top: 0;
+  margin-bottom: 12px;
+  font-family: var(--font-hd);
+  letter-spacing: 1px;
+}
+.modal-text {
+  color: var(--text);
+  font-size: 13px;
+  margin-bottom: 20px;
+}
+.modal-actions {
+  display: flex;
+  gap: 12px;
+  justify-content: flex-end;
+}
+.btn-cancel {
+  padding: 8px 16px;
+  background: transparent;
+  color: var(--textbr);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  cursor: pointer;
+  font-family: var(--font-hd);
+}
+.btn-cancel:hover {
+  background: var(--bg);
   color: var(--textwh);
-  word-break: break-all;
+}
+.btn-submit {
+  padding: 8px 16px;
+  background: rgba(0, 229, 255, 0.1);
+  color: var(--cyan);
+  border: 1px solid var(--cyan);
+  border-radius: 4px;
+  cursor: pointer;
+  font-family: var(--font-hd);
+}
+.btn-submit:hover {
+  background: var(--cyan);
+  color: var(--bg);
+  box-shadow: 0 0 10px rgba(0, 229, 255, 0.3);
+}
+
+.install-modal {
+  width: 600px;
+  max-width: 90vw;
+}
+.install-log {
+  background: #000;
+  color: #0f0;
+  padding: 12px;
+  border-radius: 4px;
+  height: 300px;
+  overflow-y: auto;
+  text-align: left;
+  font-family: var(--font-co);
+  font-size: 13px;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  margin-bottom: 20px;
+  border: 1px solid var(--border);
 }
 
 /* Toast Transition */

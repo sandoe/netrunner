@@ -12,7 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from .routers import ai, configs, gns3, links, nodes, preview, terminal, settings, threats, defense, system, chaos, auth, redteam, deception, agent, threat_history, rules, internal, telemetry, wifi
+from .routers import ai, configs, gns3, links, nodes, preview, terminal, settings, threats, defense, system, chaos, auth, redteam, deception, agent, threat_history, rules, internal, telemetry, wifi, recon, analyze, kubernetes
 from .routers.auth import get_current_user
 
 # Require a valid JWT for protected routers (login + internal m2m stay open).
@@ -104,6 +104,7 @@ app.include_router(ai.router,       prefix="/api", dependencies=AUTH)
 app.include_router(settings.router, prefix="/api", dependencies=AUTH)
 app.include_router(configs.router,  prefix="/api", dependencies=AUTH)
 app.include_router(preview.router,  prefix="/api", dependencies=AUTH)
+app.include_router(analyze.router,  prefix="/api", dependencies=AUTH)
 app.include_router(defense.router,  prefix="/api", dependencies=AUTH)
 app.include_router(system.router,   prefix="/api", dependencies=AUTH)
 app.include_router(chaos.router,    prefix="/api", dependencies=AUTH)
@@ -112,6 +113,8 @@ app.include_router(deception.router,prefix="/api", dependencies=AUTH)
 app.include_router(agent.router,    prefix="/api/agent", dependencies=AUTH)
 app.include_router(threat_history.router, prefix="/api/threats", dependencies=AUTH)
 app.include_router(rules.router,    prefix="/api/rules", dependencies=AUTH)
+app.include_router(recon.router,    prefix="/api", dependencies=AUTH)
+app.include_router(kubernetes.router, prefix="/api", dependencies=AUTH)
 
 # Mixed HTTP + WebSocket routers — auth applied per-endpoint inside the router
 # (router-level deps would also reject browser WS handshakes).

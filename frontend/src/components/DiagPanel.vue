@@ -71,11 +71,43 @@
         <div v-else-if="isMissingTool" class="output-fix-box">
             <div class="fix-msg">It looks like <strong>{{ activeType }}</strong> is not installed on this node.</div>
             <button class="btn-install-tool" @click="installTool" :disabled="installing">
-                {{ installing ? 'INSTALLING...' : 'INSTALL ' + activeType?.toUpperCase() }}
+                {{ installing ? 'INSTALLING...' : 'INSTALL (WITH PASSWORD) ' + activeType?.toUpperCase() }}
             </button>
             <pre class="raw-err">{{ output }}</pre>
         </div>
         <pre v-else class="output-pre" v-html="highlightedOutput"></pre>
+      </div>
+    </div>
+    
+    <!-- Sudo Prompt Modal -->
+    <div v-if="showSudoPrompt" class="modal-overlay">
+      <div class="modal-content">
+        <h3>Authentication Required</h3>
+        <p>Enter sudo password for this node (leave blank if NOPASSWD):</p>
+        <input 
+          v-model="sudoInput" 
+          type="password" 
+          class="sudo-input" 
+          placeholder="Password..."
+          @keyup.enter="submitSudo"
+        />
+        <div class="modal-actions">
+          <button class="btn-cancel" @click="cancelSudo">CANCEL</button>
+          <button class="btn-submit" @click="submitSudo">AUTHENTICATE</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Installation Progress Modal -->
+    <div v-if="showInstallModal" class="modal-overlay">
+      <div class="modal-content install-modal">
+        <h3 class="modal-title">
+          {{ installStatus === 'running' ? 'Installing Tool...' : (installStatus === 'success' ? 'Installation Complete' : 'Installation Failed') }}
+        </h3>
+        <pre class="install-log">{{ installLog }}</pre>
+        <div class="modal-actions" v-if="installStatus !== 'running'">
+          <button class="btn-submit" @click="closeInstallModal">CLOSE</button>
+        </div>
       </div>
     </div>
   </div>
@@ -97,6 +129,39 @@ const copied        = ref(false)
 const installing    = ref(false)
 const collapsedCats = ref<Set<string>>(new Set())
 const searchQuery   = ref('')
+
+const showSudoPrompt = ref(false)
+const sudoInput = ref('')
+const sudoResolve = ref<((pass: string | null) => void) | null>(null)
+
+const showInstallModal = ref(false)
+const installLog = ref('')
+const installStatus = ref<'running' | 'success' | 'error'>('running')
+
+function promptSudo(): Promise<string | null> {
+  sudoInput.value = ''
+  showSudoPrompt.value = true
+  // Small delay to allow the DOM to update so focus can be applied
+  setTimeout(() => {
+    const el = document.querySelector('.sudo-input') as HTMLInputElement
+    if (el) el.focus()
+  }, 50)
+  return new Promise(resolve => {
+    sudoResolve.value = resolve
+  })
+}
+
+function submitSudo() {
+  if (sudoResolve.value) sudoResolve.value(sudoInput.value)
+  showSudoPrompt.value = false
+  sudoResolve.value = null
+}
+
+function cancelSudo() {
+  if (sudoResolve.value) sudoResolve.value(null)
+  showSudoPrompt.value = false
+  sudoResolve.value = null
+}
 
 const isMissingTool = computed(() => {
     const raw = output.value.toLowerCase()
@@ -201,15 +266,43 @@ async function readType(type: ReadType) {
 
 async function installTool() {
     if (!activeType.value) return
-    installing.value = true
+    
+    const sudoPass = await promptSudo()
+    if (sudoPass === null) return // user cancelled
+
+    showInstallModal.value = true
+    installStatus.value = 'running'
+    installLog.value = `[System] Initiating installation for ${activeType.value}...\n`
+    installLog.value += `[System] Awaiting backend execution...\n\n`
+
     try {
-        await api.installTool(props.nodeId, activeType.value)
-        await readType(activeType.value)
+        const res = await api.installTool(props.nodeId, activeType.value, sudoPass)
+        if (res.results && res.results.length > 0) {
+            for (const r of res.results) {
+                installLog.value += `\n$ ${r.command}\n`
+                if (r.output) installLog.value += r.output + '\n'
+                if (r.error) installLog.value += r.error + '\n'
+            }
+        }
+        
+        // Basic check if it likely succeeded (apt-get returns 0 typically, but we just check if it contains common errors)
+        const lowerOut = installLog.value.toLowerCase()
+        if (lowerOut.includes('e: unable to locate package') || lowerOut.includes('error:') || lowerOut.includes('command not found')) {
+            installLog.value += '\n[System] Installation appears to have FAILED.\n'
+            installStatus.value = 'error'
+        } else {
+            installLog.value += '\n[System] Installation completed.\n'
+            installStatus.value = 'success'
+            await readType(activeType.value)
+        }
     } catch (e) {
-        alert('Installation failed: ' + e)
-    } finally {
-        installing.value = false
+        installLog.value += `\n[System] Installation FAILED.\nError: ${e}`
+        installStatus.value = 'error'
     }
+}
+
+function closeInstallModal() {
+  showInstallModal.value = false
 }
 
 function copyOutput() {
@@ -571,5 +664,105 @@ async function runWgAction(action: 'up' | 'down') {
 .btn-wg-up:disabled, .btn-wg-down:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+/* Sudo Modal Styles */
+.modal-overlay {
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0, 0, 0, 0.7);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+.modal-content {
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 24px;
+  width: 360px;
+  box-shadow: 0 0 20px rgba(0, 229, 255, 0.1);
+  text-align: center;
+}
+.modal-content h3 {
+  color: var(--cyan);
+  margin-top: 0;
+  margin-bottom: 12px;
+  font-family: var(--font-hd);
+  letter-spacing: 1px;
+}
+.modal-content p {
+  color: var(--text);
+  font-size: 13px;
+  margin-bottom: 20px;
+}
+.sudo-input {
+  width: 100%;
+  padding: 10px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--textwh);
+  border-radius: 4px;
+  margin-bottom: 20px;
+  outline: none;
+  font-family: var(--font-co);
+}
+.sudo-input:focus {
+  border-color: var(--cyan);
+  box-shadow: 0 0 8px rgba(0, 229, 255, 0.2);
+}
+.modal-actions {
+  display: flex;
+  gap: 12px;
+  justify-content: flex-end;
+}
+.btn-cancel {
+  padding: 8px 16px;
+  background: transparent;
+  color: var(--textbr);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  cursor: pointer;
+  font-family: var(--font-hd);
+}
+.btn-cancel:hover {
+  background: var(--bg);
+  color: var(--textwh);
+}
+.btn-submit {
+  padding: 8px 16px;
+  background: rgba(0, 229, 255, 0.1);
+  color: var(--cyan);
+  border: 1px solid var(--cyan);
+  border-radius: 4px;
+  cursor: pointer;
+  font-family: var(--font-hd);
+}
+.btn-submit:hover {
+  background: var(--cyan);
+  color: var(--bg);
+  box-shadow: 0 0 10px rgba(0, 229, 255, 0.3);
+}
+
+.install-modal {
+  width: 600px;
+  max-width: 90vw;
+}
+.install-log {
+  background: #000;
+  color: #0f0;
+  padding: 12px;
+  border-radius: 4px;
+  height: 300px;
+  overflow-y: auto;
+  text-align: left;
+  font-family: var(--font-co);
+  font-size: 13px;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  margin-bottom: 20px;
+  border: 1px solid var(--border);
 }
 </style>

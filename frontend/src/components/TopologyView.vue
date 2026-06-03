@@ -375,6 +375,7 @@ function getGraphData() {
     cached.type = node.device_type
     cached.connected = store.isConnected(node.id)
     cached.val = 4
+    cached.tags = node.tags || []
     nodesList.push(cached)
   })
 
@@ -512,9 +513,11 @@ function createThreeNodeObject(node: any) {
 
   // Determine neon primary color
   let colorVal = 0x00e5ff // standard electric cyan
+  const isVulnerable = node.tags && node.tags.includes('vulnerable')
+  
   if (isSelected) colorVal = 0xff2d6e // pulsing red/pink for selected
   else if (isDrawSrc) colorVal = 0xffbe0b // golden for link draw source
-  else if (isGhost) colorVal = 0xff2d6e // dangerous hacker red
+  else if (isGhost || isVulnerable) colorVal = 0xff2d6e // dangerous hacker red
   else if (connected) colorVal = 0x00ff9d // cyber green for active nodes
 
   const mat = new THREE.MeshBasicMaterial({ color: colorVal })
@@ -757,8 +760,11 @@ function initGraph() {
             mbps += iface.mbps_tx || 0
           })
         }
-        if (mbps > 0) return Math.min(10, Math.ceil(mbps))
-        return link.active ? 1 : (link.isGhostLink ? 2 : 0)
+        // Base traffic for active links (simulate idle ping)
+        const base = link.active ? 2 : (link.isGhostLink ? 4 : 0)
+        // Spawn up to 20 fast particles to look like a solid laser stream under heavy load
+        if (mbps > 0) return base + Math.min(20, Math.ceil(mbps * 3))
+        return base
       })
     }
     
@@ -771,22 +777,43 @@ function initGraph() {
             mbps += iface.mbps_tx || 0
           })
         }
-        if (mbps > 0) return 0.01 + Math.min(0.05, mbps * 0.005)
-        return link.isGhostLink ? 0.005 : 0.01
+        // Laser speed - much faster!
+        const baseSpeed = link.isGhostLink ? 0.015 : 0.008
+        if (mbps > 0) return baseSpeed + Math.min(0.06, mbps * 0.003)
+        return baseSpeed
       })
     }
     
     if (typeof g.linkDirectionalParticleWidth === 'function') {
       g.linkDirectionalParticleWidth(link => {
-        if (!link || typeof link !== 'object') return 3
-        return link.isGhostLink ? 2 : 3
+        if (!link || typeof link !== 'object') return 2
+        let mbps = 0
+        if (link.source && link.source.id && telemetryData.value[link.source.id]) {
+          Object.values(telemetryData.value[link.source.id]).forEach(iface => {
+            mbps += iface.mbps_tx || 0
+          })
+        }
+        // Make heavy traffic fatter
+        const width = 2 + Math.min(5, mbps * 0.8)
+        return link.isGhostLink ? 2.5 : width
       })
     }
     
     if (typeof g.linkDirectionalParticleColor === 'function') {
       g.linkDirectionalParticleColor(link => {
         if (!link || typeof link !== 'object') return '#00ff9d'
-        return link.isGhostLink ? 'rgba(255, 45, 110, 0.8)' : '#00ff9d'
+        if (link.isGhostLink) return 'rgba(255, 45, 110, 0.9)' // Red laser for threats
+        
+        let mbps = 0
+        if (link.source && link.source.id && telemetryData.value[link.source.id]) {
+          Object.values(telemetryData.value[link.source.id]).forEach(iface => {
+            mbps += iface.mbps_tx || 0
+          })
+        }
+        // Turn bright cyan or white under heavy load
+        if (mbps > 10) return '#ffffff'
+        if (mbps > 2) return '#00e5ff'
+        return '#00ff9d'
       })
     }
     
@@ -992,6 +1019,7 @@ onMounted(() => {
           telemetryData.value[data.node_id] = {}
         }
         telemetryData.value[data.node_id][data.interface] = data
+        refreshVisuals()
       } else if (data.type === 'vitals') {
         nodeVitals.value[data.node_id] = {
           cpu: data.cpu, ram: data.ram, net_tx: data.net_tx, net_rx: data.net_rx,

@@ -113,11 +113,15 @@ export const api = {
 
   readNode: (id: string, type: string) => req<{ results: CommandResult[] }>('GET', `/nodes/${id}/read/${type}`),
   executeNode: (id: string, commands: string[]) => req<{ results: CommandResult[] }>('POST', `/nodes/${id}/execute`, { commands }),
-  installTool: (id: string, tool: string) => req<{ status: string; results: CommandResult[] }>('POST', `/nodes/${id}/install`, { tool }),
+  installTool: (id: string, tool: string, sudo_pass?: string) => req<{ status: string; results: CommandResult[] }>('POST', `/nodes/${id}/install`, { tool, sudo_pass }),
 
   // Backup
   backupNode: (id: string) => req<{ ok: boolean }>('POST', `/nodes/${id}/backup`),
   rollbackNode: (id: string) => req<{ ok: boolean; results: CommandResult[] }>('POST', `/nodes/${id}/rollback`),
+
+  // Recon
+  runRecon: (id: string, target: string, profile: string, sudo_pass?: string) => req<any>('POST', `/recon/${id}/scan`, { target, profile, sudo_pass }),
+  importRecon: (id: string, hosts: any[]) => req<{ status: string; imported: number }>('POST', `/recon/${id}/import`, { hosts }),
 
   // Export
   exportNode: (id: string, body: { live_diagnostics?: string[]; include_captures?: boolean } = {}) =>

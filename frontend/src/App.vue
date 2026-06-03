@@ -63,6 +63,7 @@
         <button class="btn-pulse" :class="{ active: viewMode === 'pulse' }" @click="viewMode = 'pulse'">⚡ NETWORK PULSE</button>
         <button :class="{ active: viewMode === 'node' }" @click="viewMode = 'node'">NODES</button>
         <button :class="{ active: viewMode === 'topology' }" @click="viewMode = 'topology'">TOPOLOGY</button>
+        <button class="btn-recon" :class="{ active: viewMode === 'recon' }" @click="viewMode = 'recon'">📡 RECON ENGINE</button>
         <button :class="{ active: viewMode === 'threat' }" @click="viewMode = 'threat'">THREAT MAP</button>
         <button :class="{ active: viewMode === 'attack' }" @click="viewMode = 'attack'">🎯 ATT&CK</button>
         <button :class="{ active: viewMode === 'history' }" @click="viewMode = 'history'">HISTORY</button>
@@ -90,6 +91,7 @@
               class="node-item"
               :class="{ active: store.selectedId === node.id }"
               @click="store.select(node.id)"
+              @contextmenu.prevent="onEditNode(node.id)"
             >
               <div 
                 class="node-dot" 
@@ -125,6 +127,7 @@
         <NetworkPulse v-if="viewMode === 'pulse'" />
         <AttackMatrix v-else-if="viewMode === 'attack'" />
         <TopologyView v-else-if="viewMode === 'topology'" @edit-node="onEditNode" />
+        <ReconView v-else-if="viewMode === 'recon'" />
         <ThreatMap v-else-if="viewMode === 'threat'" />
         <WifiView v-else-if="viewMode === 'wifi'" />
         <ThreatTimeline v-else-if="viewMode === 'history'" />
@@ -193,7 +196,9 @@
             <Gns3Panel    v-if="activeTab === 'gns3-api'" :node-id="store.selected.id" />
             <SystemPanel  v-if="activeTab === 'system'"   :node-id="store.selected.id" />
             <DockerPanel  v-if="activeTab === 'docker'"   :node-id="store.selected.id" />
+            <KubernetesPanel v-if="activeTab === 'kubernetes'" :node-id="store.selected.id" />
             <DatabasePanel v-if="activeTab === 'database'" :node-id="store.selected.id" />
+            <ThreatReportPanel v-if="activeTab === 'threat_report'" :node-id="store.selected.id" />
             <ActiveDefensePanel v-if="activeTab === 'defense'" :node-id="store.selected.id" />
             <CapturePanel v-if="activeTab === 'capture'"  :node-id="store.selected.id" />
             <ShellPanel   v-if="activeTab === 'terminal'" :node="store.selected" />
@@ -373,7 +378,10 @@ import { useNocAudio } from '@/composables/useNocAudio'
 import { useAmbient } from '@/composables/useAmbient'
 import BootSequence from './components/BootSequence.vue'
 import NodeForm  from './components/NodeForm.vue'
+import ThreatReportPanel from './components/ThreatReportPanel.vue'
+import KubernetesPanel from './components/KubernetesPanel.vue'
 import TopologyView from './components/TopologyView.vue'
+import ReconView from './components/ReconView.vue'
 import WifiView from './components/WifiView.vue'
 import ThreatMap from './components/ThreatMap.vue'
 import ThreatTimeline from './components/ThreatTimeline.vue'
@@ -651,7 +659,7 @@ window.addEventListener('auth-expired', () => {
 })
 
 const store       = useNodesStore()
-const viewMode    = ref<'node' | 'topology' | 'threat' | 'history' | 'warroom'>(
+const viewMode    = ref<'node' | 'topology' | 'threat' | 'history' | 'warroom' | 'pulse' | 'attack' | 'wifi' | 'recon'>(
   (localStorage.getItem('netrunner_view_mode') as any) || 'node')
 const activeTab   = ref<'overview' | 'gns3-api' | 'diag' | 'config' | 'defense' | 'capture' | 'terminal'>(
   // 'exec' was merged into the TERMINAL tab; migrate any persisted value
@@ -663,7 +671,7 @@ watch(activeTab, t => localStorage.setItem('netrunner_active_tab', t))
 const showAddForm = ref(false)
 const showEdit    = ref(false)
 const showSettings = ref(false)
-const showUsers    = ref(false)
+const showUsers   = ref(false)
 const searchQuery = ref('')
 const connBusy    = ref(false)
 const exporting   = ref(false)
@@ -741,7 +749,9 @@ const dynamicTabs = computed(() => {
   list.push(
     { id: 'system',   label: 'SYSTEM' },
     { id: 'docker',   label: 'DOCKER' },
+    { id: 'kubernetes', label: 'KUBERNETES' },
     { id: 'database', label: 'DATABASE' },
+    { id: 'threat_report', label: 'VULNERABILITIES' },
     { id: 'defense',  label: 'ACTIVE DEFENSE' },
     { id: 'capture',  label: 'CAPTURE' },
     { id: 'terminal', label: 'TERMINAL' }

@@ -1179,6 +1179,7 @@ async def api_node_export(nid: str, body: dict = {}):
 @router.post("/nodes/{nid}/install")
 async def api_node_install_tool(nid: str, body: dict):
     tool = body.get("tool")
+    sudo_pass = body.get("sudo_pass")
     if not tool:
         raise HTTPException(400, "Missing tool name")
         
@@ -1187,6 +1188,9 @@ async def api_node_install_tool(nid: str, body: dict):
         raise HTTPException(404, "Node not found")
         
     node = await _get_node_with_creds(nid, nodes)
+    if sudo_pass is not None:
+        node["password"] = sudo_pass
+
     
     # Map common tools to package names if different
     package_map = {
@@ -1217,15 +1221,21 @@ async def api_node_install_tool(nid: str, body: dict):
 
     mgr = await detect_package_manager(_run)
     
+    password = node.get("password", "")
+    def sudo(c: str) -> str:
+        if password:
+            return f"echo '{password}' | sudo -S {c}"
+        return f"sudo {c}"
+
     commands = []
     if mgr == "apt":
-        commands = [f"apt-get update", f"apt-get install -y {pkg}"]
+        commands = [sudo("apt-get update"), sudo(f"apt-get install -y {pkg}")]
     elif mgr == "apk":
-        commands = [f"apk add {pkg}"]
+        commands = [sudo(f"apk add {pkg}")]
     elif mgr == "yum" or mgr == "dnf":
-        commands = [f"{mgr} install -y {pkg}"]
+        commands = [sudo(f"{mgr} install -y {pkg}")]
     elif mgr == "pacman":
-        commands = [f"pacman -Sy --noconfirm {pkg}"]
+        commands = [sudo(f"pacman -Sy --noconfirm {pkg}")]
     else:
         raise HTTPException(400, f"Unsupported package manager on this node (detected: {mgr})")
 

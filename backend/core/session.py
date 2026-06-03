@@ -253,7 +253,7 @@ class SshClient:
             except: pass
         self.client = None
 
-    def run_command(self, cmd: str, timeout: float = 15) -> str:
+    def run_command(self, cmd: str, timeout: float = 15.0) -> str:
         with self._lock:
             if not self.client:
                 raise ConnectionError("SSH client is not connected")
@@ -373,7 +373,7 @@ class SessionManager:
         for s in sessions.values():
             s.close()
 
-    async def run(self, nid: str, node: dict, commands: list[str]) -> tuple[list, Optional[str]]:
+    async def run(self, nid: str, node: dict, commands: list[str], timeout: float = 15.0) -> tuple[list, Optional[str]]:
         """Run a list of commands, with auto-reconnect logic."""
         with self._cmd_lock(nid):
             session = self.get_session(nid)
@@ -386,7 +386,15 @@ class SessionManager:
             for cmd in commands:
                 if not cmd.strip(): continue
                 try:
-                    out = session.run_command(cmd)
+                    if hasattr(session, 'run_command'):
+                        import inspect
+                        sig = inspect.signature(session.run_command)
+                        if 'timeout' in sig.parameters:
+                            out = session.run_command(cmd, timeout=timeout)
+                        else:
+                            out = session.run_command(cmd)
+                    else:
+                        out = ""
                     results.append({"command": cmd, "output": out, "error": None})
                 except Exception as e:
                     # Attempt ONE reconnect if session died
@@ -395,11 +403,18 @@ class SessionManager:
                         if success:
                             session = self.get_session(nid)
                             try:
-                                out = session.run_command(cmd)
+                                if hasattr(session, 'run_command'):
+                                    sig = inspect.signature(session.run_command)
+                                    if 'timeout' in sig.parameters:
+                                        out = session.run_command(cmd, timeout=timeout)
+                                    else:
+                                        out = session.run_command(cmd)
+                                else:
+                                    out = ""
                                 results.append({"command": cmd, "output": out, "error": None})
                                 continue
                             except: pass
-                    results.append({"command": cmd, "output": "", "error": str(e)})
+                    results.append({"command": cmd, "output": "", "error": str(e) or type(e).__name__})
                     break
             return results, None
 
