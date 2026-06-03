@@ -172,17 +172,25 @@ async def install_kubernetes(node_id: str, user: dict = Depends(get_current_user
     node = nodes_data[node_id]
     
     # We write the command to a file and execute it so it runs robustly and logs output
-    install_cmd = "sudo sh -lc 'curl -sfL https://get.k3s.io > /tmp/k3s_install.sh && sh /tmp/k3s_install.sh > /tmp/k3s_install.log 2>&1'"
+    install_script = "curl -sfL https://get.k3s.io > /tmp/k3s_install.sh && sh /tmp/k3s_install.sh > /tmp/k3s_install.log 2>&1"
+    
+    sudo_prefix = "sudo"
+    if "sudo_password" in node and node["sudo_password"]:
+        import shlex
+        sudo_prefix = f"echo {shlex.quote(node['sudo_password'])} | sudo -S"
+        
+    init_cmd = f"{sudo_prefix} sh -lc 'echo Starting Kubernetes Installation... > /tmp/k3s_install.log'"
+    install_cmd = f"{sudo_prefix} sh -lc {shlex.quote(install_script)}"
     
     # Initialize the log file so the frontend can start reading it immediately
-    await session_manager.run(node_id, node, ["sudo sh -lc 'echo Starting Kubernetes Installation... > /tmp/k3s_install.log'"], timeout=5.0)
+    await session_manager.run(node_id, node, [init_cmd], timeout=5.0)
     
     results, err = await session_manager.run(node_id, node, [install_cmd], timeout=120.0)
     
     if err or not results:
         # Fetch the logs to see what went wrong
         log_res, _ = await session_manager.run(node_id, node, ["cat /tmp/k3s_install.log"], timeout=10.0)
-        logs = log_res[0] if log_res else str(err)
+        logs = log_res[0]["output"] if log_res and isinstance(log_res[0], dict) else (log_res[0] if log_res else str(err))
         raise HTTPException(status_code=500, detail=f"Installation failed:\\n{logs}")
         
     # Give it a few seconds to start up
@@ -190,9 +198,10 @@ async def install_kubernetes(node_id: str, user: dict = Depends(get_current_user
     await asyncio.sleep(5)
     
     # Clean up the log and script files after successful installation
-    await session_manager.run(node_id, node, ["sudo rm -f /tmp/k3s_install.log /tmp/k3s_install.sh"], timeout=5.0)
+    await session_manager.run(node_id, node, [f"{sudo_prefix} rm -f /tmp/k3s_install.log /tmp/k3s_install.sh"], timeout=5.0)
     
-    return {"status": "success", "message": "K3s installed successfully", "logs": results[0] if results else ""}
+    out = results[0]["output"] if results and isinstance(results[0], dict) else (results[0] if results else "")
+    return {"status": "success", "message": "K3s installed successfully", "logs": out}
 
 @router.get("/kubernetes/{node_id}/install/logs")
 async def get_install_logs(node_id: str, user: dict = Depends(get_current_user)):
@@ -204,4 +213,5 @@ async def get_install_logs(node_id: str, user: dict = Depends(get_current_user))
     
     results, err = await session_manager.run(node_id, node, ["cat /tmp/k3s_install.log 2>/dev/null || echo 'Waiting for logs...'"], timeout=10.0)
     
-    return {"logs": results[0] if results else "Error fetching logs"}
+    out = results[0]["output"] if results and isinstance(results[0], dict) else (results[0] if results else "Error fetching logs")
+    return {"logs": out}
