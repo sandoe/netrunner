@@ -93,9 +93,9 @@ async def get_kubernetes_status(node_id: str, mock: bool = False, user: dict = D
     # We try both standard kubectl and K3s kubeconfig with fallback
     kubectl_base = "export KUBECONFIG=/etc/rancher/k3s/k3s.yaml; kubectl"
     
-    cmd_pods = f"{sudo_prefix} sh -lc '{kubectl_base} get pods -A -o json 2>/dev/null' || sh -lc '{kubectl_base} get pods -A -o json 2>/dev/null'"
-    cmd_nodes = f"{sudo_prefix} sh -lc '{kubectl_base} get nodes -o json 2>/dev/null' || sh -lc '{kubectl_base} get nodes -o json 2>/dev/null'"
-    cmd_deps = f"{sudo_prefix} sh -lc '{kubectl_base} get deployments -A -o json 2>/dev/null' || sh -lc '{kubectl_base} get deployments -A -o json 2>/dev/null'"
+    cmd_pods = f"({sudo_prefix} sh -lc '{kubectl_base} get pods -A -o json' || sh -lc '{kubectl_base} get pods -A -o json') 2>/dev/null"
+    cmd_nodes = f"({sudo_prefix} sh -lc '{kubectl_base} get nodes -o json' || sh -lc '{kubectl_base} get nodes -o json') 2>/dev/null"
+    cmd_deps = f"({sudo_prefix} sh -lc '{kubectl_base} get deployments -A -o json' || sh -lc '{kubectl_base} get deployments -A -o json') 2>/dev/null"
     
     results, err = await session_manager.run(node_id, node, [cmd_pods, cmd_nodes, cmd_deps], timeout=10.0)
     
