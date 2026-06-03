@@ -76,12 +76,16 @@
           <div class="section-title">ACTIVE DEPLOYMENTS</div>
           <div class="list-header">
             <span>NAME</span>
-            <span>REPLICAS</span>
+            <span>REPLICAS / SCALE</span>
           </div>
           <div class="list-item" v-for="dep in clusterData.deployments" :key="dep.name">
             <span class="item-name" :title="dep.name">{{ dep.name }}</span>
-            <span class="item-value" :class="{'degraded': dep.available < dep.desired}">
+            <span class="item-value" :class="{'degraded': dep.available < dep.desired}" style="display: flex; align-items: center; gap: 8px;">
               {{ dep.available }} / {{ dep.desired }}
+              <div class="scale-controls">
+                <button @click="scaleDeployment(dep, -1)" class="btn-icon-action" style="font-size: 10px; padding: 2px 4px;" :disabled="dep.desired <= 0">-</button>
+                <button @click="scaleDeployment(dep, 1)" class="btn-icon-action" style="font-size: 10px; padding: 2px 4px;">+</button>
+              </div>
             </span>
           </div>
         </div>
@@ -108,6 +112,53 @@
           <button class="btn-deploy" @click="deployTarget('juice-shop')">[ DEPLOY TO CLUSTER ]</button>
         </div>
         <!-- Add more targets here later -->
+      </div>
+      
+      <!-- Detailed Pod Table -->
+      <div class="section-title" style="margin-top: 20px;">DETAILED POD REGISTRY</div>
+      <div class="cyber-card">
+        <table class="cyber-table">
+          <thead>
+            <tr>
+              <th>NAMESPACE</th>
+              <th>POD NAME</th>
+              <th>STATUS</th>
+              <th>RESTARTS</th>
+              <th>NODE</th>
+              <th>ACTIONS</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="pod in sortedPods" :key="pod.name" class="container-row">
+              <td class="mono font-gray font-small">{{ pod.namespace }}</td>
+              <td class="font-white font-bold">{{ pod.name }}</td>
+              <td>
+                <span class="status-badge" :class="pod.status.toLowerCase()">
+                  {{ pod.status }}
+                </span>
+              </td>
+              <td class="mono font-cyan font-small">{{ pod.restarts }}</td>
+              <td class="mono font-gray font-small">{{ pod.node }}</td>
+              <td>
+                <div class="actions-cell">
+                  <button class="btn-icon-action btn-logs" title="View Logs" @click="viewLogs(pod)">📝</button>
+                  <button class="btn-icon-action btn-delete-peer" title="Delete Pod" @click="killPod(pod)">✕</button>
+                </div>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Logs / Inspect Panel -->
+      <div v-if="activeLogs" class="cyber-card logs-card" style="margin-top: 15px;">
+        <div class="card-title-bar">
+          <span>📝 LOGS: {{ activeTargetPod }}</span>
+          <button class="btn-close-logs" @click="closeLogs" style="background: transparent; border: none; color: var(--pink); cursor: pointer; font-size: 10px;">✕ CLOSE</button>
+        </div>
+        <div class="logs-viewport" ref="logsViewport" style="max-height: 400px; overflow-y: auto; background: #000; padding: 10px;">
+          <pre class="logs-pre" v-html="logsOutput" style="color: #00ff00; font-family: monospace; white-space: pre-wrap; font-size: 11px;"></pre>
+        </div>
       </div>
     </div>
     
@@ -145,6 +196,11 @@ const error = ref('')
 let logsInterval: any = null
 const clusterData = ref<any>(null)
 const forceMock = ref(false)
+
+const activeLogs = ref(false)
+const activeTargetPod = ref('')
+const logsOutput = ref('')
+const logsViewport = ref<HTMLElement | null>(null)
 
 const showSudoPrompt = ref(false)
 const sudoInput = ref('')
@@ -326,6 +382,49 @@ onMounted(() => {
   const interval = setInterval(() => fetchClusterState(true), 10000)
   return () => clearInterval(interval)
 })
+
+async function scaleDeployment(dep: any, delta: number) {
+  if (isMock.value) return
+  const newReplicas = dep.desired + delta
+  if (newReplicas < 0) return
+  try {
+    const res = await fetch(`/api/kubernetes/${props.nodeId}/deployments/default/${dep.name}/scale`, {
+      method: 'POST',
+      headers: { 
+        'Authorization': `Bearer ${localStorage.getItem('nr_token')}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ replicas: newReplicas })
+    })
+    if (!res.ok) throw new Error('Scale request failed')
+    await fetchClusterState()
+  } catch (err: any) {
+    alert(`Fejl under skalering: ${err.message}`)
+  }
+}
+
+async function viewLogs(pod: any) {
+  if (isMock.value) return
+  activeLogs.value = true
+  activeTargetPod.value = pod.name
+  logsOutput.value = 'Henter logs...'
+  try {
+    const res = await fetch(`/api/kubernetes/${props.nodeId}/pods/${pod.namespace}/${pod.name}/logs`, {
+      headers: { 'Authorization': `Bearer ${localStorage.getItem('nr_token')}` }
+    })
+    if (!res.ok) throw new Error('Failed to fetch logs')
+    const data = await res.json()
+    logsOutput.value = data.logs || '(Ingen logs fundet)'
+  } catch (err: any) {
+    logsOutput.value = `Fejl: ${err.message}`
+  }
+}
+
+function closeLogs() {
+  activeLogs.value = false
+  activeTargetPod.value = ''
+  logsOutput.value = ''
+}
 </script>
 
 <style scoped>

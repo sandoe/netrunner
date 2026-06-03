@@ -438,3 +438,65 @@ spec:
         
     out = deploy_res[0]["output"] if deploy_res and isinstance(deploy_res[0], dict) else (deploy_res[0] if deploy_res else "")
     return {"status": "success", "message": f"Migrated {name} to Kubernetes", "output": out}
+
+class ScaleRequest(BaseModel):
+    replicas: int
+
+@router.post("/kubernetes/{node_id}/deployments/{namespace}/{name}/scale")
+async def scale_deployment(node_id: str, namespace: str, name: str, req: ScaleRequest, user: dict = Depends(get_current_user)):
+    nodes_data = await load_nodes()
+    if node_id not in nodes_data:
+        raise HTTPException(status_code=404, detail="Node not found")
+        
+    node = nodes_data[node_id]
+    
+    sudo_prefix = "sudo -n"
+    if "sudo_password" in node and node["sudo_password"]:
+        import shlex
+        sudo_prefix = f"echo {shlex.quote(node['sudo_password'])} | sudo -S"
+
+    kubectl_base = "export KUBECONFIG=/etc/rancher/k3s/k3s.yaml; kubectl"
+    import shlex
+    ns_quoted = shlex.quote(namespace)
+    name_quoted = shlex.quote(name)
+    replicas_quoted = shlex.quote(str(req.replicas))
+    
+    cmd = f"({sudo_prefix} sh -lc '{kubectl_base} scale deployment {name_quoted} -n {ns_quoted} --replicas={replicas_quoted}' || sh -lc '{kubectl_base} scale deployment {name_quoted} -n {ns_quoted} --replicas={replicas_quoted}') 2>/dev/null"
+    
+    results, err = await session_manager.run(node_id, node, [cmd], timeout=15.0)
+    
+    if err or not results:
+        raise HTTPException(status_code=500, detail=f"Failed to scale deployment: {err}")
+        
+    out = results[0]["output"] if results and isinstance(results[0], dict) else (results[0] if results else "")
+    return {"status": "success", "message": f"Scaled {name} to {req.replicas} replicas", "output": out}
+
+@router.get("/kubernetes/{node_id}/pods/{namespace}/{name}/logs")
+async def get_pod_logs(node_id: str, namespace: str, name: str, user: dict = Depends(get_current_user)):
+    nodes_data = await load_nodes()
+    if node_id not in nodes_data:
+        raise HTTPException(status_code=404, detail="Node not found")
+        
+    node = nodes_data[node_id]
+    
+    sudo_prefix = "sudo -n"
+    if "sudo_password" in node and node["sudo_password"]:
+        import shlex
+        sudo_prefix = f"echo {shlex.quote(node['sudo_password'])} | sudo -S"
+
+    kubectl_base = "export KUBECONFIG=/etc/rancher/k3s/k3s.yaml; kubectl"
+    import shlex
+    ns_quoted = shlex.quote(namespace)
+    name_quoted = shlex.quote(name)
+    
+    cmd = f"({sudo_prefix} sh -lc '{kubectl_base} logs {name_quoted} -n {ns_quoted} --tail=100' || sh -lc '{kubectl_base} logs {name_quoted} -n {ns_quoted} --tail=100') 2>&1"
+    
+    results, err = await session_manager.run(node_id, node, [cmd], timeout=15.0)
+    
+    if err or not results:
+        return {"status": "error", "logs": f"Failed to get logs: {err}"}
+        
+    out = results[0]["output"] if results and isinstance(results[0], dict) else (results[0] if results else "")
+    if "Error from server" in out or "command not found" in out:
+         return {"status": "error", "logs": out}
+    return {"status": "success", "logs": out}
