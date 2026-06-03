@@ -82,11 +82,15 @@ async def get_kubernetes_status(node_id: str, mock: bool = False, user: dict = D
 
     node = await _get_node_with_creds(node_id, nodes_data)
     
-    # Try to execute kubectl get nodes
-    # We use a relatively short timeout. If k8s is not there, it will fail fast.
-    cmd_pods = "kubectl get pods -A -o json"
-    cmd_nodes = "kubectl get nodes -o json"
-    cmd_deps = "kubectl get deployments -A -o json"
+    # Use sudo if available to read K3s kubeconfig, and sh -lc to get the right PATH
+    sudo_prefix = "sudo"
+    if "sudo_password" in node and node["sudo_password"]:
+        import shlex
+        sudo_prefix = f"echo {shlex.quote(node['sudo_password'])} | sudo -S"
+
+    cmd_pods = f"{sudo_prefix} sh -lc 'kubectl get pods -A -o json 2>/dev/null'"
+    cmd_nodes = f"{sudo_prefix} sh -lc 'kubectl get nodes -o json 2>/dev/null'"
+    cmd_deps = f"{sudo_prefix} sh -lc 'kubectl get deployments -A -o json 2>/dev/null'"
     
     results, err = await session_manager.run(node_id, node, [cmd_pods, cmd_nodes, cmd_deps], timeout=10.0)
     
