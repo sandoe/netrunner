@@ -189,6 +189,9 @@ async def install_kubernetes(node_id: str, user: dict = Depends(get_current_user
     import asyncio
     await asyncio.sleep(5)
     
+    # Clean up the log and script files after successful installation
+    await session_manager.run(node_id, node, ["sudo rm -f /tmp/k3s_install.log /tmp/k3s_install.sh"], timeout=5.0)
+    
     return {"status": "success", "message": "K3s installed successfully", "logs": results[0] if results else ""}
 
 @router.get("/kubernetes/{node_id}/install/logs")
