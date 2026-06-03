@@ -172,11 +172,11 @@ async def install_kubernetes(node_id: str, user: dict = Depends(get_current_user
     node = nodes_data[node_id]
     
     # We write the command to a file and execute it so it runs robustly and logs output
+    import shlex
     install_script = "curl -sfL https://get.k3s.io > /tmp/k3s_install.sh && sh /tmp/k3s_install.sh > /tmp/k3s_install.log 2>&1"
     
     sudo_prefix = "sudo"
     if "sudo_password" in node and node["sudo_password"]:
-        import shlex
         sudo_prefix = f"echo {shlex.quote(node['sudo_password'])} | sudo -S"
         
     init_cmd = f"{sudo_prefix} sh -lc 'echo Starting Kubernetes Installation... > /tmp/k3s_install.log'"
