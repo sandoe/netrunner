@@ -171,18 +171,34 @@ async def install_kubernetes(node_id: str, user: dict = Depends(get_current_user
         
     node = nodes_data[node_id]
     
-    # We use session_manager to run the k3s installation script.
-    # The script takes about 20-60 seconds to finish.
-    install_cmd = "curl -sfL https://get.k3s.io | sh -"
-    # If the user is not root, session_manager automatically tries sudo
+    # We write the command to a file and execute it so it runs robustly and logs output
+    install_cmd = "sudo sh -lc 'curl -sfL https://get.k3s.io > /tmp/k3s_install.sh && sh /tmp/k3s_install.sh > /tmp/k3s_install.log 2>&1'"
+    
+    # Initialize the log file so the frontend can start reading it immediately
+    await session_manager.run(node_id, node, ["sudo sh -lc 'echo Starting Kubernetes Installation... > /tmp/k3s_install.log'"], timeout=5.0)
     
     results, err = await session_manager.run(node_id, node, [install_cmd], timeout=120.0)
     
     if err or not results:
-        raise HTTPException(status_code=500, detail=f"Installation failed: {err}")
+        # Fetch the logs to see what went wrong
+        log_res, _ = await session_manager.run(node_id, node, ["cat /tmp/k3s_install.log"], timeout=10.0)
+        logs = log_res[0] if log_res else str(err)
+        raise HTTPException(status_code=500, detail=f"Installation failed:\\n{logs}")
         
     # Give it a few seconds to start up
     import asyncio
     await asyncio.sleep(5)
     
-    return {"status": "success", "message": "K3s installed successfully", "logs": results[0]}
+    return {"status": "success", "message": "K3s installed successfully", "logs": results[0] if results else ""}
+
+@router.get("/kubernetes/{node_id}/install/logs")
+async def get_install_logs(node_id: str, user: dict = Depends(get_current_user)):
+    nodes_data = await load_nodes()
+    if node_id not in nodes_data:
+        raise HTTPException(status_code=404, detail="Node not found")
+        
+    node = nodes_data[node_id]
+    
+    results, err = await session_manager.run(node_id, node, ["cat /tmp/k3s_install.log 2>/dev/null || echo 'Waiting for logs...'"], timeout=10.0)
+    
+    return {"logs": results[0] if results else "Error fetching logs"}

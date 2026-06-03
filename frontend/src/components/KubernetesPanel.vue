@@ -20,6 +20,7 @@
       <div class="spinner"></div>
       <div class="glitch">INJECTING KUBERNETES (K3S) PAYLOAD...</div>
       <div class="wait-text">This may take up to 60 seconds. Please wait...</div>
+      <pre v-if="installLogs" class="install-terminal">{{ installLogs }}</pre>
     </div>
 
     <div v-else-if="error" class="error-box">
@@ -27,6 +28,7 @@
       <button v-if="error.includes('not detected') && !forceMock" class="btn-deploy" @click="installK3s">
         [ DEPLOY K3S CLUSTER ]
       </button>
+      <pre v-if="installLogs" class="install-terminal">{{ installLogs }}</pre>
     </div>
 
     <div v-else-if="loading" class="loading-overlay">
@@ -107,7 +109,9 @@ const props = defineProps<{ nodeId: string }>()
 
 const loading = ref(true)
 const installing = ref(false)
+const installLogs = ref('')
 const error = ref('')
+let logsInterval: any = null
 const clusterData = ref<any>(null)
 const forceMock = ref(false)
 
@@ -154,9 +158,30 @@ async function fetchClusterState(isBackground = true) {
   }
 }
 
+async function pollLogs() {
+  try {
+    const res = await fetch(`/api/kubernetes/${props.nodeId}/install/logs`, {
+      headers: { 'Authorization': `Bearer ${localStorage.getItem('nr_token')}` }
+    })
+    if (res.ok) {
+      const data = await res.json()
+      if (data.logs) {
+        installLogs.value = data.logs
+        setTimeout(() => {
+          const terms = document.querySelectorAll('.install-terminal')
+          terms.forEach(term => term.scrollTop = term.scrollHeight)
+        }, 100)
+      }
+    }
+  } catch (e) {}
+}
+
 async function installK3s() {
   installing.value = true
   error.value = ''
+  installLogs.value = ''
+  logsInterval = setInterval(pollLogs, 1500)
+  
   try {
     const res = await fetch(`/api/kubernetes/${props.nodeId}/install`, {
       method: 'POST',
@@ -174,10 +199,15 @@ async function installK3s() {
     
     // Refresh cluster state once installed
     await fetchClusterState(false)
+    installLogs.value = '' // clear logs on success so it doesn't show up later
   } catch (err: any) {
     error.value = err.message || String(err)
   } finally {
     installing.value = false
+    if (logsInterval) {
+      clearInterval(logsInterval)
+      logsInterval = null
+    }
   }
 }
 
@@ -503,6 +533,24 @@ input:checked + .slider:before {
   color: #8b949e;
   margin-top: 12px;
   letter-spacing: 1px;
+}
+
+.install-terminal {
+  width: 100%;
+  max-width: 800px;
+  height: 250px;
+  overflow-y: auto;
+  background: #0d1117;
+  border: 1px solid #30363d;
+  color: #c9d1d9;
+  padding: 12px;
+  border-radius: 6px;
+  font-family: monospace;
+  font-size: 11px;
+  text-align: left;
+  margin-top: 20px;
+  white-space: pre-wrap;
+  word-wrap: break-word;
 }
 
 @keyframes glitch-anim {
