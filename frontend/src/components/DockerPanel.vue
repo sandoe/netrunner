@@ -141,6 +141,7 @@
                       <button class="btn-icon-action" title="Restart Container" @click="controlContainer(c.name, 'restart')">🔄</button>
                       <button class="btn-icon-action btn-logs" title="View Logs" @click="viewLogs(c.name)">📝</button>
                       <button class="btn-icon-action btn-inspect" title="Inspect Raw Metadata" @click="inspectContainer(c.name)">🔍</button>
+                      <button class="btn-icon-action" title="Migrate to K8s" @click="migrateContainer(c.name)" style="color: var(--cyan); border-color: var(--cyan);">☸️</button>
                       <button class="btn-icon-action btn-delete-peer" title="Delete Container" @click="controlContainer(c.name, 'delete')">✕</button>
                     </div>
                   </td>
@@ -1128,6 +1129,37 @@ async function runComposeCommand(action: string) {
     composeOutput.value += `\n\n[EXECUTION ERROR] ${err.message || err}`
   } finally {
     executingCompose.value = false
+  }
+}
+
+async function migrateContainer(containerId: string) {
+  if (!confirm(`Er du sikker på du vil migrere denne Docker container (${containerId}) over i dit Kubernetes-cluster? (Dette vil skabe en yaml recept og stoppe den originale container)`)) return;
+  executing.value = true;
+  error.value = '';
+  try {
+    const res = await fetch(`/api/kubernetes/${props.nodeId}/migrate`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${localStorage.getItem('nr_token')}`
+      },
+      body: JSON.stringify({ container_id: containerId })
+    });
+    if (!res.ok) {
+      let msg = 'Failed to migrate';
+      try {
+        const errData = await res.json();
+        if (errData.detail) msg = errData.detail;
+      } catch (e) {}
+      throw new Error(msg);
+    }
+    const data = await res.json();
+    alert(`Success: ${data.message}`);
+    await refreshDocker();
+  } catch (err: any) {
+    error.value = `Fejl under migrering: ${err.message || err}`;
+  } finally {
+    executing.value = false;
   }
 }
 

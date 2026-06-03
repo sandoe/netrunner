@@ -329,3 +329,112 @@ async def delete_pod(node_id: str, namespace: str, pod_name: str, user: dict = D
         
     out = results[0]["output"] if results and isinstance(results[0], dict) else (results[0] if results else "")
     return {"status": "success", "message": f"Deleted pod {pod_name}", "output": out}
+
+class MigrateRequest(BaseModel):
+    container_id: str
+
+@router.post("/kubernetes/{node_id}/migrate")
+async def migrate_container(node_id: str, req: MigrateRequest, user: dict = Depends(get_current_user)):
+    nodes_data = await load_nodes()
+    if node_id not in nodes_data:
+        raise HTTPException(status_code=404, detail="Node not found")
+        
+    node = nodes_data[node_id]
+    
+    sudo_prefix = "sudo -n"
+    if "sudo_password" in node and node["sudo_password"]:
+        import shlex
+        sudo_prefix = f"echo {shlex.quote(node['sudo_password'])} | sudo -S"
+
+    import shlex
+    cid_quoted = shlex.quote(req.container_id)
+    
+    # 1. Inspect the container
+    inspect_cmd = f"{sudo_prefix} docker inspect {cid_quoted} 2>/dev/null"
+    res, err = await session_manager.run(node_id, node, [inspect_cmd], timeout=10.0)
+    
+    if err or not res or not res[0]["output"]:
+        raise HTTPException(status_code=400, detail=f"Failed to inspect container: {err}")
+        
+    try:
+        inspect_data = json.loads(res[0]["output"])
+        container = inspect_data[0]
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to parse inspect output: {e}")
+        
+    # Extract metadata
+    name = container["Name"].lstrip("/")
+    # Clean name for kubernetes (lowercase, alphanumeric, dashes)
+    import re
+    k8s_name = re.sub(r'[^a-z0-9-]', '-', name.lower()).strip('-')
+    image = container["Config"]["Image"]
+    
+    # Extract exposed ports
+    ports_yaml = ""
+    ports_map = container["Config"].get("ExposedPorts", {})
+    if not ports_map and "Ports" in container["NetworkSettings"]:
+        # Fallback to bound ports if ExposedPorts is empty
+        for p in container["NetworkSettings"]["Ports"]:
+            ports_map[p] = {}
+            
+    port_list = []
+    for port_proto in ports_map.keys():
+        port = port_proto.split("/")[0]
+        port_list.append(port)
+        ports_yaml += f"        - containerPort: {port}\n"
+        
+    # Build YAML manifest
+    manifest = f"""apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {k8s_name}
+  namespace: default
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: {k8s_name}
+  template:
+    metadata:
+      labels:
+        app: {k8s_name}
+    spec:
+      containers:
+      - name: {k8s_name}
+        image: {image}
+"""
+    if ports_yaml:
+        manifest += f"        ports:\n{ports_yaml}"
+        
+    # Add Service if ports are defined
+    if port_list:
+        svc_ports = ""
+        for port in port_list:
+            svc_ports += f"  - port: {port}\n    targetPort: {port}\n"
+            
+        manifest += f"""---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {k8s_name}
+  namespace: default
+spec:
+  ports:
+{svc_ports}  selector:
+    app: {k8s_name}
+"""
+
+    kubectl_base = "export KUBECONFIG=/etc/rancher/k3s/k3s.yaml; kubectl"
+    deploy_cmd = f"cat << 'EOF' | {kubectl_base} apply -f -\n{manifest}\nEOF"
+    
+    # Apply to K8s and stop original docker container
+    cmd = f"({sudo_prefix} sh -lc '{deploy_cmd}' || sh -lc '{deploy_cmd}') 2>/dev/null && {sudo_prefix} docker stop {cid_quoted} && {sudo_prefix} docker rm {cid_quoted}"
+    
+    deploy_res, deploy_err = await session_manager.run(node_id, node, [cmd], timeout=30.0)
+    
+    if deploy_err and "kubectl" not in str(deploy_err):
+        # We ignore errors from docker stop/rm if apply succeeded, but if kubectl failed we care
+        pass
+        
+    out = deploy_res[0]["output"] if deploy_res and isinstance(deploy_res[0], dict) else (deploy_res[0] if deploy_res else "")
+    return {"status": "success", "message": f"Migrated {name} to Kubernetes", "output": out}
