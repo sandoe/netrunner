@@ -65,6 +65,21 @@
           </div>
           <div v-else class="desc text-purple" style="font-weight:bold;">[LOCKED: ADMIN CLEARANCE REQUIRED]</div>
         </div>
+
+        <div class="section-title mt-4">COWRIE HONEYPOT (INDUSTRY STANDARD)</div>
+        <div class="control-group cowrie-zone">
+          <p class="desc text-amber">Deploy the official Cowrie SSH/Telnet honeypot. Streams raw attacker interaction logs.</p>
+          <div class="cowrie-options" v-if="isAdmin">
+            <input type="number" v-model="cowriePort" class="cowrie-input mt-2" placeholder="Port (default: 2223)" />
+            <button class="btn-tool btn-cowrie mt-2" @click="deployCowrie" :disabled="deployingCowrie">
+              {{ deployingCowrie ? 'DEPLOYING COWRIE (IMAGE PULL)...' : 'DEPLOY COWRIE HONEYPOT' }}
+            </button>
+            <button class="btn-tool btn-cowrie-logs mt-2" @click="viewCowrieLogs" :disabled="fetchingCowrieLogs">
+              {{ fetchingCowrieLogs ? 'FETCHING LOGS...' : 'VIEW LIVE ATTACK LOGS' }}
+            </button>
+          </div>
+          <div v-else class="desc text-amber" style="font-weight:bold;">[LOCKED: ADMIN CLEARANCE REQUIRED]</div>
+        </div>
       </div>
 
       <!-- Output Log -->
@@ -106,6 +121,10 @@ const deployingMirage = ref(false)
 const miragePersona = ref('banking')
 const mirageAggressiveness = ref('tarpit')
 const miragePort = ref(2222)
+
+const deployingCowrie = ref(false)
+const fetchingCowrieLogs = ref(false)
+const cowriePort = ref(2223)
 
 function appendLog(msg: string) {
   const ts = new Date().toISOString().split('T')[1].split('.')[0]
@@ -223,6 +242,51 @@ async function deployMirage() {
     appendLog(`ERROR: ${e.message}`)
   } finally {
     deployingMirage.value = false
+  }
+}
+
+async function deployCowrie() {
+  if (!props.nodeId) return
+  if (!confirm("This will pull and run the official Cowrie honeypot image. Proceed?")) return
+
+  deployingCowrie.value = true
+  appendLog(`Deploying COWRIE HONEYPOT to node ${props.nodeId} on port ${cowriePort.value}...`)
+  appendLog("This might take a minute if the Docker image needs to be pulled.")
+  try {
+    const res = await fetch(`/api/nodes/${props.nodeId}/deception/cowrie/deploy`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${localStorage.getItem('nr_token')}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ port: cowriePort.value })
+    })
+    const data = await res.json()
+    if (!res.ok) throw new Error(data.detail || 'Cowrie deployment failed')
+    appendLog("Cowrie Honeypot online.")
+    logOutput.value += `\n${data.message}\n\n`
+  } catch (e: any) {
+    appendLog(`ERROR: ${e.message}`)
+  } finally {
+    deployingCowrie.value = false
+  }
+}
+
+async function viewCowrieLogs() {
+  if (!props.nodeId) return
+  fetchingCowrieLogs.value = true
+  appendLog("Fetching live Cowrie logs from target node...")
+  try {
+    const res = await fetch(`/api/nodes/${props.nodeId}/deception/cowrie/logs`, {
+      headers: { 'Authorization': `Bearer ${localStorage.getItem('nr_token')}` }
+    })
+    const data = await res.json()
+    if (!res.ok) throw new Error(data.detail || 'Failed to fetch Cowrie logs')
+    logOutput.value += `\n--- COWRIE LOGS START ---\n${data.logs}\n--- COWRIE LOGS END ---\n\n`
+  } catch (e: any) {
+    appendLog(`ERROR: ${e.message}`)
+  } finally {
+    fetchingCowrieLogs.value = false
   }
 }
 </script>
@@ -489,4 +553,16 @@ async function deployMirage() {
   color: #fff; font-family: var(--font-co); border-radius: var(--r); outline: none;
 }
 .mirage-select:focus, .mirage-input:focus { border-color: #a200ff; }
+
+.btn-cowrie { background: rgba(255, 179, 0, 0.1); border-color: #ffb300; color: #ffb300; width: 100%; }
+.btn-cowrie:hover:not(:disabled) { background: #ffb300; color: var(--bg); box-shadow: 0 0 15px rgba(255, 179, 0, 0.6); }
+.btn-cowrie-logs { background: rgba(0, 230, 118, 0.1); border-color: #00e676; color: #00e676; width: 100%; }
+.btn-cowrie-logs:hover:not(:disabled) { background: #00e676; color: var(--bg); box-shadow: 0 0 15px rgba(0, 230, 118, 0.6); }
+.cowrie-zone { border-color: rgba(255, 179, 0, 0.3); background: rgba(255, 179, 0, 0.02); }
+.cowrie-options { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
+.cowrie-input {
+  width: 100%; padding: 8px; background: var(--bg); border: 1px solid rgba(255, 179, 0, 0.3);
+  color: #fff; font-family: var(--font-co); border-radius: var(--r); outline: none;
+}
+.cowrie-input:focus { border-color: #ffb300; }
 </style>

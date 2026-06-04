@@ -180,3 +180,60 @@ CMD ["python", "/mirage.py"]
         "status": "success",
         "message": f"Holographic Honeypot '{payload.persona}' deployed successfully on port {payload.port} with '{payload.aggressiveness}' mode."
     }
+
+class CowriePayload(BaseModel):
+    port: int = 2223
+
+@router.post("/nodes/{nid}/deception/cowrie/deploy", dependencies=[Depends(require_admin)])
+async def api_deploy_cowrie(nid: str, payload: CowriePayload):
+    nodes = await load_nodes_db()
+    if nid not in nodes:
+        raise HTTPException(404, "Node not found")
+
+    node = dict(nodes[nid])
+    username, password = await load_credentials(nid)
+    node["username"] = username
+    node["password"] = password
+
+    # 1. Check if docker is installed
+    check_docker = "docker --version"
+    res, err = await session_manager.run(nid, node, [check_docker])
+    if err or not res[0].get("output"):
+        raise HTTPException(400, "Docker is not installed on the target node. Please install Docker first.")
+
+    commands = [
+        "docker rm -f cowrie_honeypot 2>/dev/null || true",
+        f"docker run -d --name cowrie_honeypot -p {payload.port}:2222 cowrie/cowrie:latest"
+    ]
+
+    res, err = await session_manager.run(nid, node, commands, timeout=60.0) # Image pull might take some time
+    if err:
+        raise HTTPException(500, f"Failed to deploy Cowrie Honeypot: {err}")
+
+    return {
+        "status": "success",
+        "message": f"Cowrie Honeypot (Industry Standard) deployed successfully on port {payload.port}."
+    }
+
+@router.get("/nodes/{nid}/deception/cowrie/logs", dependencies=[Depends(require_admin)])
+async def api_cowrie_logs(nid: str):
+    nodes = await load_nodes_db()
+    if nid not in nodes:
+        raise HTTPException(404, "Node not found")
+
+    node = dict(nodes[nid])
+    username, password = await load_credentials(nid)
+    node["username"] = username
+    node["password"] = password
+
+    cmd = "docker logs cowrie_honeypot --tail 50 2>&1"
+    res, err = await session_manager.run(nid, node, [cmd])
+    
+    if err:
+        return {"status": "error", "logs": f"Failed to fetch logs: {err}"}
+        
+    out = res[0]["output"] if res and isinstance(res[0], dict) else (res[0] if res else "")
+    if "No such container" in out:
+         return {"status": "error", "logs": "Cowrie container not found or not running."}
+         
+    return {"status": "success", "logs": out}
