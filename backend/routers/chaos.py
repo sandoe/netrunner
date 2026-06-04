@@ -225,3 +225,68 @@ async def api_trigger_manual_attack(req: ManualAttackRequest):
         "message": f"Successfully emulated manual strike: {log_detail}!",
         "real_file_write": write_success
     }
+
+class ShapingPayload(BaseModel):
+    latency_ms: int = 0
+    jitter_ms: int = 0
+    loss_percent: int = 0
+
+from .auth import require_admin
+
+@router.post("/nodes/{nid}/chaos/shaping", dependencies=[Depends(require_admin)])
+async def api_apply_chaos_shaping(nid: str, payload: ShapingPayload):
+    nodes = await load_nodes_db()
+    if nid not in nodes:
+        raise HTTPException(404, "Node not found")
+
+    node = dict(nodes[nid])
+    username, password = await load_credentials(nid)
+    node["username"] = username
+    node["password"] = password
+
+    # Clear existing rules first (ignore errors if none exist)
+    clear_cmd = "sudo tc qdisc del dev eth0 root 2>/dev/null || true"
+    
+    # Build netem command
+    netem_parts = ["sudo tc qdisc add dev eth0 root netem"]
+    if payload.latency_ms > 0:
+        netem_parts.append(f"delay {payload.latency_ms}ms {payload.jitter_ms}ms distribution normal")
+    if payload.loss_percent > 0:
+        netem_parts.append(f"loss {payload.loss_percent}%")
+        
+    if len(netem_parts) == 1:
+        # If no values, just clear
+        apply_cmd = "echo 'No chaos parameters, cleared rules.'"
+    else:
+        apply_cmd = " ".join(netem_parts)
+
+    commands = [clear_cmd, apply_cmd]
+    res, err = await session_manager.run(nid, node, commands)
+    if err:
+        raise HTTPException(500, f"Failed to apply Traffic Shaping: {err}")
+
+    return {
+        "status": "success",
+        "message": f"Traffic shaping applied: Latency {payload.latency_ms}ms, Loss {payload.loss_percent}%"
+    }
+
+@router.post("/nodes/{nid}/chaos/shaping/reset", dependencies=[Depends(require_admin)])
+async def api_reset_chaos_shaping(nid: str):
+    nodes = await load_nodes_db()
+    if nid not in nodes:
+        raise HTTPException(404, "Node not found")
+
+    node = dict(nodes[nid])
+    username, password = await load_credentials(nid)
+    node["username"] = username
+    node["password"] = password
+
+    clear_cmd = "sudo tc qdisc del dev eth0 root 2>/dev/null || true"
+    res, err = await session_manager.run(nid, node, [clear_cmd])
+    if err:
+        raise HTTPException(500, f"Failed to reset Traffic Shaping: {err}")
+
+    return {
+        "status": "success",
+        "message": "Traffic shaping reset to normal. All tc rules removed."
+    }

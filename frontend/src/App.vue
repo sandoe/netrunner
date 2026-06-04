@@ -200,6 +200,7 @@
             <DatabasePanel v-if="activeTab === 'database'" :node-id="store.selected.id" />
             <ThreatReportPanel v-if="activeTab === 'threat_report'" :node-id="store.selected.id" />
             <ActiveDefensePanel v-if="activeTab === 'defense'" :node-id="store.selected.id" />
+            <ChaosShaperPanel v-if="activeTab === 'shaper'" :node-id="store.selected.id" />
             <CapturePanel v-if="activeTab === 'capture'"  :node-id="store.selected.id" />
             <ShellPanel   v-if="activeTab === 'terminal'" :node="store.selected" />
           </div>
@@ -386,6 +387,7 @@ import WifiView from './components/WifiView.vue'
 import ThreatMap from './components/ThreatMap.vue'
 import ThreatTimeline from './components/ThreatTimeline.vue'
 import ActiveDefensePanel from './components/ActiveDefensePanel.vue'
+import ChaosShaperPanel from './components/ChaosShaperPanel.vue'
 import AiChatSidebar from './components/AiChatSidebar.vue'
 import SettingsModal from './components/SettingsModal.vue'
 import UserManagementModal from './components/UserManagementModal.vue'
@@ -661,7 +663,7 @@ window.addEventListener('auth-expired', () => {
 const store       = useNodesStore()
 const viewMode    = ref<'node' | 'topology' | 'threat' | 'history' | 'warroom' | 'pulse' | 'attack' | 'wifi' | 'recon'>(
   (localStorage.getItem('netrunner_view_mode') as any) || 'node')
-const activeTab   = ref<'overview' | 'gns3-api' | 'diag' | 'config' | 'defense' | 'capture' | 'terminal'>(
+const activeTab   = ref<'overview' | 'gns3-api' | 'diag' | 'config' | 'defense' | 'shaper' | 'capture' | 'terminal'>(
   // 'exec' was merged into the TERMINAL tab; migrate any persisted value
   (((localStorage.getItem('netrunner_active_tab') as any) || 'overview') === 'exec'
     ? 'terminal'
@@ -753,6 +755,7 @@ const dynamicTabs = computed(() => {
     { id: 'database', label: 'DATABASE' },
     { id: 'threat_report', label: 'VULNERABILITIES' },
     { id: 'defense',  label: 'ACTIVE DEFENSE' },
+    { id: 'shaper',  label: 'CHAOS SHAPER' },
     { id: 'capture',  label: 'CAPTURE' },
     { id: 'terminal', label: 'TERMINAL' }
   )
