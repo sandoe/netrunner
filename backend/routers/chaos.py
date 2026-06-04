@@ -105,7 +105,7 @@ async def chaos_loop():
         asyncio.create_task(execute_chaos_payload(nid, node, cmds, log_desc, attack_choice))
 
 from pydantic import BaseModel
-from fastapi import HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from ..core.cti import cti_queue, get_ip_geolocation
 
 class ManualAttackRequest(BaseModel):
