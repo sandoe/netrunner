@@ -44,6 +44,9 @@ async def _ssh_terminal(ws: WebSocket, nid: str, node: dict) -> None:
             username=username, password=password,
             timeout=10, look_for_keys=False, allow_agent=False,
         )
+    except paramiko.ssh_exception.AuthenticationException:
+        await ws.send_json({"type": "error", "data": "Authentication failed: Invalid username or password"})
+        return
     except Exception as e:
         await ws.send_json({"type": "error", "data": f"SSH connect failed: {e}"})
         return

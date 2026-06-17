@@ -1,0 +1,29 @@
+--- /home/aso/Dokumenter/github/netrunner/backend/routers/usb.py
++++ /home/aso/Dokumenter/github/netrunner/backend/routers/usb.py
+@@ -194,8 +194,6 @@
+ import sys, select, time, signal, os
+ try:
+     import serial
+-    serial.Serial._update_dtr_state = lambda self: None
+-    serial.Serial._update_rts_state = lambda self: None
+     s = serial.Serial()
+     s.port = '{port}'
+     s.baudrate = {baud}
+@@ -232,6 +230,8 @@
+         try:
+             s.open()
+             sys.stdout.write(f'\\r\\n\\x1b[36m[SYSTEM] Port {{s.port}} resumed.\\x1b[0m\\r\\n')
++            s.dtr = False
++            s.rts = False
+             sys.stdout.flush()
+             break
+         except Exception as e:
+@@ -244,6 +244,8 @@
+     sys.stdout.write(f'\\r\\n\\x1b[31m[PROXY ERROR] {{str(e)}}\\x1b[0m\\r\\n')
+     sys.exit(1)
+ 
++s.dtr = False
++s.rts = False
+ sys.stdout.write(f'\\r\\n\\x1b[36m[SYSTEM] Proxy started for {port}\\x1b[0m\\r\\n')
+ sys.stdout.flush()
+ 

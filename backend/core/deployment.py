@@ -92,3 +92,24 @@ async def stop_beacon_on_node(ip, username, password):
     if not success:
         raise Exception(message)
     return message
+
+async def scrub_beacon_on_node(ip, username, password):
+    def run_ssh():
+        ssh = _make_ssh_client()
+        try:
+            ssh.connect(ip, username=username, password=password, timeout=60, banner_timeout=60, auth_timeout=60)
+            # Kill and remove all traces
+            ssh.exec_command("pkill -f netrunner_beacon.py")
+            ssh.exec_command("rm -f /tmp/netrunner_beacon.py /tmp/beacon.log")
+            ssh.exec_command("history -c")
+            return True, "Scrubbed successfully"
+        except Exception as e:
+            return False, str(e)
+        finally:
+            ssh.close()
+            
+    loop = asyncio.get_event_loop()
+    success, message = await loop.run_in_executor(None, run_ssh)
+    if not success:
+        raise Exception(message)
+    return message

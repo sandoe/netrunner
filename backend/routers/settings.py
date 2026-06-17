@@ -20,6 +20,10 @@ class Settings(BaseModel):
     alienvault_api_key: str = ""
     gns3_server_url: str = "http://127.0.0.1"
     gns3_local_projects_path: str = "/home/aso/GNS3/projects"
+    max_postgres_mb: float = 5000.0
+    max_influxdb_mb: float = 10000.0
+    max_logs_mb: float = 1000.0
+    cors_origins: str = ""  # Comma-separated list of allowed origins, empty = localhost only
 
 async def load_settings() -> dict:
     return await load_settings_db()
@@ -46,12 +50,16 @@ async def get_settings():
         "ai_masked_key": masked,
         "ai_base_url": s.get("ai_base_url", ""),
         "ai_model": s.get("ai_model", "gpt-4o"),
-        "openai_api_key_set": bool(key), 
+        "openai_api_key_set": bool(key),
         "masked_key": masked,
         "alienvault_api_key_set": bool(otx_key),
         "masked_alienvault_key": masked_otx,
         "gns3_server_url": s.get("gns3_server_url", "http://127.0.0.1:3080"),
-        "database_url": DATABASE_URL
+        "database_url": DATABASE_URL,
+        "max_postgres_mb": float(s.get("max_postgres_mb", 5000)),
+        "max_influxdb_mb": float(s.get("max_influxdb_mb", 10000)),
+        "max_logs_mb": float(s.get("max_logs_mb", 1000)),
+        "cors_origins": s.get("cors_origins", "")
     }
 
 @router.post("/settings")
@@ -81,6 +89,17 @@ async def update_settings(settings: dict):
         s["gns3_server_url"] = settings["gns3_server_url"]
         await save_setting_db("gns3_server_url", settings["gns3_server_url"])
 
+    for key in ("max_postgres_mb", "max_influxdb_mb", "max_logs_mb"):
+        if key in settings:
+            s[key] = settings[key]
+            await save_setting_db(key, str(settings[key]))
+
+    if "cors_origins" in settings:
+        s["cors_origins"] = settings["cors_origins"]
+        await save_setting_db("cors_origins", settings["cors_origins"])
+        # Update env var for current process (requires restart to take full effect)
+        os.environ["NETRUNNER_CORS_ORIGINS"] = settings["cors_origins"]
+
     if "database_url" in settings:
         new_db_url = settings["database_url"]
         # Update .env file
@@ -102,8 +121,9 @@ async def update_settings(settings: dict):
             new_lines.append(f"DATABASE_URL={new_db_url}")
             
         env_path.write_text("\n".join(new_lines) + "\n")
-    
-    return {"status": "ok"}
+
+    restart_needed = "cors_origins" in settings
+    return {"status": "ok", "restart_needed": restart_needed}
 
 @router.post("/settings/test-db")
 async def test_db_connection(body: dict):

@@ -7,6 +7,8 @@ from httpx import AsyncClient, ASGITransport
 os.environ["DATABASE_URL"] = "sqlite+aiosqlite:///:memory:"
 
 from backend.main import app
+app.state.limiter.enabled = False
+
 from backend.core.db import init_db, engine, Base
 
 @pytest_asyncio.fixture(autouse=True)

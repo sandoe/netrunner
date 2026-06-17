@@ -11,7 +11,9 @@
     "test:e2e": "playwright test"
   },
   "dependencies": {
+    "@guolao/vue-monaco-editor": "^1.6.0",
     "@types/cytoscape": "^3.31.0",
+    "@types/leaflet": "^1.9.21",
     "@types/plotly.js-dist-min": "^2.3.4",
     "@xterm/addon-fit": "^0.10.0",
     "@xterm/addon-web-links": "^0.11.0",
@@ -19,15 +21,24 @@
     "3d-force-graph": "^1.80.0",
     "chart.js": "^4.5.1",
     "cytoscape": "^3.33.3",
+    "dockview-core": "^6.6.1",
+    "dockview-vue": "^6.6.1",
     "globe.gl": "^2.46.1",
+    "html2pdf.js": "^0.14.0",
+    "leaflet": "^1.9.4",
+    "monaco-editor": "^0.55.1",
     "pinia": "^3.0.3",
     "plotly.js-dist-min": "^3.5.1",
     "three": "^0.184.0",
     "three-spritetext": "^1.10.0",
     "vue": "^3.5.32",
-    "vue-chartjs": "^5.3.3"
+    "vue-chartjs": "^5.3.3",
+    "vue-router": "^4.6.4",
+    "xterm": "^5.3.0",
+    "xterm-addon-fit": "^0.8.0"
   },
   "devDependencies": {
+    "@hey-api/openapi-ts": "^0.98.2",
     "@pinia/testing": "^1.0.3",
     "@playwright/test": "^1.60.0",
     "@types/node": "^24.12.2",

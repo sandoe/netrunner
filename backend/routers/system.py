@@ -1,10 +1,20 @@
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
+import asyncio
 from ..core.state import global_state
 from ..core.soar import soar_engine
 from .auth import require_admin
 
 router = APIRouter()
+
+async def check_port(host: str, port: int) -> bool:
+    try:
+        reader, writer = await asyncio.wait_for(asyncio.open_connection(host, port), timeout=0.5)
+        writer.close()
+        await writer.wait_closed()
+        return True
+    except Exception:
+        return False
 
 class StateUpdate(BaseModel):
     autopilot: bool | None = None
@@ -12,9 +22,16 @@ class StateUpdate(BaseModel):
 
 @router.get("/system/state")
 async def get_state():
+    services = {
+        "postgres": await check_port("127.0.0.1", 5432),
+        "redis": await check_port("127.0.0.1", 6379),
+        "influxdb": await check_port("127.0.0.1", 8086),
+        "mux": await check_port("127.0.0.1", 8081)
+    }
     return {
         "autopilot": global_state.autopilot,
-        "chaos": global_state.chaos
+        "chaos": global_state.chaos,
+        "services": services
     }
 
 @router.post("/system/state", dependencies=[Depends(require_admin)])

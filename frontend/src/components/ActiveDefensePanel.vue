@@ -92,7 +92,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, inject, computed } from 'vue'
+import { ref, inject, computed, watch } from 'vue'
 import { api } from '@/api/client'
 import { useNodesStore } from '@/stores/nodes'
 
@@ -130,6 +130,31 @@ function appendLog(msg: string) {
   const ts = new Date().toISOString().split('T')[1].split('.')[0]
   logOutput.value += `[${ts}] ${msg}\n`
 }
+
+async function checkAgentStatus() {
+  if (!props.nodeId) return
+  try {
+    const res = await fetch(`/api/nodes/${props.nodeId}/monitoring/status`, {
+      headers: { 'Authorization': `Bearer ${localStorage.getItem('nr_token')}` }
+    })
+    const data = await res.json()
+    if (data.active !== undefined && store.nodes[props.nodeId]) {
+      store.nodes[props.nodeId].threat_monitoring = data.active
+    }
+  } catch (e) {
+    // silently fail
+  }
+}
+
+import { onMounted } from 'vue'
+onMounted(() => {
+  checkAgentStatus()
+})
+
+watch(() => props.nodeId, () => {
+  logOutput.value = ''
+  checkAgentStatus()
+})
 
 async function toggleMonitoring() {
   if (!props.nodeId) return

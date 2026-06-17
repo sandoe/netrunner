@@ -64,11 +64,32 @@
           <button v-else class="ctx-item warn" @click="ctxDisconnect">■ Disconnect</button>
         </template>
         <div v-else class="ctx-note">⚡ L2 device — no console</div>
+        <button class="ctx-item" style="color: var(--pink); border-color: var(--pink);" @click="ctxBruteForce">💥 Launch Brute Force</button>
         <button class="ctx-item" @click="ctxTogglePin">
           {{ pinnedId === ctxMenu.nodeId ? '📌 Unpin from centre' : '📌 Pin to centre' }}
         </button>
       </div>
     </template>
+
+    <!-- Sub Modal for Brute Force Attack -->
+    <div v-if="attackTarget" class="modal-overlay" style="position: fixed; top: 0; left: 0; right: 0; bottom: 0; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,0.85); z-index: 9999;" @click.self="attackTarget = null">
+      <div class="cyber-modal-card" style="width: 400px; background: rgba(10,12,18,0.95); border: 1px solid var(--pink);">
+        <div class="cyber-modal-header">
+          <div class="modal-title" style="color: var(--pink)">💥 LAUNCH BRUTE FORCE</div>
+          <button class="btn-close-modal" @click="attackTarget = null">×</button>
+        </div>
+        <div class="cyber-modal-body" style="text-align: center">
+          <p style="color: #a0a0a0; margin-bottom: 20px;">TARGET NODE: <strong style="color: #00e5ff">{{ attackTarget }}</strong></p>
+          <div style="display: flex; gap: 10px; justify-content: center">
+            <button class="btn-action btn-danger" @click="launchAttack('ssh')">[ CRACK SSH ]</button>
+            <button class="btn-action btn-danger" @click="launchAttack('ftp')">[ CRACK FTP ]</button>
+            <button class="btn-action btn-danger" @click="launchAttack('mysql')">[ CRACK MYSQL ]</button>
+            <button class="btn-action btn-danger" @click="launchAttack('postgres')">[ CRACK POSTGRES ]</button>
+          </div>
+          <div v-if="attackStatus" style="margin-top: 15px; color: var(--pink); font-family: monospace; text-shadow: 0 0 8px var(--pink); font-weight: bold;">{{ attackStatus }}</div>
+        </div>
+      </div>
+    </div>
 
     <div v-if="initError" class="init-error">
       <h3>🚨 CORE DISRUPTION DETECTED</h3>
@@ -147,6 +168,60 @@ function linkHealth(link: any): 'up' | 'down' | 'unknown' {
 }
 function closeCtx() { ctxMenu.value.show = false }
 function ctxEdit() { store.select(ctxMenu.value.nodeId); emit('editNode', ctxMenu.value.nodeId); closeCtx() }
+
+const attackTarget = ref<string | null>(null)
+const attackStatus = ref('')
+
+function ctxBruteForce() {
+  attackTarget.value = ctxMenu.value.name
+  attackStatus.value = ''
+  closeCtx()
+}
+
+async function launchAttack(service: string) {
+  if (!attackTarget.value) return
+  
+  // Find a connected node to act as the attacker
+  let attackerNodeId = store.nodeList.find((n: any) => store.isConnected(n.id))?.id
+  if (!attackerNodeId && store.nodeList.length > 0) {
+    attackerNodeId = store.nodeList[0].id // Fallback
+  }
+  if (!attackerNodeId) {
+    attackStatus.value = 'ERROR: No active node available to launch attack from.'
+    return
+  }
+
+  attackStatus.value = 'Deploying payload...'
+  try {
+    const res = await fetch(`/api/nodes/${attackerNodeId}/agents/attack/bruteforce`, {
+      method: 'POST',
+      headers: { 
+        'Authorization': 'Bearer ' + localStorage.getItem('nr_token'),
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        target: attackTarget.value,
+        service: service
+      })
+    })
+    
+    const data = await res.json()
+    if (!res.ok) throw new Error(data.detail || data.message || 'Attack failed')
+    
+    if (data.credentials) {
+      attackStatus.value = `CRACKED! User: ${data.credentials.username} | Pass: ${data.credentials.password}`
+    } else {
+      attackStatus.value = data.message || 'Attack launched!'
+    }
+    
+    setTimeout(() => {
+      attackTarget.value = null
+    }, 5000)
+  } catch(err: any) {
+    attackStatus.value = 'ERROR: ' + err.message
+  }
+}
+
 async function ctxConnect() {
   const id = ctxMenu.value.nodeId; closeCtx()
   try { await api.connectNode(id); store.manuallyDisconnected.delete(id); await store.refreshConnections() }

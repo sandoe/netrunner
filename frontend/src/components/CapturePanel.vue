@@ -14,7 +14,14 @@
       <div class="form-grid">
         <div class="form-group">
           <label>INTERFACE</label>
-          <input v-model="form.interface" placeholder="eth0" class="cyber-input" />
+          <div class="filter-input-wrap">
+            <input v-model="form.interface" placeholder="eth0, tailscale0, or any" class="cyber-input" />
+            <div class="quick-ports">
+              <button @click="form.interface = 'eth0'" class="btn-tiny">ETH0</button>
+              <button @click="form.interface = 'tailscale0'" class="btn-tiny">TAILSCALE</button>
+              <button @click="form.interface = 'any'" class="btn-tiny">ANY</button>
+            </div>
+          </div>
         </div>
         <div class="form-group">
           <label>PORT / BPF FILTER</label>

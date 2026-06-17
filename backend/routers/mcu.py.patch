@@ -1,0 +1,207 @@
+--- /home/aso/Dokumenter/github/netrunner/backend/routers/mcu.py
++++ /home/aso/Dokumenter/github/netrunner/backend/routers/mcu.py
+@@ -10,6 +10,24 @@
+ 
+ router = APIRouter()
+ 
++from contextlib import asynccontextmanager
++
++@asynccontextmanager
++async def yield_port(node_id: str, port: str):
++    nodes = await load_nodes_db()
++    interrupt_cmd = f"pkill -9 -f 'mpremote.*{port}' || true"
++    await session_manager.run(node_id, nodes[node_id], [interrupt_cmd])
++    
++    from .usb import set_proxy_pause_state
++    try:
++        await set_proxy_pause_state(node_id, port, True)
++        await asyncio.sleep(0.3)
++    except Exception:
++        pass
++    try:
++        yield
++    finally:
++        try:
++            await set_proxy_pause_state(node_id, port, False)
++        except Exception:
++            pass
++
+ async def ensure_mcu_cli(node_id: str, node: dict):
+     from ..core.vault import load_credentials
+     username, password = await load_credentials(node_id)
+@@ -28,9 +46,8 @@
+     if not session_manager.is_connected(node_id):
+         raise HTTPException(status_code=503, detail="SSH is disconnected")
+ 
+-    interrupt_cmd = f"pkill -9 -f 'mpremote.*{port}' || true"
+-    await session_manager.run(node_id, nodes[node_id], [interrupt_cmd])
+-    await ensure_mcu_cli(node_id, nodes[node_id])
+-    if sudo_password:
+-        await session_manager.run(node_id, nodes[node_id], [f"echo '{sudo_password}' | sudo -S chmod 666 {port}"])
++    async with yield_port(node_id, port):
++        await ensure_mcu_cli(node_id, nodes[node_id])
++        if sudo_password:
++            await session_manager.run(node_id, nodes[node_id], [f"echo '{sudo_password}' | sudo -S chmod 666 {port}"])
+ 
+-    cmd = f"timeout 15 python3 /tmp/nr_scripts/nr_mcu_cli.py {port} ls {path}"
+-    results, err = await session_manager.run(node_id, nodes[node_id], [cmd])
++        cmd = f"timeout 15 python3 /tmp/nr_scripts/nr_mcu_cli.py {port} ls {path}"
++        results, err = await session_manager.run(node_id, nodes[node_id], [cmd])
+     if err:
+         raise HTTPException(status_code=500, detail=str(err))
+ 
+@@ -64,9 +81,8 @@
+     if not session_manager.is_connected(node_id):
+         raise HTTPException(status_code=503, detail="SSH is disconnected")
+ 
+-    interrupt_cmd = f"pkill -9 -f 'mpremote.*{port}' || true"
+-    await session_manager.run(node_id, nodes[node_id], [interrupt_cmd])
+-    await ensure_mcu_cli(node_id, nodes[node_id])
+-    if sudo_password:
+-        await session_manager.run(node_id, nodes[node_id], [f"echo '{sudo_password}' | sudo -S chmod 666 {port}"])
++    async with yield_port(node_id, port):
++        await ensure_mcu_cli(node_id, nodes[node_id])
++        if sudo_password:
++            await session_manager.run(node_id, nodes[node_id], [f"echo '{sudo_password}' | sudo -S chmod 666 {port}"])
+ 
+-    cmd = f"timeout 15 python3 /tmp/nr_scripts/nr_mcu_cli.py {port} read {path}"
+-    results, err = await session_manager.run(node_id, nodes[node_id], [cmd])
++        cmd = f"timeout 15 python3 /tmp/nr_scripts/nr_mcu_cli.py {port} read {path}"
++        results, err = await session_manager.run(node_id, nodes[node_id], [cmd])
+     if err:
+         raise HTTPException(status_code=500, detail=str(err))
+ 
+@@ -90,9 +106,8 @@
+     if not session_manager.is_connected(node_id):
+         raise HTTPException(status_code=503, detail="SSH is disconnected")
+ 
+-    interrupt_cmd = f"pkill -9 -f 'mpremote.*{payload.port}' || true"
+-    await session_manager.run(node_id, nodes[node_id], [interrupt_cmd])
+-    await ensure_mcu_cli(node_id, nodes[node_id])
+-    if payload.sudo_password:
+-        await session_manager.run(node_id, nodes[node_id], [f"echo '{payload.sudo_password}' | sudo -S chmod 666 {payload.port}"])
++    async with yield_port(node_id, payload.port):
++        await ensure_mcu_cli(node_id, nodes[node_id])
++        if payload.sudo_password:
++            await session_manager.run(node_id, nodes[node_id], [f"echo '{payload.sudo_password}' | sudo -S chmod 666 {payload.port}"])
+ 
+-    import tempfile
+-    try:
+-        with tempfile.NamedTemporaryFile(mode='w', delete=False) as f:
+-            f.write(payload.content)
+-            tmp_path = f.name
+-            
+-        await session_manager.scp_to(node_id, nodes[node_id], tmp_path, tmp_path)
+-        
+-        cmd = f"timeout 30 python3 /tmp/nr_scripts/nr_mcu_cli.py {payload.port} write {payload.path} {tmp_path}"
+-        results, err = await session_manager.run(node_id, nodes[node_id], [cmd])
+-        
+-        await session_manager.run(node_id, nodes[node_id], [f"rm -f {tmp_path}"])
+-        
+-        if err:
+-            raise HTTPException(status_code=500, detail=str(err))
+-            
+-    finally:
+-        import os
+-        if os.path.exists(tmp_path):
+-            os.unlink(tmp_path)
++        import tempfile
++        try:
++            with tempfile.NamedTemporaryFile(mode='w', delete=False) as f:
++                f.write(payload.content)
++                tmp_path = f.name
++                
++            await session_manager.scp_to(node_id, nodes[node_id], tmp_path, tmp_path)
++            
++            cmd = f"timeout 30 python3 /tmp/nr_scripts/nr_mcu_cli.py {payload.port} write {payload.path} {tmp_path}"
++            results, err = await session_manager.run(node_id, nodes[node_id], [cmd])
++            
++            await session_manager.run(node_id, nodes[node_id], [f"rm -f {tmp_path}"])
++            
++            if err:
++                raise HTTPException(status_code=500, detail=str(err))
++                
++        finally:
++            import os
++            if os.path.exists(tmp_path):
++                os.unlink(tmp_path)
+             
+     return {"status": "ok"}
+ 
+@@ -122,11 +137,10 @@
+     if not session_manager.is_connected(node_id):
+         raise HTTPException(status_code=503, detail="SSH is disconnected")
+ 
+-    interrupt_cmd = f"pkill -9 -f 'mpremote.*{port}' || true"
+-    await session_manager.run(node_id, nodes[node_id], [interrupt_cmd])
+-    await ensure_mcu_cli(node_id, nodes[node_id])
+-    if sudo_password:
+-        await session_manager.run(node_id, nodes[node_id], [f"echo '{sudo_password}' | sudo -S chmod 666 {port}"])
++    async with yield_port(node_id, port):
++        await ensure_mcu_cli(node_id, nodes[node_id])
++        if sudo_password:
++            await session_manager.run(node_id, nodes[node_id], [f"echo '{sudo_password}' | sudo -S chmod 666 {port}"])
+ 
+-    cmd = f"timeout 30 python3 /tmp/nr_scripts/nr_mcu_cli.py {port} mkdir {path}"
+-    results, err = await session_manager.run(node_id, nodes[node_id], [cmd])
++        cmd = f"timeout 30 python3 /tmp/nr_scripts/nr_mcu_cli.py {port} mkdir {path}"
++        results, err = await session_manager.run(node_id, nodes[node_id], [cmd])
+     if err:
+         raise HTTPException(status_code=500, detail=str(err))
+ 
+@@ -198,12 +212,14 @@
+     cmds = []
+     if payload.sudo_password:
+         cmds.append(f"echo '{payload.sudo_password}' | sudo -S chmod 666 {payload.port}")
+-        interrupt_cmd = f"pkill -9 -f 'mpremote.*{payload.port}' || true"
+-        cmds.append(interrupt_cmd)
+         
+     cmds.append(f"mpremote connect {payload.port} run {payload.script_path}")
+     
+-    results, err = await session_manager.run(node_id, nodes[node_id], cmds)
++    # NOTE: /run usually takes a long time, but wait... /run executes in background maybe?
++    # If it blocks, yield_port is held open. Let's see.
++    async with yield_port(node_id, payload.port):
++        results, err = await session_manager.run(node_id, nodes[node_id], cmds)
++        
+     if err:
+         raise HTTPException(status_code=500, detail=str(err))
+     return {"status": "ok", "output": results[-1].get("output", "")}
+@@ -277,11 +293,10 @@
+     if not session_manager.is_connected(node_id):
+         raise HTTPException(status_code=503, detail="SSH is disconnected")
+ 
+-    interrupt_cmd = f"pkill -9 -f 'mpremote.*{port}' || true"
+-    await session_manager.run(node_id, nodes[node_id], [interrupt_cmd])
+-    await ensure_mcu_cli(node_id, nodes[node_id])
+-    if sudo_password:
+-        await session_manager.run(node_id, nodes[node_id], [f"echo '{sudo_password}' | sudo -S chmod 666 {port}"])
++    async with yield_port(node_id, port):
++        await ensure_mcu_cli(node_id, nodes[node_id])
++        if sudo_password:
++            await session_manager.run(node_id, nodes[node_id], [f"echo '{sudo_password}' | sudo -S chmod 666 {port}"])
+ 
+-    cmd = f"timeout 15 python3 /tmp/nr_scripts/nr_mcu_cli.py {port} rm {path}"
+-    results, err = await session_manager.run(node_id, nodes[node_id], [cmd])
++        cmd = f"timeout 15 python3 /tmp/nr_scripts/nr_mcu_cli.py {port} rm {path}"
++        results, err = await session_manager.run(node_id, nodes[node_id], [cmd])
+     if err:
+         raise HTTPException(status_code=500, detail=str(err))
+ 
+@@ -301,10 +316,9 @@
+     if not session_manager.is_connected(node_id):
+         raise HTTPException(status_code=503, detail="SSH is disconnected")
+ 
+-    interrupt_cmd = f"pkill -9 -f 'mpremote.*{payload.port}' || true"
+-    await session_manager.run(node_id, nodes[node_id], [interrupt_cmd])
+-    await ensure_mcu_cli(node_id, nodes[node_id])
++    async with yield_port(node_id, payload.port):
++        await ensure_mcu_cli(node_id, nodes[node_id])
+ 
+-    cmd = f"timeout 15 python3 /tmp/nr_scripts/nr_mcu_cli.py {payload.port} stop"
+-    await session_manager.run(node_id, nodes[node_id], [cmd])
++        cmd = f"timeout 15 python3 /tmp/nr_scripts/nr_mcu_cli.py {payload.port} stop"
++        await session_manager.run(node_id, nodes[node_id], [cmd])
+     return {"status": "ok"}
+ 
+ @router.post("/{node_id}/reset")

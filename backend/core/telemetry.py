@@ -4,6 +4,8 @@ import time
 from typing import Dict
 from .session import session_manager
 from .db import load_nodes_db
+from .state import telemetry_queue
+from .events import record_event
 
 logger = logging.getLogger("telemetry")
 
@@ -29,12 +31,9 @@ def _check_threshold(nid, name, metric, value, limit):
     over = value is not None and value >= limit
     if over and not st.get(metric):
         st[metric] = True
-        from .events import record_event
         record_event("warning", nid, name, metric, f"{name} {metric.upper()} high: {value}%")
     elif not over and st.get(metric):
         st[metric] = False
-
-telemetry_queue = asyncio.Queue()
 
 HISTORY_LEN = 60
 

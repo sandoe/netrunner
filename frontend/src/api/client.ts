@@ -176,6 +176,9 @@ export const api = {
   deployMirageHoneypot: (nid: string, body: { persona: string; port: number; aggressiveness: string }) => 
     req<{ status: string; message: string }>('POST', `/nodes/${nid}/deception/deploy`, body),
 
+  // Files
+  listFiles: (nid: string, path: string) => req<{ path: string, entries: { name: string, is_dir: boolean, size: number, permissions: string, mtime: number }[] }>('GET', `/nodes/${nid}/fs/list?path=${encodeURIComponent(path)}`),
+  readFile: (nid: string, path: string) => req<{ path: string, content: string }>('GET', `/nodes/${nid}/fs/read?path=${encodeURIComponent(path)}`),
 
   // Metrics
   nodeMetricsHistory: (nid: string) => req<{ status: string; history: { time: number; cpu: number; ram: number; net_tx: number; net_rx: number }[] }>('GET', `/nodes/${nid}/metrics/history`),
@@ -195,6 +198,28 @@ export const api = {
   getConfig: (name: string) => req<{ name: string; content: string }>('GET', `/configs/${name}`),
   saveConfig: (name: string, content: string, type = 'misc') => req<{ name: string }>('POST', '/configs', { name, content, type }),
   deleteConfig: (name: string) => req<{ ok: boolean }>('DELETE', `/configs/${name}`),
+
+  // Bruteforce
+  uploadWordlist: async (file: File) => {
+    const fd = new FormData()
+    fd.append('file', file)
+    const headers: Record<string, string> = {}
+    const token = localStorage.getItem('nr_token')
+    if (token) headers['Authorization'] = `Bearer ${token}`
+    const res = await fetch(`${BASE}/bruteforce/wordlists`, { method: 'POST', headers, body: fd })
+    if (!res.ok) throw new Error(await res.text())
+    return res.json()
+  },
+  listWordlists: () => req<string[]>('GET', '/bruteforce/wordlists'),
+  launchAttack: (payload: any) => req<{ status: string; message: string }>('POST', '/bruteforce/attack', payload),
+  getAttackStatus: () => req<Record<string, any>>('GET', '/bruteforce/status'),
+  stopAttack: (nid: string) => req<{ status: string }>('POST', '/bruteforce/stop', { node_id: nid }),
+  pauseAttack: (nid: string) => req<{ status: string }>('POST', '/bruteforce/pause', { node_id: nid }),
+  resumeAttack: (nid: string) => req<{ status: string }>('POST', '/bruteforce/resume', { node_id: nid }),
+
+  // Intelligence
+  getIntelligenceGraph: () => req<any>('GET', '/intelligence/graph'),
+  queryIntelligence: (query: string) => req<any>('POST', '/intelligence/query', { query }),
 }
 
 /** Query-param suffix carrying the JWT for WebSocket handshakes (browsers

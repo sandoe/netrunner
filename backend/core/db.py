@@ -8,12 +8,78 @@ from typing import Any, Optional
 
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
-from sqlalchemy import String, Integer, Text, Boolean, ForeignKey, select, delete, text
+from sqlalchemy import String, Integer, Text, Boolean, ForeignKey, select, delete, text, Column, Float
 from dotenv import load_dotenv
+from influxdb_client.client.influxdb_client_async import InfluxDBClientAsync
+from .logger import log as logger
+
+try:
+    from cryptography.fernet import Fernet
+    _HAS_CRYPTO = True
+except ImportError:
+    _HAS_CRYPTO = False
 
 load_dotenv()
 
+# --- Encryption helpers for beacon nodes and vault ---
+_DATA_DIR = Path("data")
+_VAULT_KEY_FILE = _DATA_DIR / ".vault_key"
+
+
+def _get_or_create_vault_key() -> bytes:
+    _DATA_DIR.mkdir(exist_ok=True)
+    if _VAULT_KEY_FILE.exists():
+        return _VAULT_KEY_FILE.read_bytes().strip()
+    if not _HAS_CRYPTO:
+        # Fallback: use a deterministic key for non-crypto environments (NOT SECURE)
+        return b"fallback-key-not-secure-do-not-use-in-production-32b=="
+    key = Fernet.generate_key()
+    _VAULT_KEY_FILE.write_bytes(key)
+    try:
+        _VAULT_KEY_FILE.chmod(0o600)
+    except OSError:
+        pass
+    return key
+
+
+def _fernet() -> "Fernet":
+    if not _HAS_CRYPTO:
+        raise RuntimeError("cryptography package not installed — run: pip install cryptography")
+    return Fernet(_get_or_create_vault_key())
+
+
+def _encrypt_password(password: str) -> str:
+    """Encrypt a password using the vault key."""
+    if not _HAS_CRYPTO:
+        return password  # No encryption available
+    f = _fernet()
+    return f.encrypt(password.encode()).decode()
+
+
+def _decrypt_password(encrypted: str) -> str:
+    """Decrypt a password using the vault key."""
+    if not _HAS_CRYPTO:
+        return encrypted
+    try:
+        f = _fernet()
+        return f.decrypt(encrypted.encode()).decode()
+    except Exception:
+        return encrypted  # Return as-is if decryption fails
+
 DATABASE_URL = os.environ.get("DATABASE_URL", "sqlite+aiosqlite:///data/netrunner.db")
+INFLUXDB_URL = os.environ.get("INFLUXDB_URL", "http://127.0.0.1:8086")
+INFLUXDB_TOKEN = os.environ.get("INFLUXDB_TOKEN", "")
+INFLUXDB_ORG = os.environ.get("INFLUXDB_ORG", "netrunner")
+INFLUXDB_BUCKET = os.environ.get("INFLUXDB_BUCKET", "traffic")
+
+_influx_client = None
+
+def get_influx_client():
+    global _influx_client
+    if _influx_client is None:
+        _influx_client = InfluxDBClientAsync(url=INFLUXDB_URL, token=INFLUXDB_TOKEN, org=INFLUXDB_ORG)
+    return _influx_client
+
 
 # Ensure parent directory exists for SQLite
 if DATABASE_URL.startswith("sqlite"):
@@ -55,7 +121,8 @@ class BeaconNodeModel(Base):
     id: Mapped[str] = mapped_column(String(50), primary_key=True)
     ip: Mapped[str] = mapped_column(String(100))
     username: Mapped[str] = mapped_column(String(100))
-    password: Mapped[str] = mapped_column(String(100))
+    password: Mapped[str] = mapped_column(String(255))  # Encrypted
+    encrypted: Mapped[bool] = mapped_column(Boolean, default=False)
     target_server_ip: Mapped[str] = mapped_column(String(100))
     csi_mode: Mapped[str] = mapped_column(String(50), default="AUTO")
     sample_rate: Mapped[int] = mapped_column(Integer, default=30)
@@ -93,23 +160,92 @@ class ThreatEventModel(Base):
     type: Mapped[str] = mapped_column(String(100))
     severity: Mapped[str] = mapped_column(String(20))
 
+class PlaybookModel(Base):
+    __tablename__ = "playbooks"
+    id: Mapped[str] = mapped_column(String(50), primary_key=True)
+    name: Mapped[str] = mapped_column(String(100))
+    description: Mapped[str] = mapped_column(String(255), nullable=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    conditions: Mapped[str] = mapped_column(Text)
+    actions: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[float] = mapped_column(Float)
+    updated_at: Mapped[float] = mapped_column(Float)
+
+
+class AlertModel(Base):
+    __tablename__ = "alerts"
+    id: Mapped[str] = mapped_column(String(50), primary_key=True)
+    title: Mapped[str] = mapped_column(String(200))
+    description: Mapped[Optional[str]] = mapped_column(Text)
+    severity: Mapped[str] = mapped_column(String(20)) # "low", "medium", "high", "critical"
+    status: Mapped[str] = mapped_column(String(20), default="new") # "new", "open", "closed", "false_positive"
+    assignee_id: Mapped[Optional[str]] = mapped_column(String(100), ForeignKey("users.username", ondelete="SET NULL"), nullable=True)
+    created_at: Mapped[float] = mapped_column()
+    updated_at: Mapped[float] = mapped_column()
+
+
+# --- SDN & Infrastructure Models ---
+
+class NetworkConfigModel(Base):
+    __tablename__ = "network_configs"
+    id: Mapped[str] = mapped_column(String(50), primary_key=True)
+    type: Mapped[str] = mapped_column(String(20)) # "vlan", "ssid", "port_profile"
+    name: Mapped[str] = mapped_column(String(100))
+    config_json: Mapped[str] = mapped_column(Text) # JSON config payload
+    node_id: Mapped[Optional[str]] = mapped_column(String(50), ForeignKey("nodes.id", ondelete="CASCADE"), nullable=True) # if null, global config
+
+class ClientModel(Base):
+    __tablename__ = "clients"
+    mac: Mapped[str] = mapped_column(String(50), primary_key=True)
+    ip: Mapped[Optional[str]] = mapped_column(String(100))
+    hostname: Mapped[Optional[str]] = mapped_column(String(100))
+    node_id: Mapped[str] = mapped_column(String(50), ForeignKey("nodes.id", ondelete="CASCADE"))
+    rssi: Mapped[Optional[int]] = mapped_column(Integer)
+    rx_bytes: Mapped[int] = mapped_column(Integer, default=0)
+    tx_bytes: Mapped[int] = mapped_column(Integer, default=0)
+    is_blocked: Mapped[bool] = mapped_column(Boolean, default=False)
+    last_seen: Mapped[float] = mapped_column()
+
+class TrafficStatModel(Base):
+    __tablename__ = "traffic_stats"
+    id: Mapped[str] = mapped_column(String(50), primary_key=True)
+    timestamp: Mapped[float] = mapped_column()
+    node_id: Mapped[str] = mapped_column(String(50), ForeignKey("nodes.id", ondelete="CASCADE"))
+    category: Mapped[str] = mapped_column(String(50)) # "streaming", "p2p", "web", "social"
+    rx_bytes: Mapped[int] = mapped_column(Integer, default=0)
+    tx_bytes: Mapped[int] = mapped_column(Integer, default=0)
+
+class VoucherModel(Base):
+    __tablename__ = "vouchers"
+    code: Mapped[str] = mapped_column(String(20), primary_key=True)
+    duration_hours: Mapped[int] = mapped_column(Integer, default=24)
+    data_limit_mb: Mapped[Optional[int]] = mapped_column(Integer)
+    is_used: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[float] = mapped_column()
+
+class GuestSessionModel(Base):
+    __tablename__ = "guest_sessions"
+    id: Mapped[str] = mapped_column(String(50), primary_key=True)
+    mac: Mapped[str] = mapped_column(String(50))
+    node_id: Mapped[str] = mapped_column(String(50), ForeignKey("nodes.id", ondelete="CASCADE"))
+    voucher_code: Mapped[Optional[str]] = mapped_column(String(20))
+    authorized_at: Mapped[float] = mapped_column()
+    expires_at: Mapped[float] = mapped_column()
+    rx_bytes: Mapped[int] = mapped_column(Integer, default=0)
+    tx_bytes: Mapped[int] = mapped_column(Integer, default=0)
+
+class FirmwareModel(Base):
+    __tablename__ = "firmwares"
+    id: Mapped[str] = mapped_column(String(50), primary_key=True)
+    version: Mapped[str] = mapped_column(String(50))
+    arch: Mapped[str] = mapped_column(String(20)) # "amd64", "arm64"
+    url: Mapped[str] = mapped_column(String(255))
+    uploaded_at: Mapped[float] = mapped_column()
+
 
 async def init_db():
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-        
-    # Dynamically adapt table to add threat_monitoring if it doesn't exist
-    async with engine.connect() as conn:
-        try:
-            # Check if column exists by querying it
-            await conn.execute(select(NodeModel.threat_monitoring).limit(1))
-        except Exception:
-            # If query fails, the column doesn't exist in the SQLite database.
-            # Add the column dynamically using ALTER TABLE
-            print("[DB] threat_monitoring column not found. Running SQLite table migration...")
-            await conn.execute(text("ALTER TABLE nodes ADD COLUMN threat_monitoring BOOLEAN DEFAULT 0"))
-            await conn.commit()
-            print("[DB] SQLite table migration completed successfully.")
+    # Base.metadata.create_all is handled by alembic migrations now
+    pass
 
 
 async def get_db():
@@ -273,11 +409,15 @@ async def load_beacon_nodes_db() -> list[dict]:
         result = await session.execute(select(BeaconNodeModel))
         nodes = []
         for row in result.scalars():
+            password = row.password
+            # Decrypt if encrypted
+            if row.encrypted:
+                password = _decrypt_password(password)
             nodes.append({
                 "id": row.id,
                 "ip": row.ip,
                 "username": row.username,
-                "password": row.password,
+                "password": password,
                 "target_server_ip": row.target_server_ip,
                 "csi_mode": row.csi_mode,
                 "sample_rate": row.sample_rate,
@@ -287,11 +427,17 @@ async def load_beacon_nodes_db() -> list[dict]:
 
 async def save_beacon_node_db(node: dict):
     async with AsyncSessionLocal() as session:
+        password = node["password"]
+        encrypted = False
+        if password and _HAS_CRYPTO:
+            password = _encrypt_password(password)
+            encrypted = True
         b = BeaconNodeModel(
             id=node["id"],
             ip=node["ip"],
             username=node["username"],
-            password=node["password"],
+            password=password,
+            encrypted=encrypted,
             target_server_ip=node.get("target_server_ip", ""),
             csi_mode=node.get("csi_mode", "AUTO"),
             sample_rate=node.get("sample_rate", 30),
@@ -341,3 +487,115 @@ async def delete_user_db(username: str):
     async with AsyncSessionLocal() as session:
         await session.execute(delete(UserModel).where(UserModel.username == username))
         await session.commit()
+
+async def wipe_all_data_db():
+    """Wipes all active operational data (Ghost Protocol cleanup)."""
+    async with AsyncSessionLocal() as session:
+        await session.execute(text("DELETE FROM beacon_nodes"))
+        await session.execute(text("DELETE FROM threat_events"))
+        await session.execute(text("DELETE FROM links"))
+        await session.execute(text("DELETE FROM clients"))
+        await session.execute(text("DELETE FROM traffic_stats"))
+        await session.execute(text("DELETE FROM guest_sessions"))
+        await session.execute(text("DELETE FROM vault"))
+        await session.execute(text("DELETE FROM nodes"))
+        await session.execute(text("DELETE FROM alerts"))
+        await session.commit()
+
+
+# --- alerts ---------------------------------------------------------------- #
+def _alert_to_dict(row: "AlertModel") -> dict:
+    return {
+        "id": row.id,
+        "title": row.title,
+        "description": row.description,
+        "severity": row.severity,
+        "status": row.status,
+        "assignee_id": row.assignee_id,
+        "created_at": row.created_at,
+        "updated_at": row.updated_at,
+    }
+
+async def load_alerts_db(status: Optional[str] = None) -> list[dict]:
+    async with AsyncSessionLocal() as session:
+        query = select(AlertModel).order_by(AlertModel.created_at.desc())
+        if status:
+            query = query.where(AlertModel.status == status)
+        result = await session.execute(query)
+        return [_alert_to_dict(r) for r in result.scalars()]
+
+async def get_alert_db(alert_id: str) -> Optional[dict]:
+    async with AsyncSessionLocal() as session:
+        row = await session.get(AlertModel, alert_id)
+        return _alert_to_dict(row) if row else None
+
+async def save_alert_db(alert: dict):
+    async with AsyncSessionLocal() as session:
+        await session.merge(AlertModel(
+            id=alert["id"],
+            title=alert["title"],
+            description=alert.get("description"),
+            severity=alert["severity"],
+            status=alert.get("status", "new"),
+            assignee_id=alert.get("assignee_id"),
+            created_at=alert["created_at"],
+            updated_at=alert.get("updated_at", alert["created_at"])
+        ))
+        await session.commit()
+
+async def delete_alert_db(alert_id: str):
+    async with AsyncSessionLocal() as session:
+        await session.execute(delete(AlertModel).where(AlertModel.id == alert_id))
+        await session.commit()
+
+async def insert_alert(alert: dict):
+    await save_alert_db(alert)
+
+async def update_alert_status(alert_id: str, status: str):
+    import time
+    async with AsyncSessionLocal() as session:
+        row = await session.get(AlertModel, alert_id)
+        if row:
+            row.status = status
+            row.updated_at = time.time()
+            await session.commit()
+
+async def load_playbooks_db():
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(select(PlaybookModel))
+        return [
+            {
+                "id": r.id,
+                "name": r.name,
+                "description": r.description,
+                "is_active": r.is_active,
+                "conditions": r.conditions,
+                "actions": r.actions,
+                "created_at": r.created_at,
+                "updated_at": r.updated_at
+            } for r in result.scalars().all()
+        ]
+
+async def save_playbook_db(playbook: dict):
+    async with AsyncSessionLocal() as session:
+        obj = PlaybookModel(**playbook)
+        session.add(obj)
+        await session.commit()
+
+async def update_playbook_db(playbook_id: str, data: dict):
+    async with AsyncSessionLocal() as session:
+        row = await session.get(PlaybookModel, playbook_id)
+        if row:
+            for k, v in data.items():
+                if hasattr(row, k):
+                    setattr(row, k, v)
+            import time
+            row.updated_at = time.time()
+            await session.commit()
+
+async def delete_playbook_db(playbook_id: str):
+    async with AsyncSessionLocal() as session:
+        await session.execute(delete(PlaybookModel).where(PlaybookModel.id == playbook_id))
+        await session.commit()
+
+

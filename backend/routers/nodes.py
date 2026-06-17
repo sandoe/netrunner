@@ -14,6 +14,7 @@ from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Response, Depends
 from fastapi.responses import FileResponse
+import redis.asyncio as redis
 from .auth import require_admin
 from pydantic import BaseModel, field_validator
 
@@ -108,7 +109,7 @@ READ_CMDS: dict[str, list[str]] = {
     ],
     "if-stats":     ["ip -s link show"],
     "wifi-scan":    ["nmcli -t -f SSID,SIGNAL,SECURITY dev wifi list 2>/dev/null || iwlist scan 2>/dev/null | grep -E 'ESSID|Signal|Encryption' || echo '(WiFi tools not available)'"],
-    "nmap-scan":    ["nmap -sV -F 127.0.0.1 2>/dev/null || nmap -F 127.0.0.1 2>/dev/null || echo '(nmap not installed)'"],
+    "nmap-scan":    ["nmap -T4 -F 127.0.0.1 2>/dev/null || echo '(nmap not installed)'"],
     "docker":       [
         "docker info 2>/dev/null || sudo -n docker info 2>/dev/null || echo '(Docker daemon not running or not installed)'",
         "echo -e 'CONTAINER ID\\tNAMES\\tIMAGE\\tSTATUS\\tPORTS' && (docker ps -a --format '{{.ID}}{{printf \"\\t\"}}{{.Names}}{{printf \"\\t\"}}{{.Image}}{{printf \"\\t\"}}{{.Status}}{{printf \"\\t\"}}{{.Ports}}' 2>/dev/null || sudo -n docker ps -a --format '{{.ID}}{{printf \"\\t\"}}{{.Names}}{{printf \"\\t\"}}{{.Image}}{{printf \"\\t\"}}{{.Status}}{{printf \"\\t\"}}{{.Ports}}' 2>/dev/null || echo '(No containers)')",
@@ -216,8 +217,14 @@ async def api_nodes():
 
 @router.post("/nodes", status_code=201)
 async def api_nodes_create(body: NodeCreate):
+    from ..core.cti import get_ip_geolocation
+    
     nodes = await load_nodes()
     nid   = f"n{int(time.time() * 1000)}"
+    
+    # Geolocate the node host
+    geo = await get_ip_geolocation(body.host, default_name=body.name)
+    
     node  = {
         "id":          nid,
         "name":        body.name,
@@ -228,37 +235,49 @@ async def api_nodes_create(body: NodeCreate):
         "device_type": body.device_type,
         "tags":        body.tags,
         "created":     datetime.now().isoformat(),
+        "metadata":    {"lat": geo["lat"], "lng": geo["lng"], "city": geo["name"]}
     }
-    await store_credentials(nid, body.username, body.password)
     nodes[nid] = node
     await save_nodes(nodes)
+    await store_credentials(nid, body.username, body.password)
     return await _node_public(nid, node)
 
 
 @router.put("/nodes/{nid}")
 async def api_node_update(nid: str, body: NodeUpdate):
+    from ..core.cti import get_ip_geolocation
+    
     nodes = await load_nodes()
     if nid not in nodes:
         raise HTTPException(404, "Not found")
     node = nodes[nid]
+    
     if body.name        is not None: node["name"]        = body.name
-    if body.host        is not None: node["host"]        = body.host
+    if body.host        is not None: 
+        if body.host != node.get("host"):
+            geo = await get_ip_geolocation(body.host, default_name=node.get("name", "Unknown"))
+            if "metadata" not in node:
+                node["metadata"] = {}
+            node["metadata"]["lat"] = geo["lat"]
+            node["metadata"]["lng"] = geo["lng"]
+            node["metadata"]["city"] = geo["name"]
+        node["host"] = body.host
+        
     if body.port        is not None: node["port"]        = body.port
     if body.transport   is not None: node["transport"]   = body.transport
     if body.device_type is not None: node["device_type"] = body.device_type
     if body.tags        is not None: node["tags"]        = body.tags
     if body.username is not None or body.password is not None:
         old_user, old_pass = await load_credentials(nid)
-        await store_credentials(
-            nid,
-            body.username if body.username is not None else old_user,
-            body.password if body.password is not None else old_pass,
-        )
+        new_user = body.username if body.username is not None else old_user
+        new_pass = body.password if body.password is not None else old_pass
+        
+        # If user explicitly updates, always save
+        await store_credentials(nid, new_user, new_pass)
         if body.username is not None:
             node["username"] = body.username
     await save_nodes(nodes)
     return await _node_public(nid, node)
-
 
 @router.delete("/nodes/{nid}")
 async def api_node_delete(nid: str):
@@ -766,7 +785,8 @@ async def api_node_read(nid: str, ctype: str):
     if ctype not in READ_CMDS:
         raise HTTPException(400, f"Unknown type '{ctype}'. Valid: {', '.join(READ_CMDS)}")
     node = await _get_node_with_creds(nid, nodes)
-    results, err = await session_manager.run(nid, node, READ_CMDS[ctype])
+    timeout = 60.0 if ctype == "nmap-scan" else 15.0
+    results, err = await session_manager.run(nid, node, READ_CMDS[ctype], timeout=timeout)
     if err:
         raise HTTPException(500, err)
     return {"results": results}
@@ -1323,3 +1343,30 @@ async def api_node_metrics_history(nid: str):
 
     from ..core.telemetry import vitals_history
     return {"status": "success", "history": list(vitals_history.get(nid, []))}
+
+@router.post("/{id}/inject")
+async def inject_agent(id: str):
+    import json
+    import os
+    from .nodes import load_nodes
+    nodes = await load_nodes()
+    node = nodes.get(id)
+    if not node:
+        raise HTTPException(status_code=404, detail="Node not found")
+    
+    redis_host = os.getenv("REDIS_HOST", "127.0.0.1")
+    redis_port = int(os.getenv("REDIS_PORT", "6379"))
+    
+    r = redis.Redis(host=redis_host, port=redis_port, db=0, decode_responses=True)
+    task = {
+        "type": "inject_agent",
+        "node_id": id,
+        "ip": node.get("host"),
+        "username": node.get("username", "root"),
+        "password": node.get("password", "")
+    }
+    await r.publish("engine_tasks", json.dumps(task))
+    await r.aclose()
+    
+    return {"message": "Agent injection task queued"}
+

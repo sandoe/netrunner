@@ -78,12 +78,12 @@
           <button v-if="events.length" class="feed-clear" @click="clearEvents">CLEAR</button>
         </div>
         <div class="feed-body">
-          <div v-for="e in events" :key="e.id" class="feed-row" :class="e.severity">
+          <div v-for="e in filteredEvents" :key="e.id" class="feed-row" :class="e.severity">
             <span class="feed-sev">{{ sevIcon(e.severity) }}</span>
             <span class="feed-msg">{{ e.message }}</span>
             <span class="feed-ago">{{ ago(e.ts) }}</span>
           </div>
-          <div v-if="events.length === 0" class="feed-empty">— ALL SYSTEMS NOMINAL —</div>
+          <div v-if="filteredEvents.length === 0" class="feed-empty">— ALL SYSTEMS NOMINAL —</div>
         </div>
       </div>
     </div>
@@ -119,26 +119,47 @@ async function poll() {
   } catch { /* non-fatal */ }
 }
 
+const selectedNodeList = computed(() => {
+  if (store.selectedId) {
+    return store.nodeList.filter(n => n.id === store.selectedId)
+  }
+  return store.nodeList
+})
+
 // monitored = non-L2 nodes
-const monitored = computed(() => store.nodeList.filter(n => !isL2(n)).length)
-const online = computed(() => store.nodeList.filter(n => !isL2(n) && reach.value[n.id]?.reachable).length)
+const monitored = computed(() => selectedNodeList.value.filter(n => !isL2(n)).length)
+const online = computed(() => selectedNodeList.value.filter(n => !isL2(n) && reach.value[n.id]?.reachable).length)
 const offline = computed(() => Math.max(0, monitored.value - online.value))
 
 const avgLatency = computed(() => {
-  const lats = store.nodeList.map(n => reach.value[n.id]).filter(r => r?.reachable && r.latency_ms != null).map(r => r.latency_ms)
+  const lats = selectedNodeList.value.map(n => reach.value[n.id]).filter(r => r?.reachable && r.latency_ms != null).map(r => r.latency_ms)
   if (!lats.length) return null
   return Math.round(lats.reduce((a, b) => a + b, 0) / lats.length)
 })
 const fleetCpu = computed(() => avgVital('cpu'))
 const fleetRam = computed(() => avgVital('ram'))
 function avgVital(k: string) {
-  const vals = Object.values(vitals.value).map((v: any) => v[k]).filter((x: any) => x != null)
+  const ids = selectedNodeList.value.map(n => n.id)
+  const vals = ids.map(id => vitals.value[id]?.[k]).filter((x: any) => x != null)
   if (!vals.length) return null
   return Math.round(vals.reduce((a: number, b: number) => a + b, 0) / vals.length)
 }
 
-const critCount = computed(() => events.value.filter(e => e.severity === 'critical' && (Date.now() / 1000 - e.ts) < 600).length)
-const activeAlerts = computed(() => events.value.filter(e => e.severity !== 'info' && (Date.now() / 1000 - e.ts) < 600).length)
+const filteredEvents = computed(() => {
+  if (!store.selectedId) return events.value
+  // For events, we might need to filter by node name if available, or just show all global events
+  // Assuming events don't have a specific node_id right now, or maybe they do?
+  // They are from api.events() which are system events. Let's just show all events for now, or filter if we can.
+  // We will leave events unfiltered or filter if they contain the node name.
+  return events.value.filter((e: any) => {
+    const n = store.nodeList.find(n => n.id === store.selectedId)
+    if (!n) return true
+    return e.message.includes(n.name) || e.message.includes(n.host) || !e.node_id // basic heuristic
+  })
+})
+
+const critCount = computed(() => filteredEvents.value.filter(e => e.severity === 'critical' && (Date.now() / 1000 - e.ts) < 600).length)
+const activeAlerts = computed(() => filteredEvents.value.filter(e => e.severity !== 'info' && (Date.now() / 1000 - e.ts) < 600).length)
 
 const health = computed(() => {
   if (monitored.value === 0) return 100
@@ -151,7 +172,7 @@ const health = computed(() => {
 const healthColor = computed(() => health.value >= 80 ? '#00ff9d' : health.value >= 50 ? '#ffbe0b' : '#ff2d6e')
 const healthLabel = computed(() => health.value >= 90 ? 'OPERATIONAL' : health.value >= 50 ? 'DEGRADED' : 'CRITICAL')
 
-const nodeRows = computed(() => store.nodeList.map(n => {
+const nodeRows = computed(() => selectedNodeList.value.map(n => {
   const r = reach.value[n.id]; const v = vitals.value[n.id]
   let state = 'unknown', dot = '#555', lat = '—'
   if (isL2(n)) { state = 'l2'; dot = '#ffbe0b'; lat = 'L2' }

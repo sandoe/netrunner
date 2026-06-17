@@ -27,112 +27,13 @@ async def scan_network(nid: str, body: dict, user: dict = Depends(get_current_us
     node = await _get_node_with_creds(nid, nodes)
     if sudo_pass:
         node["password"] = sudo_pass
-    password = node.get("password", "")
-
-    # Build Nmap command based on profile
-    nmap_flags = "-oX -"
-    if profile == "quick":
-        nmap_flags += " -F -T4"
-    elif profile == "comprehensive":
-        nmap_flags += " -p- -T4 -sV -O"
-    elif profile == "vuln":
-        nmap_flags += " -T4 --script vuln -sV"
-    else:
-        nmap_flags += " -F -T4"
-        
-    if password:
-        cmd = f"echo '{password}' | sudo -S nmap {nmap_flags} {target}"
-    else:
-        cmd = f"nmap {nmap_flags} {target}"
-
-    timeout = 60.0
-    if profile == "comprehensive":
-        timeout = 300.0
-    elif profile == "vuln":
-        timeout = 180.0
-
-    results, err = await session_manager.run(nid, node, [cmd], timeout=timeout)
-    if err:
-        raise HTTPException(500, f"Execution error: {err}")
-
-    output = results[0].get("output", "") if results else ""
-    if not output:
-        raise HTTPException(500, f"No output from nmap scan. Raw results: {results}, Cmd: {cmd}")
-
-    # The output might have sudo prompts or other garbage before the XML.
-    # Find the start of <?xml
-    xml_start = output.find("<?xml")
-    if xml_start == -1:
-        # Check if nmap is installed
-        if "command not found" in output.lower() or "not found" in output.lower():
-            raise HTTPException(400, "Nmap is not installed on this node. Please install it first.")
-        raise HTTPException(500, f"Failed to parse nmap output as XML. Output: {output[:200]}")
-
-    xml_data = output[xml_start:]
-    
-    hosts = []
+    from ..core.scanner import run_remote_nmap_xml
     try:
-        root = ET.fromstring(xml_data)
-        for host in root.findall('host'):
-            status = host.find('status')
-            if status is None or status.get('state') != 'up':
-                continue
-            
-            ip = ""
-            mac = ""
-            for addr in host.findall('address'):
-                if addr.get('addrtype') == 'ipv4' or addr.get('addrtype') == 'ipv6':
-                    ip = addr.get('addr')
-                elif addr.get('addrtype') == 'mac':
-                    mac = addr.get('addr')
-            
-            # Hostnames
-            hostnames = []
-            hostnames_elem = host.find('hostnames')
-            if hostnames_elem is not None:
-                for hn in hostnames_elem.findall('hostname'):
-                    name = hn.get('name')
-                    if name:
-                        hostnames.append(name)
-                        
-            # Ports
-            open_ports = []
-            ports_elem = host.find('ports')
-            if ports_elem is not None:
-                for port in ports_elem.findall('port'):
-                    state = port.find('state')
-                    if state is not None and state.get('state') == 'open':
-                        port_id = port.get('portid')
-                        service = port.find('service')
-                        service_name = service.get('name') if service is not None else 'unknown'
-                        product = service.get('product', '') if service is not None else ''
-                        version = service.get('version', '') if service is not None else ''
-                        open_ports.append({
-                            "port": port_id,
-                            "service": service_name,
-                            "product": product,
-                            "version": version
-                        })
-            
-            # OS Guess
-            os_match = "unknown"
-            os_elem = host.find('os')
-            if os_elem is not None:
-                matches = os_elem.findall('osmatch')
-                if matches:
-                    os_match = matches[0].get('name', 'unknown')
-            
-            hosts.append({
-                "ip": ip,
-                "mac": mac,
-                "hostnames": hostnames,
-                "os": os_match,
-                "ports": open_ports
-            })
-    except Exception as e:
-        raise HTTPException(500, f"Error parsing nmap XML: {e}")
+        result = await run_remote_nmap_xml(nid, node, target, profile, sudo_pass)
+        return result
+    except RuntimeError as e:
+        raise HTTPException(500, str(e))
 
-    return {"status": "success", "hosts": hosts}
 
 
 @router.post("/recon/{nid}/import")

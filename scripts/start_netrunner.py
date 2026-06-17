@@ -135,7 +135,8 @@ def main() -> None:
     print("", flush=True)
     print("Netrunner is starting.", flush=True)
     print(f"Open: {url}", flush=True)
-    print("Login: admin / admin", flush=True)
+    print("First-run: Check console output for auto-generated admin/analyst passwords.", flush=True)
+    print("         Or set NETRUNNER_ADMIN_PASSWORD / NETRUNNER_ANALYST_PASSWORD before first run.", flush=True)
     print("", flush=True)
 
     cmd = [str(py), "netrunner.py", "--host", args.host, "--port", str(args.port)]

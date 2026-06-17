@@ -64,13 +64,16 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, shallowRef, computed } from 'vue'
+import { ref, onMounted, onUnmounted, shallowRef, computed, watch } from 'vue'
 import { wsTokenParam, wsBase, api } from '@/api/client'
+import { useNodesStore } from '@/stores/nodes'
 import Globe from 'globe.gl'
 
+const store = useNodesStore()
 const globeEl = ref<HTMLElement | null>(null)
 let globe: any = null
 let ws: WebSocket | null = null
+let resizeHandler: any = null
 
 // --- ATT&CK technique strip (the "HOW") ---
 const TACTIC_LIST = [
@@ -112,6 +115,7 @@ interface ThreatEvent {
   type: string
   severity: 'low' | 'medium' | 'high' | 'critical'
   targeted?: boolean
+  node_id?: string
 }
 
 const activeTab = ref<'targeted' | 'global'>('targeted')
@@ -120,8 +124,13 @@ const globalThreats = ref<ThreatEvent[]>([])
 const arcsData = shallowRef<any[]>([])
 const beaconsData = ref<any[]>([])
 
+const filteredTargetedThreats = computed(() => {
+  if (!store.selectedId) return targetedThreats.value
+  return targetedThreats.value.filter(t => t.node_id === store.selectedId)
+})
+
 const filteredThreats = computed(() => {
-  return activeTab.value === 'targeted' ? targetedThreats.value : globalThreats.value
+  return activeTab.value === 'targeted' ? filteredTargetedThreats.value : globalThreats.value
 })
 
 function formatTime(ts: number) {
@@ -196,14 +205,14 @@ onMounted(() => {
   globe.controls().enableZoom = false
 
   // Handle window resize
-  const onResize = () => {
-    if (globeEl.value) {
+  resizeHandler = () => {
+    if (globeEl.value && globe) {
       globe.width(globeEl.value.clientWidth)
       globe.height(globeEl.value.clientHeight)
     }
   }
-  window.addEventListener('resize', onResize)
-  onResize() // initial size
+  window.addEventListener('resize', resizeHandler)
+  resizeHandler() // initial size
 
   // Fetch nodes and draw beacons/labels
   fetchNodes()
@@ -241,7 +250,8 @@ onMounted(() => {
         endLat: threat.target.lat,
         endLng: threat.target.lng,
         color: [color, color],
-        isTargeted: isTargeted
+        isTargeted: isTargeted,
+        node_id: threat.node_id
       }
       
       const currentArcs = arcsData.value
@@ -252,11 +262,24 @@ onMounted(() => {
         arcsData.value = arcsData.value.slice(-40)
       }
       
-      globe.arcsData(arcsData.value)
+      const arcsToDraw = store.selectedId 
+        ? arcsData.value.filter(a => !a.isTargeted || a.node_id === store.selectedId)
+        : arcsData.value
+        
+      globe.arcsData(arcsToDraw)
     } catch (e) {
       console.error("Failed to parse threat event", e)
     }
   }
+  
+  // Watch for node selection changes to update the map
+  watch(() => store.selectedId, () => {
+    if (!globe) return
+    const arcsToDraw = store.selectedId 
+      ? arcsData.value.filter(a => !a.isTargeted || a.node_id === store.selectedId)
+      : arcsData.value
+    globe.arcsData(arcsToDraw)
+  })
 })
 
 onUnmounted(() => {
@@ -269,6 +292,9 @@ onUnmounted(() => {
     if (globeEl.value) {
       globeEl.value.innerHTML = ''
     }
+  }
+  if (resizeHandler) {
+    window.removeEventListener('resize', resizeHandler)
   }
 })
 </script>

@@ -2,36 +2,6 @@ import asyncio
 import subprocess
 from .db import load_nodes_db
 
-async def run_nmap_scan(node_id: str) -> str:
-    """Runs a basic Nmap scan against the specified node's IP."""
-    nodes = await load_nodes_db()
-    if node_id not in nodes:
-        return "Error: Node not found."
-    
-    node = nodes[node_id]
-    host = node.get("host")
-    
-    if not host:
-        return "Error: Node has no IP/Host."
-
-    # In a real enterprise product, we might use python-nmap or celery tasks for long scans.
-    # Here we run a quick scan.
-    try:
-        cmd = ["nmap", "-sV", "-T4", "-F", host]
-        proc = await asyncio.create_subprocess_exec(
-            *cmd,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE
-        )
-        stdout, stderr = await proc.communicate()
-        
-        if proc.returncode != 0:
-            return f"Nmap Error:\n{stderr.decode()}"
-            
-        return stdout.decode()
-    except Exception as e:
-        return f"Failed to execute Nmap: {str(e)}"
-
 async def apply_isolation(node_id: str) -> str:
     """
     Simulates isolating a node using iptables via SSH.

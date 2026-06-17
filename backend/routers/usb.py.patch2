@@ -1,0 +1,54 @@
+--- /home/aso/Dokumenter/github/netrunner/backend/routers/usb.py
++++ /home/aso/Dokumenter/github/netrunner/backend/routers/usb.py
+@@ -134,6 +134,51 @@
+ 
+     return {"status": "ok", "message": f"Nuked {payload.port} and reset permissions"}
+ 
++async def set_proxy_pause_state(node_id: str, port: str, paused: bool):
++    from ..core.vault import load_credentials
++    nodes = await load_nodes_db()
++    if node_id not in nodes:
++        raise HTTPException(status_code=404, detail="Node not found")
++    
++    if not session_manager.is_connected(node_id):
++        raise HTTPException(status_code=503, detail="SSH is disconnected")
++        
++    username, password = await load_credentials(node_id)
++    node = nodes[node_id]
++    
++    port_safe = port.replace('/', '_')
++    pause_file = f"/tmp/nr_proxy_pause_{port_safe}"
++    
++    if paused:
++        file_cmd = f"touch {pause_file}"
++    else:
++        file_cmd = f"rm -f {pause_file}"
++        
++    signal_cmd = f"""
++    for pid in $(lsof -t {port} 2>/dev/null); do
++        if cat /proc/$pid/cmdline 2>/dev/null | tr '\\0' ' ' | grep -qE 'python3 -c .*py_proxy'; then
++            kill -SIGUSR2 $pid || true
++        fi
++    done
++    """
++    
++    cmds = [file_cmd, signal_cmd]
++    results, err = await session_manager.run(node_id, node, cmds)
++    if err:
++        raise HTTPException(status_code=500, detail=str(err))
++
++@router.post("/{node_id}/pause")
++async def pause_proxy(node_id: str, payload: PortPayload, user=Depends(get_current_user)):
++    """Temporarily yields the serial port without dropping the underlying proxy process"""
++    await set_proxy_pause_state(node_id, payload.port, True)
++    return {"status": "ok", "message": f"Paused proxy for {payload.port}"}
++    
++@router.post("/{node_id}/resume")
++async def resume_proxy(node_id: str, payload: PortPayload, user=Depends(get_current_user)):
++    """Resumes control of the serial port"""
++    await set_proxy_pause_state(node_id, payload.port, False)
++    return {"status": "ok", "message": f"Resumed proxy for {payload.port}"}
++
+ @router.websocket("/monitor/{node_id}")
+ async def serial_monitor(ws: WebSocket, node_id: str, port: str = "", baud: int = 115200, reset: str = "false"):
+     await ws.accept()

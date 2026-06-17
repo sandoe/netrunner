@@ -18,22 +18,20 @@
       <div class="sidebar-header">
         <div class="logo">
           <span class="logo-title">NETRUNNER</span>
-          <span class="logo-sub">OS v1.0.0</span>
+          <span class="logo-sub">
+            OS v1.0.0 
+            <span class="api-led" :class="backendApiStatus" :title="'Backend API: ' + backendApiStatus.toUpperCase()"></span>
+            <span class="api-led" :class="serviceStatus.mux ? 'up' : 'down'" title="Terminal MUX Service"></span>
+            <span class="api-led" :class="serviceStatus.redis ? 'up' : 'down'" title="Redis Task Queue"></span>
+          </span>
         </div>
-        <div class="header-tools">
+        <div class="header-tools" style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; width: 100%; margin-top: 10px; place-items: center;">
           <button class="btn-icon" :class="{ 'holo-on': holoMode }" @click="toggleHolo" title="HOLO mode (holographic overlay + ambient)">🛸</button>
-          <button class="btn-icon btn-mic" :class="{ listening }" @click="startVoice" title="Voice command (say: network pulse, simulate incident, connect rpi…)">
-            🎙️
-          </button>
-          <button class="btn-icon" @click="toggleAudio" :title="audioEnabled ? 'Mute NOC audio' : 'Enable NOC voice + alarms'">
-            {{ audioEnabled ? '🔊' : '🔇' }}
-          </button>
-          <button class="btn-icon btn-bell" @click="openAlerts" title="Alerts">
-            🔔<span v-if="unreadCount" class="bell-badge">{{ unreadCount > 9 ? '9+' : unreadCount }}</span>
-          </button>
-          <button class="btn-icon" @click="toggleGlobalFullscreen" :title="isGlobalFullscreen ? 'Exit Fullscreen' : 'Fullscreen'">
-            {{ isGlobalFullscreen ? '📺' : '🖥️' }}
-          </button>
+          <button class="btn-icon btn-mic" :class="{ listening }" @click="startVoice" title="Voice command">🎙️</button>
+          <button class="btn-icon" @click="toggleAudio" :title="audioEnabled ? 'Mute NOC audio' : 'Enable NOC voice + alarms'">{{ audioEnabled ? '🔊' : '🔇' }}</button>
+          <button class="btn-icon btn-bell" @click="openAlerts" title="Alerts">🔔<span v-if="unreadCount" class="bell-badge">{{ unreadCount > 9 ? '9+' : unreadCount }}</span></button>
+          <button class="btn-icon" @click="toggleGlobalFullscreen" :title="isGlobalFullscreen ? 'Exit Fullscreen' : 'Fullscreen'">{{ isGlobalFullscreen ? '📺' : '🖥️' }}</button>
+          <button class="btn-icon" @click="showVpn = true" title="VPN Manager" v-if="userRole === 'admin'">🛡️</button>
           <button class="btn-icon" @click="showSettings = true" title="Settings">⚙️</button>
           <button class="btn-add" @click="showAddForm = true" title="Add node">+</button>
         </div>
@@ -60,15 +58,65 @@
       </div>
 
       <nav class="nav-menu">
-        <button class="btn-pulse" :class="{ active: viewMode === 'pulse' }" @click="viewMode = 'pulse'">⚡ NETWORK PULSE</button>
-        <button :class="{ active: viewMode === 'node' }" @click="viewMode = 'node'">NODES</button>
-        <button :class="{ active: viewMode === 'topology' }" @click="viewMode = 'topology'">TOPOLOGY</button>
-        <button class="btn-recon" :class="{ active: viewMode === 'recon' }" @click="viewMode = 'recon'">📡 RECON ENGINE</button>
-        <button :class="{ active: viewMode === 'threat' }" @click="viewMode = 'threat'">THREAT MAP</button>
-        <button :class="{ active: viewMode === 'attack' }" @click="viewMode = 'attack'">🎯 ATT&CK</button>
-        <button :class="{ active: viewMode === 'history' }" @click="viewMode = 'history'">HISTORY</button>
-        <button :class="{ active: viewMode === 'wifi' }" @click="viewMode = 'wifi'">WIFI & CSI</button>
-        <button class="btn-warroom" :class="{ active: viewMode === 'warroom' }" @click="viewMode = 'warroom'">🚨 WAR ROOM</button>
+        <div class="nav-group">
+          <div class="nav-group-head" @click="toggleNavCat('dashboard')">
+            <span>📊 DASHBOARD</span>
+            <span class="nav-group-chevron" :class="{ collapsed: collapsedNavCats.has('dashboard') }">⌃</span>
+          </div>
+          <div v-if="!collapsedNavCats.has('dashboard')" class="nav-group-items">
+            <button class="btn-pulse" :class="{ active: viewMode === 'pulse' }" @click="viewMode = 'pulse'">⚡ NETWORK PULSE</button>
+            <button :class="{ active: viewMode === 'topology' }" @click="viewMode = 'topology'">🕸️ TOPOLOGY</button>
+            <button class="btn-warroom" :class="{ active: viewMode === 'warroom' }" @click="viewMode = 'warroom'">🚨 WAR ROOM</button>
+          </div>
+        </div>
+
+        <div class="nav-group">
+          <div class="nav-group-head" @click="toggleNavCat('infrastructure')">
+            <span>🔌 INFRASTRUCTURE</span>
+            <span class="nav-group-chevron" :class="{ collapsed: collapsedNavCats.has('infrastructure') }">⌃</span>
+          </div>
+          <div v-if="!collapsedNavCats.has('infrastructure')" class="nav-group-items">
+            <button :class="{ active: viewMode === 'node' }" @click="viewMode = 'node'">🖥️ NODES</button>
+            <button class="btn-sdn" :class="{ active: viewMode === 'sdn-config' }" @click="viewMode = 'sdn-config'">⚙️ CONFIGURATION</button>
+            <button class="btn-sdn" :class="{ active: viewMode === 'sdn-clients' }" @click="viewMode = 'sdn-clients'">💻 CLIENTS</button>
+            <button class="btn-sdn" :class="{ active: viewMode === 'sdn-traffic' }" @click="viewMode = 'sdn-traffic'">
+              📈 L7 ANALYTICS
+              <span class="api-led" :class="serviceStatus.influxdb ? 'up' : 'down'" title="InfluxDB Service"></span>
+            </button>
+            <button class="btn-sdn" :class="{ active: viewMode === 'sdn-hotspot' }" @click="viewMode = 'sdn-hotspot'">🎟️ HOTSPOT MANAGER</button>
+            <button class="btn-sdn" :class="{ active: viewMode === 'host' }" @click="viewMode = 'host'">💻 LOCAL HOST</button>
+            <button class="btn-attack" :class="{ active: viewMode === 'database' }" @click="viewMode = 'database'">
+              🗄️ DATABASE CONTROL
+              <span class="api-led" :class="serviceStatus.postgres ? 'up' : 'down'" title="PostgreSQL Service"></span>
+            </button>
+          </div>
+        </div>
+
+        <div class="nav-group">
+          <div class="nav-group-head" @click="toggleNavCat('recon')">
+            <span>📡 RECON & THREATS</span>
+            <span class="nav-group-chevron" :class="{ collapsed: collapsedNavCats.has('recon') }">⌃</span>
+          </div>
+          <div v-if="!collapsedNavCats.has('recon')" class="nav-group-items">
+            <button class="btn-recon" :class="{ active: viewMode === 'recon' }" @click="viewMode = 'recon'">🔍 RECON ENGINE</button>
+            <button class="btn-recon" :class="{ active: viewMode === 'agent-map' }" @click="viewMode = 'agent-map'">🗺️ GLOBAL MAP</button>
+            <button :class="{ active: viewMode === 'threat' }" @click="viewMode = 'threat'">🌐 THREAT MAP</button>
+            <button class="btn-intelligence" :class="{ active: viewMode === 'intelligence' }" @click="viewMode = 'intelligence'">🧠 INTELLIGENCE</button>
+            <button :class="{ active: viewMode === 'wifi' }" @click="viewMode = 'wifi'">📶 WIFI & CSI</button>
+            <button class="btn-bluetooth" :class="{ active: viewMode === 'bluetooth' }" @click="viewMode = 'bluetooth'">🛜 BLUETOOTH</button>
+            <button :class="{ active: viewMode === 'history' }" @click="viewMode = 'history'">🕗 HISTORY</button>
+          </div>
+        </div>
+
+        <div class="nav-group">
+          <div class="nav-group-head" @click="toggleNavCat('offensive')">
+            <span>⚔️ OFFENSIVE OPS</span>
+            <span class="nav-group-chevron" :class="{ collapsed: collapsedNavCats.has('offensive') }">⌃</span>
+          </div>
+          <div v-if="!collapsedNavCats.has('offensive')" class="nav-group-items">
+            <button class="btn-attack" :class="{ active: viewMode === 'bruteforce' }" @click="viewMode = 'bruteforce'">🎯 CONTROL ROOM</button>
+          </div>
+        </div>
       </nav>
 
       <div v-if="store.loading" class="sidebar-info">SCANNING NEURAL LINK...</div>
@@ -88,9 +136,9 @@
             <div
               v-for="node in group"
               :key="node.id"
-              class="node-item"
-              :class="{ active: store.selectedId === node.id }"
-              @click="store.select(node.id)"
+              class="node-card stagger-item"
+              :class="{ selected: store.selected?.id === node.id }"
+              @click="selectNode(node)"
               @contextmenu.prevent="onEditNode(node.id)"
             >
               <div 
@@ -124,27 +172,18 @@
     <main class="main">
       <!-- Background Layer -->
       <div class="main-bg" :class="{ 'is-topology': viewMode === 'topology', 'is-threat': viewMode === 'threat' }">
-        <NetworkPulse v-if="viewMode === 'pulse'" />
-        <AttackMatrix v-else-if="viewMode === 'attack'" />
-        <TopologyView v-else-if="viewMode === 'topology'" @edit-node="onEditNode" />
-        <ReconView v-else-if="viewMode === 'recon'" />
-        <ThreatMap v-else-if="viewMode === 'threat'" />
-        <WifiView v-else-if="viewMode === 'wifi'" />
-        <ThreatTimeline v-else-if="viewMode === 'history'" />
-        <WarRoomDashboard 
-          v-else-if="viewMode === 'warroom'" 
-          :autopilotActive="systemState.autopilot"
-          :chaosActive="systemState.chaos"
-          @toggle-autopilot="toggleAutopilot"
-          @toggle-chaos="toggleChaos"
-        />
-        
-        <div v-else-if="!store.selected" class="welcome">
-          <div class="welcome-inner">
-            <div class="welcome-logo">NETRUNNER</div>
-            <div class="welcome-sub">AWAITING NEURAL CONNECTION...</div>
-          </div>
-        </div>
+        <router-view v-slot="{ Component }">
+          <transition name="fade-slide" mode="out-in">
+            <component 
+              :is="Component" 
+              :autopilotActive="systemState.autopilot"
+              :chaosActive="systemState.chaos"
+              :systemState="systemState"
+              @toggle-autopilot="toggleAutopilot"
+              @toggle-chaos="toggleChaos"
+            />
+          </transition>
+        </router-view>
       </div>
 
       <!-- Foreground Layer: Glass Panel -->
@@ -187,22 +226,22 @@
               class="tab"
               :class="{ active: activeTab === tab.id }"
               @click="activeTab = tab.id"
-            >{{ tab.label }}</button>
+            >
+              {{ tab.label }}
+              <span v-if="tab.needsDocker" class="docker-led" title="Relies on Docker API"></span>
+            </button>
           </div>
 
           <!-- Tab content -->
           <div class="tab-content">
             <OverviewPanel v-if="activeTab === 'overview'" :node-id="store.selected.id" />
-            <Gns3Panel    v-if="activeTab === 'gns3-api'" :node-id="store.selected.id" />
             <SystemPanel  v-if="activeTab === 'system'"   :node-id="store.selected.id" />
-            <DockerPanel  v-if="activeTab === 'docker'"   :node-id="store.selected.id" />
-            <KubernetesPanel v-if="activeTab === 'kubernetes'" :node-id="store.selected.id" />
-            <DatabasePanel v-if="activeTab === 'database'" :node-id="store.selected.id" />
-            <ThreatReportPanel v-if="activeTab === 'threat_report'" :node-id="store.selected.id" />
-            <ActiveDefensePanel v-if="activeTab === 'defense'" :node-id="store.selected.id" />
-            <ChaosShaperPanel v-if="activeTab === 'shaper'" :node-id="store.selected.id" />
-            <CapturePanel v-if="activeTab === 'capture'"  :node-id="store.selected.id" />
+            <WorkloadsPanel v-if="activeTab === 'workloads'" :node-id="store.selected.id" />
+            <SecurityPanel v-if="activeTab === 'security'" :node-id="store.selected.id" />
+            <CapturePanel v-if="activeTab === 'network'"  :node-id="store.selected.id" />
+            <UsbPanel     v-if="activeTab === 'usb'"      :node-id="store.selected.id" />
             <ShellPanel   v-if="activeTab === 'terminal'" :node="store.selected" />
+            <FileExplorerPanel v-if="activeTab === 'files'" :node-id="store.selected.id" />
           </div>
         </div>
       </transition>
@@ -213,6 +252,7 @@
     <NodeForm v-if="showEdit"    :node="store.selected" @close="showEdit = false" />
     <SettingsModal v-if="showSettings" @close="showSettings = false" />
     <UserManagementModal v-if="showUsers" @close="showUsers = false" />
+    <VpnManagerModal v-if="showVpn" @close="showVpn = false" />
 
     <!-- Command palette (Ctrl/Cmd+K) -->
     <div v-if="showPalette" class="cmd-overlay" @click.self="showPalette = false">
@@ -364,38 +404,49 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch, nextTick, provide } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { useNodesStore } from '@/stores/nodes'
 import { api } from '@/api/client'
 import SystemPanel from './components/SystemPanel.vue'
-import DockerPanel from './components/DockerPanel.vue'
-import DatabasePanel from './components/DatabasePanel.vue'
+import WorkloadsPanel from './components/WorkloadsPanel.vue'
+import SecurityPanel from './components/SecurityPanel.vue'
 import CapturePanel from './components/CapturePanel.vue'
-import OverviewPanel from './components/OverviewPanel.vue'
-import ShellPanel from './components/ShellPanel.vue'
+import OverviewPanel    from './components/OverviewPanel.vue'
+import ShellPanel       from './components/ShellPanel.vue'
+import UsbPanel         from './components/UsbPanel.vue'
+import FileExplorerPanel from './components/FileExplorerPanel.vue'
+import VpnManagerModal  from './components/VpnManagerModal.vue'
 import NetworkPulse from './components/NetworkPulse.vue'
 import AttackMatrix from './components/AttackMatrix.vue'
 import { useNocAudio } from '@/composables/useNocAudio'
 import { useAmbient } from '@/composables/useAmbient'
 import BootSequence from './components/BootSequence.vue'
 import NodeForm  from './components/NodeForm.vue'
-import ThreatReportPanel from './components/ThreatReportPanel.vue'
-import KubernetesPanel from './components/KubernetesPanel.vue'
 import TopologyView from './components/TopologyView.vue'
 import ReconView from './components/ReconView.vue'
 import WifiView from './components/WifiView.vue'
 import ThreatMap from './components/ThreatMap.vue'
+import BruteforceControlRoom from '@/components/BruteforceControlRoom.vue'
+import DatabaseControlView from '@/views/DatabaseControlView.vue'
+import KnowledgeGraph from '@/components/KnowledgeGraph.vue'
 import ThreatTimeline from './components/ThreatTimeline.vue'
-import ActiveDefensePanel from './components/ActiveDefensePanel.vue'
-import ChaosShaperPanel from './components/ChaosShaperPanel.vue'
+import BluetoothView from './components/BluetoothView.vue'
 import AiChatSidebar from './components/AiChatSidebar.vue'
 import SettingsModal from './components/SettingsModal.vue'
 import UserManagementModal from './components/UserManagementModal.vue'
 import LoginView from './components/LoginView.vue'
 import WarRoomDashboard from './components/WarRoomDashboard.vue'
-import Gns3Panel from './components/Gns3Panel.vue'
+import InfrastructureView from './components/InfrastructureView.vue'
+import ClientsView from './components/ClientsView.vue'
+import TrafficAnalyticsView from './components/TrafficAnalyticsView.vue'
+import HotspotManagerView from './components/HotspotManagerView.vue'
+import HostControlView from '@/views/HostControlView.vue'
+import AgentMapView from '@/views/AgentMapView.vue'
 import type { NrNode } from '@/types'
-import { provide } from 'vue'
+
+const route = useRoute()
+const router = useRouter()
 
 const loggedIn = ref(!!localStorage.getItem('nr_token'))
 const userRole = ref(localStorage.getItem('nr_role') || 'analyst')
@@ -509,7 +560,7 @@ const allCommands = computed<Cmd[]>(() => {
   const cmds: Cmd[] = []
   const views: [string, string][] = [
     ['pulse', '⚡ Network Pulse'], ['node', '🖥️ Nodes'], ['topology', '🕸️ Topology'],
-    ['attack', '🎯 ATT&CK Matrix'], ['threat', '🌐 Threat Map'], ['history', '🕗 History'], ['wifi', '📶 WiFi & CSI'], ['warroom', '🚨 War Room'],
+    ['attack', '🎯 ATT&CK Matrix'], ['threat', '🌐 Threat Map'], ['history', '🕗 History'], ['bruteforce', '🎯 Control Room'], ['database', '🗄️ Database Control'], ['wifi', '📶 WiFi & CSI'], ['warroom', '🚨 War Room'],
   ]
   for (const [vm, label] of views) cmds.push({ id: 'view-' + vm, label: 'Go to ' + label, icon: '↦', run: () => { viewMode.value = vm as any } })
   for (const n of store.nodeList) {
@@ -519,6 +570,7 @@ const allCommands = computed<Cmd[]>(() => {
   }
   cmds.push({ id: 'add', label: 'Add node', icon: '➕', run: () => { showAddForm.value = true } })
   if (userRole.value === 'admin') cmds.push({ id: 'users', label: 'User management', icon: '👤', run: () => { showUsers.value = true } })
+  if (userRole.value === 'admin') cmds.push({ id: 'vpn', label: 'VPN Manager', icon: '🛡️', run: () => { showVpn.value = true } })
   cmds.push({ id: 'settings', label: 'Settings', icon: '⚙️', run: () => { showSettings.value = true } })
   cmds.push({ id: 'alerts', label: 'Open alerts', icon: '🔔', run: openAlerts })
   cmds.push({ id: 'audio', label: audioEnabled.value ? 'Mute NOC audio' : 'Enable NOC audio', icon: '🔊', run: toggleAudio })
@@ -652,6 +704,7 @@ function onAuthenticated(role: string) {
   pollSystem()
   fetchReachability()
   fetchEvents()
+  connectLiveAlerts()
 }
 
 // Automatically logout when token expires
@@ -660,20 +713,55 @@ window.addEventListener('auth-expired', () => {
   userRole.value = 'analyst'
 })
 
+let liveAlertsWs: WebSocket | null = null
+
+function connectLiveAlerts() {
+  if (liveAlertsWs) return
+  
+  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+  const wsUrl = import.meta.env.VITE_API_URL 
+    ? import.meta.env.VITE_API_URL.replace(/^http/, 'ws') + '/ws/alerts'
+    : `${protocol}//${window.location.host}/ws/alerts`
+    
+  liveAlertsWs = new WebSocket(wsUrl)
+  
+  liveAlertsWs.onmessage = (event) => {
+    try {
+      const data = JSON.parse(event.data)
+      if (data.type === 'NODE_DATA') {
+        // Node stats received (Agent Injection)
+        flash(`Stats received for node ${data.data.node_id}`, 'info')
+        console.log("Agent Stats:", data.data)
+      } else if (data.type === 'NODE_ERROR') {
+        flash(`Error from agent on node ${data.node_id}: ${data.error}`, 'err')
+      }
+    } catch (e) {
+      console.error("Live alerts error:", e)
+    }
+  }
+  
+  liveAlertsWs.onclose = () => {
+    liveAlertsWs = null
+    if (loggedIn.value) {
+      setTimeout(connectLiveAlerts, 5000)
+    }
+  }
+}
+
 const store       = useNodesStore()
-const viewMode    = ref<'node' | 'topology' | 'threat' | 'history' | 'warroom' | 'pulse' | 'attack' | 'wifi' | 'recon'>(
-  (localStorage.getItem('netrunner_view_mode') as any) || 'node')
-const activeTab   = ref<'overview' | 'gns3-api' | 'diag' | 'config' | 'defense' | 'shaper' | 'capture' | 'terminal'>(
-  // 'exec' was merged into the TERMINAL tab; migrate any persisted value
-  (((localStorage.getItem('netrunner_active_tab') as any) || 'overview') === 'exec'
-    ? 'terminal'
-    : (localStorage.getItem('netrunner_active_tab') as any) || 'overview'))
-watch(viewMode, v => localStorage.setItem('netrunner_view_mode', v))
+const viewMode = computed({
+  get: () => (route.name as string) || 'node',
+  set: (v) => router.push({ name: v })
+})
+const activeTab   = ref<'overview' | 'gns3-api' | 'diag' | 'config' | 'defense' | 'agents' | 'shaper' | 'capture' | 'terminal' | 'usb' | 'files'>(
+  (localStorage.getItem('netrunner_active_tab') as any) || 'overview'
+)
 watch(activeTab, t => localStorage.setItem('netrunner_active_tab', t))
 const showAddForm = ref(false)
 const showEdit    = ref(false)
 const showSettings = ref(false)
 const showUsers   = ref(false)
+const showVpn     = ref(false)
 const searchQuery = ref('')
 const connBusy    = ref(false)
 const exporting   = ref(false)
@@ -685,6 +773,8 @@ const rebootLoading = ref(false)
 const rebootError = ref('')
 
 const systemState = ref({ autopilot: false, chaos: false })
+const backendApiStatus = ref<'up' | 'down'>('up')
+const serviceStatus = ref<Record<string, boolean>>({})
 let lastLogCount = 0
 
 // Global error tracking for remote diagnostics
@@ -697,6 +787,9 @@ function logGlobalError(message: string, stack?: string) {
 }
 
 const handleWindowError = (event: ErrorEvent) => {
+  if (event.message && event.message.includes('ResizeObserver loop')) {
+    return; // Safely ignore benign ResizeObserver layout shifts
+  }
   logGlobalError(event.message || 'Uncaught JavaScript Error', event.filename ? `${event.filename}:${event.lineno}` : undefined)
 }
 
@@ -741,24 +834,23 @@ function toggleSidebarCat(type: string) {
   else collapsedSidebarCats.value.add(type)
 }
 
+const collapsedNavCats = ref(new Set(['infrastructure', 'recon', 'offensive']))
+function toggleNavCat(cat: string) {
+  if (collapsedNavCats.value.has(cat)) collapsedNavCats.value.delete(cat)
+  else collapsedNavCats.value.add(cat)
+}
+
 const dynamicTabs = computed(() => {
   const list = [
     { id: 'overview', label: 'OVERVIEW' },
-  ] as { id: string; label: string }[]
-  if (store.selected?.device_type === 'gns3') {
-    list.push({ id: 'gns3-api', label: 'GNS3 CONTROL' })
-  }
-  list.push(
-    { id: 'system',   label: 'SYSTEM' },
-    { id: 'docker',   label: 'DOCKER' },
-    { id: 'kubernetes', label: 'KUBERNETES' },
-    { id: 'database', label: 'DATABASE' },
-    { id: 'threat_report', label: 'VULNERABILITIES' },
-    { id: 'defense',  label: 'ACTIVE DEFENSE' },
-    { id: 'shaper',  label: 'CHAOS SHAPER' },
-    { id: 'capture',  label: 'CAPTURE' },
-    { id: 'terminal', label: 'TERMINAL' }
-  )
+    { id: 'system',   label: 'SYSTEM', needsDocker: true },
+    { id: 'workloads', label: 'WORKLOADS', needsDocker: true },
+    { id: 'security', label: 'SECURITY' },
+    { id: 'network',  label: 'NETWORK' },
+    { id: 'usb',      label: 'USB DEVICES' },
+    { id: 'terminal', label: 'TERMINAL' },
+    { id: 'files',    label: 'FILES' }
+  ] as { id: string; label: string; needsDocker?: boolean }[]
   return list
 })
 
@@ -929,7 +1021,9 @@ async function toggleChaos() {
 async function pollSystem() {
   try {
     const st = await api.systemState()
+    backendApiStatus.value = 'up'
     systemState.value = st
+    serviceStatus.value = st.services || {}
     if (st.chaos) document.body.classList.add('chaos-active')
     else document.body.classList.remove('chaos-active')
 
@@ -943,7 +1037,9 @@ async function pollSystem() {
       }
     }
     lastLogCount = logs.length
-  } catch(e) {}
+  } catch(e) {
+    backendApiStatus.value = 'down'
+  }
 }
 
 let connTimer: ReturnType<typeof setInterval> | null = null
@@ -985,28 +1081,32 @@ onUnmounted(() => {
 .sidebar { width: 270px; min-width: 270px; background: var(--bg2); border-right: 1px solid var(--border); display: flex; flex-direction: column; position: relative; }
 .sidebar::after { content: ''; position: absolute; top: 0; right: 0; width: 1px; height: 100%; background: linear-gradient(to bottom, transparent, var(--cyan), transparent); opacity: .4; }
 
-.sidebar-header { padding: 18px 20px 16px; border-bottom: 1px solid var(--border); display: flex; flex-direction: column; align-items: flex-start; gap: 14px; }
-.header-tools { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; width: 100%; }
-.header-tools .btn-add { margin-left: auto; }
+.header-tools { display: flex; align-items: center; justify-content: space-between; width: 100%; gap: 10px; margin-top: 5px; }
+.tool-group { display: flex; align-items: center; gap: 6px; }
+
 .logo { line-height: 1; }
 .logo-title { font-family: var(--font-hd); font-size: 15px; font-weight: 900; letter-spacing: 3px; color: var(--green); text-shadow: 0 0 12px rgba(0,255,157,.6); }
 .logo-sub { display: block; font-family: var(--font-co); font-size: 9px; letter-spacing: 2px; color: var(--text); margin-top: 5px; text-transform: uppercase; }
+.api-led { display: inline-block; width: 6px; height: 6px; border-radius: 50%; margin-left: 6px; vertical-align: middle; background: var(--border2); transition: all 0.3s; }
+.api-led.up { background: var(--green); box-shadow: 0 0 6px var(--green); }
+.api-led.down { background: var(--pink); box-shadow: 0 0 6px var(--pink); animation: led-pulse 1s infinite alternate; }
+@keyframes led-pulse { from { opacity: 0.4; } to { opacity: 1; } }
 
-.btn-icon { background: rgba(255,255,255,0.04); border: 1px solid var(--border); border-radius: 6px; font-size: 16px; cursor: pointer; opacity: 0.92; transition: all 0.2s; padding: 5px; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; }
-.btn-icon:hover { opacity: 1; border-color: var(--cyan); filter: drop-shadow(0 0 5px var(--cyan)); background: rgba(0,229,255,0.08); }
+.btn-icon { background: rgba(0,229,255,0.02); border: 1px solid rgba(0,229,255,0.1); font-size: 14px; cursor: pointer; color: var(--textbr); opacity: 0.8; transition: all 0.2s; padding: 4px; width: 28px; height: 28px; display: flex; align-items: center; justify-content: center; border-radius: 4px; }
+.btn-icon:hover { opacity: 1; color: var(--cyan); border-color: var(--cyan); filter: drop-shadow(0 0 8px rgba(0,229,255,0.4)); background: rgba(0,229,255,0.1); transform: translateY(-1px); }
 
-.btn-add { width: 28px; height: 28px; border-radius: 50%; background: none; border: 1px solid var(--cyan); color: var(--cyan); font-size: 18px; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all .2s; }
-.btn-add:hover { background: var(--cyan); color: var(--bg); box-shadow: var(--shadow-c); }
+.btn-add { width: 28px; height: 28px; border-radius: 50%; background: none; border: 1px solid var(--cyan); color: var(--cyan); font-size: 18px; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all .2s; margin-left: 5px;}
+.btn-add:hover { background: var(--cyan); color: var(--bg); box-shadow: var(--shadow-c); transform: translateY(-1px); }
 
-.user-bar { display: flex; align-items: center; gap: 8px; padding: 8px 20px; border-bottom: 1px solid var(--border); font-family: var(--font-co); }
+.user-bar { display: flex; align-items: center; gap: 8px; padding: 12px 20px; border-bottom: 1px solid var(--border); font-family: var(--font-co); }
 .user-bar .user-id { color: var(--textwh); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 110px; }
 .user-bar .user-role { flex-shrink: 0; font-size: 9px; letter-spacing: 1px; padding: 1px 6px; border-radius: 3px; text-transform: uppercase; }
 .user-bar .user-role.admin { background: rgba(255,45,110,0.15); color: var(--pink); border: 1px solid rgba(255,45,110,0.4); }
 .user-bar .user-role.analyst { background: rgba(0,229,255,0.1); color: var(--cyan); border: 1px solid var(--cyan-d); }
-.user-actions { margin-left: auto; display: flex; gap: 6px; flex-shrink: 0; }
-.btn-user-action { width: 26px; height: 26px; display: flex; align-items: center; justify-content: center; background: none; border: 1px solid var(--border2); color: var(--textbr); font-size: 13px; border-radius: 4px; cursor: pointer; transition: all .2s; }
-.btn-user-action:hover { border-color: var(--cyan); color: var(--cyan); box-shadow: 0 0 8px rgba(0,229,255,0.2); }
-.btn-logout:hover { border-color: var(--pink); color: var(--pink); box-shadow: 0 0 8px rgba(255,45,110,0.2); }
+.user-actions { margin-left: auto; display: flex; gap: 8px; flex-shrink: 0; }
+.btn-user-action { width: 28px; height: 28px; display: flex; align-items: center; justify-content: center; background: rgba(255,255,255,0.02); border: 1px solid var(--border2); color: var(--textbr); font-size: 14px; border-radius: 4px; cursor: pointer; transition: all .2s; }
+.btn-user-action:hover { border-color: var(--cyan); color: var(--cyan); box-shadow: 0 0 8px rgba(0,229,255,0.2); transform: translateY(-1px); }
+.btn-logout:hover { border-color: var(--pink); color: var(--pink); box-shadow: 0 0 8px rgba(255,45,110,0.2); transform: translateY(-1px); }
 
 .sidebar-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; padding: 14px 20px; border-bottom: 1px solid var(--border); }
 .sidebar-stat { background: linear-gradient(180deg, rgba(0,229,255,.08), rgba(16,24,40,.5)); border: 1px solid var(--border); border-radius: var(--r); padding: 10px; }
@@ -1134,8 +1234,13 @@ onUnmounted(() => {
 .slide-panel-enter-from, .slide-panel-leave-to { transform: translateX(120%); opacity: 0; }
 
 .welcome { flex: 1; display: flex; align-items: center; justify-content: center; }
-.welcome-logo { font-family: var(--font-hd); font-size: 42px; font-weight: 900; letter-spacing: 8px; color: var(--green); text-shadow: 0 0 20px var(--green); margin-bottom: 10px; }
-.welcome-sub { font-family: var(--font-co); font-size: 11px; letter-spacing: 3px; color: var(--text); }
+.welcome-logo { font-family: var(--font-hd); font-size: 42px; font-weight: 900; letter-spacing: 8px; color: var(--green); text-shadow: 0 0 20px var(--green); margin-bottom: 10px; text-align: center; }
+.welcome-sub { font-family: var(--font-co); font-size: 11px; letter-spacing: 3px; color: var(--text); text-align: center; margin-bottom: 20px; }
+.dashboard-stats { display: flex; gap: 20px; margin-top: 40px; justify-content: center; }
+.dash-stat-box { background: rgba(8, 13, 24, 0.6); border: 1px solid var(--border2); padding: 25px 40px; border-radius: var(--r); text-align: center; cursor: pointer; transition: all 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94); box-shadow: 0 4px 15px rgba(0,0,0,0.4); backdrop-filter: blur(8px); }
+.dash-stat-box:hover { transform: translateY(-3px); border-color: var(--cyan); box-shadow: 0 8px 25px rgba(0,229,255,0.15); background: rgba(8, 13, 24, 0.8); }
+.ds-value { font-family: var(--font-hd); font-size: 32px; font-weight: bold; margin-bottom: 5px; color: var(--textwh); }
+.ds-label { font-family: var(--font-co); font-size: 10px; color: var(--text); letter-spacing: 1px; }
 
 .node-header { padding: 16px 24px; background: rgba(8, 13, 24, 0.4); border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; }
 .node-title { display: flex; align-items: center; gap: 14px; }
@@ -1503,5 +1608,20 @@ onUnmounted(() => {
   font-size: 10px;
   color: var(--textwh);
   margin-top: 4px;
+}
+
+.docker-led {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background-color: #0db7ed;
+  margin-left: 6px;
+  box-shadow: 0 0 5px #0db7ed;
+  animation: pulse-docker 2s infinite alternate;
+}
+@keyframes pulse-docker {
+  from { box-shadow: 0 0 2px #0db7ed; opacity: 0.6; }
+  to { box-shadow: 0 0 10px #0db7ed; opacity: 1; }
 }
 </style>

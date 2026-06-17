@@ -15,9 +15,9 @@ RUN go mod tidy
 # Generate eBPF bindings
 RUN go generate ./...
 # Build AMD64
-RUN GOOS=linux GOARCH=amd64 go build -o /netrunner-agent-amd64 main.go
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o /netrunner-agent-amd64 main.go
 # Build ARM64
-RUN GOOS=linux GOARCH=arm64 go build -o /netrunner-agent-arm64 main.go
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -o /netrunner-agent-arm64 main.go
 
 # Stage 3: Create the final Python production container
 FROM python:3.10-slim
@@ -26,6 +26,9 @@ WORKDIR /app
 # Install minimal system dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     sqlite3 \
+    bluez \
+    docker.io \
+    docker-cli \
     && rm -rf /var/lib/apt/lists/*
 
 # Install backend dependencies

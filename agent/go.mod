@@ -6,6 +6,7 @@ require (
 	github.com/cilium/ebpf v0.21.0
 	github.com/nxadm/tail v1.4.11
 	golang.org/x/sys v0.37.0
+	go.bug.st/serial v1.6.2
 )
 
 require (

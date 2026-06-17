@@ -10,13 +10,72 @@ services:
     # (127.0.0.1:3080) and the GNS3 VM consoles directly. Publishes 8000/tcp +
     # 8001/udp on the host directly (the `ports:` mapping is implicit here).
     network_mode: host
+    privileged: true
+    cap_add:
+      - NET_ADMIN
+      - SYS_MODULE
     volumes:
       - ./data:/app/data
+      - /etc/wireguard:/etc/wireguard
       # GNS3 server has auth enabled; mount its config dir (read-only) so the
       # backend can read the API user/password. Container runs as root -> /root.
       - /home/aso/.config/GNS3/2.2:/root/.config/GNS3/2.2:ro
+      # Allow Bleak to access the host's bluetooth daemon
+      - /var/run/dbus/system_bus_socket:/var/run/dbus/system_bus_socket
+      # Allow AoA Serial mapping
+      - /dev:/dev
+      # Host Control Room mounts
+      - /:/host:ro
+      - /run/udev:/run/udev:ro
+      - /home/aso/.ssh:/root/.ssh:ro
+      # Allow Docker-in-Docker for compiling Firmware
+      - /var/run/docker.sock:/var/run/docker.sock
     environment:
-      - DATABASE_URL=sqlite+aiosqlite:////app/data/netrunner.db
+      - DATABASE_URL=postgresql+asyncpg://netrunner:REDACTED_POSTGRES_PASSWORD@127.0.0.1:5432/netrunner
+      - INFLUXDB_URL=http://127.0.0.1:8086
+      - INFLUXDB_TOKEN=REDACTED_INFLUX_TOKEN
+      - INFLUXDB_ORG=netrunner
+      - INFLUXDB_BUCKET=traffic
+    restart: unless-stopped
+    depends_on:
+      - postgres
+      - influxdb
+      - redis
+
+  redis:
+    image: redis:alpine
+    container_name: netrunner-redis
+    ports:
+      - "6379:6379"
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:15-alpine
+    container_name: netrunner-postgres
+    environment:
+      - POSTGRES_USER=netrunner
+      - POSTGRES_PASSWORD=REDACTED_POSTGRES_PASSWORD
+      - POSTGRES_DB=netrunner
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./data/postgres:/var/lib/postgresql/data
+    restart: unless-stopped
+
+  influxdb:
+    image: influxdb:2.7-alpine
+    container_name: netrunner-influxdb
+    environment:
+      - DOCKER_INFLUXDB_INIT_MODE=setup
+      - DOCKER_INFLUXDB_INIT_USERNAME=admin
+      - DOCKER_INFLUXDB_INIT_PASSWORD=REDACTED_INFLUX_PASSWORD
+      - DOCKER_INFLUXDB_INIT_ORG=netrunner
+      - DOCKER_INFLUXDB_INIT_BUCKET=traffic
+      - DOCKER_INFLUXDB_INIT_ADMIN_TOKEN=REDACTED_INFLUX_TOKEN
+    ports:
+      - "8086:8086"
+    volumes:
+      - ./data/influxdb2:/var/lib/influxdb2
     restart: unless-stopped
 
   terminal-mux:
@@ -56,6 +115,7 @@ services:
       - NET_RAW
     networks:
       - lldp-net
+
 
 networks:
   lldp-net:

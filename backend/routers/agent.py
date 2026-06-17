@@ -1,6 +1,6 @@
 import os
 import secrets
-from fastapi import APIRouter, HTTPException, Depends, Header
+from fastapi import APIRouter, HTTPException, Depends, Header, Request
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from ..core.db import load_settings_db, save_setting_db, load_nodes_db
@@ -30,25 +30,38 @@ async def verify_agent_token(authorization: str = Header(None)):
     return token
 
 @router.post("/events")
-async def receive_event(event: AgentEvent, token: str = Depends(verify_agent_token)):
+async def receive_event(request: Request, event: AgentEvent, token: str = Depends(verify_agent_token)):
     """Receives a threat event from the local Go agent."""
-    # Find a node that matches the token? For simplicity, we just broadcast as "Global Infrastructure" 
-    # unless we pass the node ID from the agent.
-    # To keep it simple, let's just pick any monitored node or a generic target.
     from ..core.db import load_nodes_db, save_threat_event_db
     import time
     import random
     
     nodes = await load_nodes_db()
-    monitored = [n for n in nodes.values() if n.get("threat_monitoring")]
-    target_host = "127.0.0.1"
-    target_name = "Monitored Node"
-    node_id = "unknown"
     
-    if monitored:
-        target_host = monitored[0].get("host", target_host)
-        target_name = monitored[0].get("name", target_name)
-        node_id = monitored[0].get("id", node_id)
+    # Identify which node sent this
+    client_ip = request.client.host
+    node_id = request.headers.get("X-Node-ID", "unknown")
+    target_host = client_ip
+    target_name = "Unknown Agent"
+    
+    if node_id != "unknown" and node_id in nodes:
+        target_host = nodes[node_id].get("host", target_host)
+        target_name = nodes[node_id].get("name", target_name)
+    else:
+        for nid, n in nodes.items():
+            if n.get("host") == client_ip:
+                node_id = nid
+                target_host = n.get("host", target_host)
+                target_name = n.get("name", target_name)
+                break
+                
+        # Fallback to the first monitored node if not matched by IP
+        if node_id == "unknown":
+            monitored = [n for n in nodes.values() if n.get("threat_monitoring")]
+            if monitored:
+                target_host = monitored[0].get("host", target_host)
+                target_name = monitored[0].get("name", target_name)
+                node_id = monitored[0].get("id", node_id)
 
     # Generate a unique event ID
     event_id = f"evt_{int(time.time()*1000)}_{random.randint(1000, 9999)}"
@@ -61,7 +74,8 @@ async def receive_event(event: AgentEvent, token: str = Depends(verify_agent_tok
         target_name=target_name,
         alert_type=event.type,
         severity=event.severity,
-        attacker_ip=event.source_ip
+        attacker_ip=event.source_ip,
+        node_id=node_id
     )
 
     # Save to history database
@@ -76,6 +90,75 @@ async def receive_event(event: AgentEvent, token: str = Depends(verify_agent_tok
     }
     await save_threat_event_db(db_event)
 
+    return {"status": "ok"}
+
+class AgentBluetoothDevice(BaseModel):
+    mac: str
+    rssi: int
+    name: str = "Unknown Device"
+
+class AgentBluetoothReport(BaseModel):
+    devices: list[AgentBluetoothDevice]
+
+@router.post("/bluetooth")
+async def receive_bluetooth(request: Request, report: AgentBluetoothReport, token: str = Depends(verify_agent_token)):
+    """Receives local Bluetooth scans from the Go agent."""
+    from ..core.db import load_nodes_db
+    from ..core.bluetooth import receive_agent_bluetooth_data
+    
+    nodes = await load_nodes_db()
+    client_ip = request.client.host
+    node_id = request.headers.get("X-Node-ID", "unknown")
+    
+    if node_id == "unknown" or node_id not in nodes:
+        node_id = "unknown"
+        for nid, n in nodes.items():
+            if n.get("host") == client_ip:
+                node_id = nid
+                break
+                
+        if node_id == "unknown":
+            monitored = [n for n in nodes.values() if n.get("threat_monitoring")]
+            if monitored:
+                node_id = monitored[0].get("id", node_id)
+
+    # Process into the central bluetooth engine
+    await receive_agent_bluetooth_data(node_id, report.devices)
+    
+    return {"status": "ok"}
+
+class AgentUSBDevice(BaseModel):
+    device: str
+    name: str
+
+class AgentUSBReport(BaseModel):
+    devices: list[AgentUSBDevice]
+
+@router.post("/usb")
+async def receive_usb(request: Request, report: AgentUSBReport, token: str = Depends(verify_agent_token)):
+    """Receives local USB scans from the Go agent."""
+    from ..core.db import load_nodes_db
+    from .usb import receive_agent_usb_data
+    
+    nodes = await load_nodes_db()
+    client_ip = request.client.host
+    node_id = request.headers.get("X-Node-ID", "unknown")
+    
+    if node_id == "unknown" or node_id not in nodes:
+        node_id = "unknown"
+        for nid, n in nodes.items():
+            if n.get("host") == client_ip:
+                node_id = nid
+                break
+                
+        if node_id == "unknown":
+            monitored = [n for n in nodes.values() if n.get("threat_monitoring")]
+            if monitored:
+                node_id = monitored[0].get("id", node_id)
+
+    # Process into the central usb cache
+    await receive_agent_usb_data(node_id, [d.model_dump() for d in report.devices])
+    
     return {"status": "ok"}
 
 @router.get("/download/{arch}")

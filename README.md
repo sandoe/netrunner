@@ -40,15 +40,15 @@ The launcher will create a Python virtual environment, install backend
 dependencies, install/build the frontend, initialize the SQLite database, and
 start Netrunner on `http://localhost:8000`.
 
-Default login for teaching/local installs:
+**First-run authentication:**
 
-- Username: `admin`
-- Password: `admin`
+On first startup, Netrunner automatically creates `admin` and `analyst` users
+with **secure random passwords** and prints them to the console. You **must**
+use these one-time passwords to log in and immediately change them via the UI
+or set `NETRUNNER_ADMIN_PASSWORD` / `NETRUNNER_ANALYST_PASSWORD` environment
+variables before first run to define your own initial passwords.
 
-Netrunner creates the missing default users on startup. Existing users are not
-overwritten. To choose safer first-run passwords, set
-`NETRUNNER_ADMIN_PASSWORD` and/or `NETRUNNER_ANALYST_PASSWORD` before the first
-start.
+There are no hardcoded default credentials.
 
 ## Architecture
 - **Backend:** FastAPI (Python)

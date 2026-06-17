@@ -202,6 +202,29 @@ class TelnetClient:
                         lines[-1] = lines[-1][:-10]
             return "\n".join(lines).strip()
 
+    def upload_file(self, local_path: str, remote_path: str) -> None:
+        """Chunked upload over Telnet using base64 and echo to avoid ARG_MAX."""
+        import base64
+        import os
+        if not os.path.exists(local_path):
+            raise FileNotFoundError(f"Local file {local_path} not found")
+        
+        # Ensure remote directory exists and clear old file
+        self.run_command(f"rm -f {remote_path} {remote_path}.b64")
+        
+        with open(local_path, "rb") as f:
+            chunk_size = 4096  # Telnet safe chunk size
+            while True:
+                chunk = f.read(chunk_size)
+                if not chunk: break
+                b64_chunk = base64.b64encode(chunk).decode("utf-8")
+                # echo chunk by chunk to avoid ARG_MAX
+                self.run_command(f"echo -n '{b64_chunk}' >> {remote_path}.b64")
+        
+        # Decode on target
+        self.run_command(f"base64 -d {remote_path}.b64 > {remote_path}")
+        self.run_command(f"rm -f {remote_path}.b64")
+
 
 
 
@@ -264,6 +287,17 @@ class SshClient:
                 return (out + "\n" + err).strip() if out else err
             return out
 
+    def upload_file(self, local_path: str, remote_path: str) -> None:
+        """Secure file upload using SFTP."""
+        with self._lock:
+            if not self.client:
+                raise ConnectionError("SSH client is not connected")
+            sftp = self.client.open_sftp()
+            try:
+                sftp.put(local_path, remote_path)
+            finally:
+                sftp.close()
+
 
 # ---------------------------------------------------------------------------
 # Session manager
@@ -273,14 +307,14 @@ class SessionManager:
     def __init__(self):
         self._sessions: dict[str, TelnetClient | SshClient] = {}
         self._lock = threading.Lock()
-        self._cmd_locks: dict[str, threading.Lock] = {}
+        self._cmd_locks: dict[str, asyncio.Lock] = {}
         self._no_auto_open: set[str] = set()
         self._failed_attempts: dict[str, float] = {}
 
-    def _cmd_lock(self, nid: str) -> threading.Lock:
+    def _cmd_lock(self, nid: str) -> asyncio.Lock:
         with self._lock:
             if nid not in self._cmd_locks:
-                self._cmd_locks[nid] = threading.Lock()
+                self._cmd_locks[nid] = asyncio.Lock()
             return self._cmd_locks[nid]
 
     async def open(self, nid: str, node: dict, auto: bool = False) -> tuple[bool, Optional[str]]:
@@ -306,6 +340,8 @@ class SessionManager:
                 try:
                     cl.connect()
                     return cl, None
+                except paramiko.ssh_exception.AuthenticationException:
+                    return None, "Authentication failed: Invalid username or password"
                 except Exception as e:
                     return None, str(e)
             else:
@@ -375,7 +411,7 @@ class SessionManager:
 
     async def run(self, nid: str, node: dict, commands: list[str], timeout: float = 15.0) -> tuple[list, Optional[str]]:
         """Run a list of commands, with auto-reconnect logic."""
-        with self._cmd_lock(nid):
+        async with self._cmd_lock(nid):
             session = self.get_session(nid)
             if not session:
                 success, err = await self.open(nid, node, auto=True)
@@ -389,10 +425,11 @@ class SessionManager:
                     if hasattr(session, 'run_command'):
                         import inspect
                         sig = inspect.signature(session.run_command)
+                        loop = asyncio.get_event_loop()
                         if 'timeout' in sig.parameters:
-                            out = session.run_command(cmd, timeout=timeout)
+                            out = await loop.run_in_executor(None, session.run_command, cmd, timeout)
                         else:
-                            out = session.run_command(cmd)
+                            out = await loop.run_in_executor(None, session.run_command, cmd)
                     else:
                         out = ""
                     results.append({"command": cmd, "output": out, "error": None})
@@ -405,10 +442,11 @@ class SessionManager:
                             try:
                                 if hasattr(session, 'run_command'):
                                     sig = inspect.signature(session.run_command)
+                                    loop = asyncio.get_event_loop()
                                     if 'timeout' in sig.parameters:
-                                        out = session.run_command(cmd, timeout=timeout)
+                                        out = await loop.run_in_executor(None, session.run_command, cmd, timeout)
                                     else:
-                                        out = session.run_command(cmd)
+                                        out = await loop.run_in_executor(None, session.run_command, cmd)
                                 else:
                                     out = ""
                                 results.append({"command": cmd, "output": out, "error": None})
@@ -418,5 +456,21 @@ class SessionManager:
                     break
             return results, None
 
+    async def upload_file(self, nid: str, node: dict, local_path: str, remote_path: str) -> tuple[bool, Optional[str]]:
+        """Upload a file securely to the remote node."""
+        async with self._cmd_lock(nid):
+            session = self.get_session(nid)
+            if not session:
+                success, err = await self.open(nid, node, auto=True)
+                if not success: return False, err
+                session = self.get_session(nid)
+            
+            try:
+                # Need to run blocking IO in executor to not block event loop
+                loop = asyncio.get_event_loop()
+                await loop.run_in_executor(None, session.upload_file, local_path, remote_path)
+                return True, None
+            except Exception as e:
+                return False, str(e)
 
 session_manager = SessionManager()

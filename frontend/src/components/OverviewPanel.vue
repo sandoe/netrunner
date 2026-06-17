@@ -3,6 +3,7 @@
     <div class="ov-toolbar">
       <button class="btn-secondary" @click="refreshAll" :disabled="anyLoading || !connected">RE-SCAN</button>
       <button class="btn-secondary btn-clear" @click="clearAll" :disabled="anyLoading">CLEAR ALL</button>
+      <button class="btn-secondary btn-orange" @click="injectAgent" title="Inject Python Telemetry Agent via SSH">💉 INJECT AGENT</button>
       <button class="btn-secondary btn-blue" @click="openRDP" title="Launch Remote Desktop Protocol">🖥️ RDP</button>
       <button class="btn-secondary btn-cyan" @click="openVNC" title="Launch Virtual Network Computing">🖥️ VNC</button>
       <label class="auto-toggle">
@@ -143,6 +144,22 @@ async function fetchMetrics() {
   }
 }
 
+const injectingAgent = ref(false)
+async function injectAgent() {
+  injectingAgent.value = true
+  try {
+    const token = localStorage.getItem('nr_token') || ''
+    const res = await fetch(`/api/nodes/${props.nodeId}/inject`, {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${token}` }
+    })
+    if (!res.ok) throw new Error(await res.text())
+  } catch (e) {
+    console.error('Injection failed', e)
+  } finally {
+    injectingAgent.value = false
+  }
+}
 
 const groupedTiles = computed(() => {
   const groups: Record<string, Tile[]> = {}
@@ -578,6 +595,7 @@ onUnmounted(() => {
 .btn-secondary:hover:not(:disabled) { border-color: var(--cyan); color: var(--cyan); box-shadow: var(--shadow-c); }
 .btn-secondary:disabled { opacity: .4; cursor: not-allowed; }
 .btn-clear:hover:not(:disabled) { border-color: var(--pink); color: var(--pink); box-shadow: var(--shadow-p); }
+.btn-orange:hover:not(:disabled) { border-color: var(--orange); color: var(--orange); box-shadow: 0 0 10px rgba(255,165,0,.3); }
 
 .auto-toggle {
   display: flex; align-items: center; gap: 8px;

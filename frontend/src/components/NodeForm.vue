@@ -40,6 +40,9 @@
         </label>
         <div v-if="error" class="error">{{ error }}</div>
         <div class="actions">
+          <button type="button" v-if="isEdit" class="btn-connect" @click="connectNode" :disabled="connecting">
+            {{ connecting ? 'Connecting…' : 'Connect' }}
+          </button>
           <button type="button" class="btn-secondary" @click="$emit('close')">Cancel</button>
           <button type="submit" :disabled="saving">{{ saving ? 'Saving…' : 'Save' }}</button>
         </div>
@@ -51,6 +54,7 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
 import { useNodesStore } from '@/stores/nodes'
+import { api } from '@/api/client'
 import type { NrNode } from '@/types'
 
 const props = defineProps<{ node?: NrNode | null }>()
@@ -58,8 +62,27 @@ const emit  = defineEmits<{ close: [] }>()
 
 const store  = useNodesStore()
 const saving = ref(false)
+const connecting = ref(false)
 const error  = ref('')
 const isEdit = computed(() => !!props.node)
+
+async function connectNode() {
+  if (!props.node) return
+  connecting.value = true
+  error.value = ''
+  try {
+    await api.connectNode(props.node.id)
+    store.manuallyDisconnected.delete(props.node.id)
+    await store.refreshConnections()
+    // Select the node so the UI switches to it immediately
+    store.select(props.node.id)
+    emit('close')
+  } catch (e) {
+    error.value = String(e)
+  } finally {
+    connecting.value = false
+  }
+}
 
 const form = ref({
   name: props.node?.name ?? '',
@@ -126,4 +149,6 @@ button:hover:not(:disabled) { background: #388bfd; }
 button:disabled { opacity: .5; cursor: not-allowed; }
 .btn-secondary { background: #21262d; border: 1px solid #30363d; color: #c9d1d9; }
 .btn-secondary:hover { background: #30363d; }
+.btn-connect { background: #238636; color: #fff; margin-right: auto; }
+.btn-connect:hover:not(:disabled) { background: #2ea043; }
 </style>

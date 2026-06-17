@@ -7,6 +7,7 @@ something goes wrong instead of having to watch the dashboard.
 import itertools
 import time
 from collections import deque
+from .state import telemetry_queue
 
 # Newest first; bounded ring buffer.
 events: deque = deque(maxlen=300)
@@ -56,9 +57,8 @@ def record_event(severity: str, node_id: str, node_name: str, kind: str, message
         "technique": technique,
     }
     events.appendleft(ev)
-    # Broadcast over the telemetry websocket (lazy import avoids a cycle).
+    # Broadcast over the telemetry websocket
     try:
-        from .telemetry import telemetry_queue
         telemetry_queue.put_nowait({"type": "event", **ev})
     except Exception:
         pass

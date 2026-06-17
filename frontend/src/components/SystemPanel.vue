@@ -1,51 +1,67 @@
 <template>
   <div class="system-panel">
-    <div class="sec sec-fixed" :class="{ collapsed: isC('vitals') }">
-      <div class="sec-head" @click="toggle('vitals')">
-        <span class="sec-title">⚡ LIVE VITALS</span>
-        <span class="sec-chev">⌄</span>
-      </div>
-      <div v-show="!isC('vitals')" class="sec-body">
-        <SystemVitals :node-id="nodeId" />
-      </div>
+    <div class="tabs-nav">
+      <button 
+        v-if="isGns3" 
+        class="tab-btn" 
+        :class="{ active: activeTab === 'gns3' }" 
+        @click="activeTab = 'gns3'"
+      >
+        🌐 GNS3
+      </button>
+      <button 
+        class="tab-btn" 
+        :class="{ active: activeTab === 'vitals' }" 
+        @click="activeTab = 'vitals'"
+      >
+        ⚡ VITALS & DIAG
+      </button>
+      <button 
+        class="tab-btn" 
+        :class="{ active: activeTab === 'services' }" 
+        @click="activeTab = 'services'"
+      >
+        🧩 SERVICES
+      </button>
+      <button 
+        class="tab-btn" 
+        :class="{ active: activeTab === 'logs' }" 
+        @click="activeTab = 'logs'"
+      >
+        📜 LOGS
+      </button>
+      <button 
+        class="tab-btn" 
+        :class="{ active: activeTab === 'config' }" 
+        @click="activeTab = 'config'"
+      >
+        🛠️ CONFIG
+      </button>
     </div>
 
-    <div class="sec sec-grow" :class="{ collapsed: isC('diag') }">
-      <div class="sec-head" @click="toggle('diag')">
-        <span class="sec-title">🔍 DIAGNOSTICS</span>
-        <span class="sec-chev">⌄</span>
+    <div class="tab-content">
+      <div v-show="activeTab === 'gns3'" class="tab-pane" v-if="isGns3">
+        <Gns3Panel :node-id="nodeId" />
       </div>
-      <div v-show="!isC('diag')" class="sec-body grow">
-        <DiagPanel :node-id="nodeId" />
-      </div>
-    </div>
 
-    <div class="sec sec-grow" :class="{ collapsed: isC('services') }">
-      <div class="sec-head" @click="toggle('services')">
-        <span class="sec-title">🧩 SERVICES</span>
-        <span class="sec-chev">⌄</span>
+      <div v-show="activeTab === 'vitals'" class="tab-pane dual-pane">
+        <div class="vitals-half">
+          <SystemVitals :node-id="nodeId" />
+        </div>
+        <div class="diag-half">
+          <DiagPanel :node-id="nodeId" />
+        </div>
       </div>
-      <div v-show="!isC('services')" class="sec-body grow">
+
+      <div v-show="activeTab === 'services'" class="tab-pane">
         <SystemServices :node-id="nodeId" />
       </div>
-    </div>
 
-    <div class="sec sec-grow" :class="{ collapsed: isC('logs') }">
-      <div class="sec-head" @click="toggle('logs')">
-        <span class="sec-title">📜 LOGS</span>
-        <span class="sec-chev">⌄</span>
-      </div>
-      <div v-show="!isC('logs')" class="sec-body grow">
+      <div v-show="activeTab === 'logs'" class="tab-pane">
         <SystemLogs :node-id="nodeId" />
       </div>
-    </div>
 
-    <div class="sec sec-grow" :class="{ collapsed: isC('config') }">
-      <div class="sec-head" @click="toggle('config')">
-        <span class="sec-title">🛠️ CONFIGURATION</span>
-        <span class="sec-chev">⌄</span>
-      </div>
-      <div v-show="!isC('config')" class="sec-body grow">
+      <div v-show="activeTab === 'config'" class="tab-pane">
         <ConfigPanel :node-id="nodeId" />
       </div>
     </div>
@@ -53,25 +69,20 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
+import { useNodesStore } from '@/stores/nodes'
 import DiagPanel from './DiagPanel.vue'
 import ConfigPanel from './ConfigPanel.vue'
 import SystemVitals from './SystemVitals.vue'
 import SystemServices from './SystemServices.vue'
 import SystemLogs from './SystemLogs.vue'
+import Gns3Panel from './Gns3Panel.vue'
 
-defineProps<{ nodeId: string }>()
+const props = defineProps<{ nodeId: string }>()
+const store = useNodesStore()
+const isGns3 = computed(() => store.nodes[props.nodeId]?.device_type === 'gns3')
 
-const KEY = 'nr_system_collapsed'
-// Collapse the heavier sections (services/logs) by default
-const collapsed = ref<Set<string>>(new Set(JSON.parse(localStorage.getItem(KEY) || '["services","logs"]')))
-function isC(k: string) { return collapsed.value.has(k) }
-function toggle(k: string) {
-  const s = new Set(collapsed.value)
-  s.has(k) ? s.delete(k) : s.add(k)
-  collapsed.value = s
-  localStorage.setItem(KEY, JSON.stringify([...s]))
-}
+const activeTab = ref(isGns3.value ? 'gns3' : 'vitals')
 </script>
 
 <style scoped>
@@ -80,41 +91,73 @@ function toggle(k: string) {
   flex-direction: column;
   height: 100%;
   width: 100%;
-  overflow: hidden;
   background: var(--bg);
+  overflow: hidden;
 }
 
-.sec {
+.tabs-nav {
   display: flex;
-  flex-direction: column;
-  border-bottom: 1px solid var(--border);
-  min-height: 0;
-}
-/* Vitals is a short strip — never grow. */
-.sec-fixed { flex: 0 0 auto; }
-/* Diagnostics / Config share the remaining height when expanded. */
-.sec-grow:not(.collapsed) { flex: 1 1 0; }
-.sec-grow.collapsed { flex: 0 0 auto; }
-
-.sec-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 9px 16px;
   background: var(--bg2);
-  cursor: pointer;
-  user-select: none;
+  border-bottom: 1px solid var(--border);
+  padding: 0 8px;
+  flex-shrink: 0;
+  overflow-x: auto;
+}
+
+.tab-btn {
+  background: none;
+  border: none;
+  color: var(--text);
+  padding: 12px 16px;
   font-family: var(--font-hd);
   font-size: 11px;
-  letter-spacing: 2px;
-  color: var(--cyan);
-  transition: background 0.15s;
-  flex-shrink: 0;
+  font-weight: 600;
+  letter-spacing: 1px;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  transition: all 0.2s;
+  white-space: nowrap;
 }
-.sec-head:hover { background: var(--bg3); color: var(--textwh); }
-.sec-chev { transition: transform 0.2s; font-size: 14px; }
-.sec.collapsed .sec-chev { transform: rotate(-90deg); }
 
-.sec-body { overflow: hidden; display: flex; flex-direction: column; min-height: 0; }
-.sec-body.grow { flex: 1 1 0; }
+.tab-btn:hover {
+  color: var(--textwh);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.tab-btn.active {
+  color: var(--cyan);
+  border-bottom-color: var(--cyan);
+}
+
+.tab-content {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.tab-pane {
+  position: absolute;
+  inset: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+.dual-pane {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 16px;
+}
+
+.vitals-half {
+  flex: 0 0 auto;
+}
+
+.diag-half {
+  flex: 1 1 auto;
+  min-height: 300px;
+}
 </style>

@@ -1,7 +1,8 @@
 import asyncio
 import json
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
-from ..core.telemetry import telemetry_queue, telemetry_cache
+from ..core.telemetry import telemetry_cache
+from ..core.state import telemetry_queue
 
 router = APIRouter()
 

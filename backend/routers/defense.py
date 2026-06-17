@@ -1,17 +1,28 @@
 from fastapi import APIRouter, HTTPException, Depends
-from ..core.defense import run_nmap_scan, apply_isolation, enforce_zero_trust
+from ..core.defense import apply_isolation, enforce_zero_trust
+from ..core.scanner import run_local_nmap
 from .auth import require_admin
 from ..core.db import load_nodes_db, save_node_db
 from ..core.vault import load_credentials
 from ..core.session import session_manager
+from .nodes import _get_node_with_creds
 
 router = APIRouter()
 
 @router.post("/nodes/{nid}/nmap", dependencies=[Depends(require_admin)])
 async def api_defense_nmap(nid: str):
     """Executes a vulnerability scan (nmap) on the node."""
-    result = await run_nmap_scan(nid)
-    if result.startswith("Error"):
+    nodes = await load_nodes_db()
+    if nid not in nodes:
+        raise HTTPException(404, "Node not found.")
+    
+    node = nodes[nid]
+    host = node.get("host")
+    if not host:
+        raise HTTPException(400, "Node has no IP/Host.")
+
+    result = await run_local_nmap(host)
+    if result.startswith("Error") or result.startswith("Nmap Error") or result.startswith("Failed to execute"):
         raise HTTPException(400, result)
     return {"status": "success", "scan_results": result}
 
@@ -56,6 +67,18 @@ async def api_install_monitoring(nid: str, request: Request):
         await save_setting_db("agent_token", token)
 
     base_url = str(request.base_url).rstrip("/")
+    # Auto-correct localhost to the actual network IP if installing on a remote node
+    if "localhost" in base_url or "127.0.0.1" in base_url:
+        import socket
+        lan_ip = "127.0.0.1"
+        try:
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            s.connect(("10.255.255.255", 1))
+            lan_ip = s.getsockname()[0]
+            s.close()
+        except Exception:
+            pass
+        base_url = base_url.replace("localhost", lan_ip).replace("127.0.0.1", lan_ip)
 
     # Detect architecture and install
     install_script = f"""
@@ -86,7 +109,7 @@ After=network.target
 
 [Service]
 Type=simple
-ExecStart=/usr/local/bin/netrunner-agent --target {base_url} --token {token}
+ExecStart=/usr/local/bin/netrunner-agent --target {base_url} --token {token} --node {nid}
 Restart=always
 RestartSec=5
 User=root
@@ -103,11 +126,18 @@ EOF
 
     # We need to run this script as root (sudo if necessary)
     # The session_manager.run wraps commands automatically if we need, but let's just pass it.
-    # To run a multiline script reliably over SSH via single command execution, we can base64 encode it and pipe to bash.
+    # To run a multiline script reliably over SSH via single command execution,
+    # we can base64 encode it and pipe to bash.
     import base64
     b64_script = base64.b64encode(install_script.encode()).decode()
-    cmd = f"echo {b64_script} | base64 -d | sudo bash"
-
+    
+    pwd = node.get("password", "")
+    if pwd:
+        escaped_pwd = pwd.replace("'", "'\\''")
+        cmd = f"echo '{escaped_pwd}' | sudo -S bash -c 'echo {b64_script} | base64 -d | bash'"
+    else:
+        cmd = f"echo {b64_script} | base64 -d | sudo bash"
+    
     results, err = await session_manager.run(nid, node, [cmd])
     if err:
         raise HTTPException(500, f"Failed to connect to node: {err}")
@@ -125,6 +155,32 @@ EOF
         "status": "success", 
         "message": "Multi-Vector Threat Monitor Go Agent successfully installed! Active tailing for SSH Brute Force, Web server exploits (SQLi/XSS/LFI), and Firewall port scans is now online."
     }
+
+@router.get("/nodes/{nid}/monitoring/status")
+async def api_monitoring_status(nid: str):
+    """Checks if the agent is actively running on the target node."""
+    nodes = await load_nodes_db()
+    if nid not in nodes:
+        raise HTTPException(404, "Node not found")
+        
+    node = await _get_node_with_creds(nid, nodes)
+    
+    cmd = "systemctl is-active netrunner-agent || pgrep -f netrunner-agent >/dev/null && echo 'active' || echo 'inactive'"
+    results, err = await session_manager.run(nid, node, [cmd])
+    if err:
+        return {"status": "error", "active": nodes[nid].get("threat_monitoring", False)}
+        
+    output = results[0].get("output", "").strip() if results else ""
+    is_active = "active" in output
+    
+    # Update DB automatically if there's a mismatch
+    if nodes[nid].get("threat_monitoring") != is_active:
+        node_db_format = dict(nodes[nid])
+        node_db_format["threat_monitoring"] = is_active
+        from ..core.db import save_node_db
+        await save_node_db(node_db_format)
+        
+    return {"status": "success", "active": is_active}
 
 @router.post("/nodes/{nid}/monitoring/remove", dependencies=[Depends(require_admin)])
 async def api_remove_monitoring(nid: str):

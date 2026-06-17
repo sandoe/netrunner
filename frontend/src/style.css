@@ -19,12 +19,12 @@
   --text:     #6b7a8d;
   --textbr:   #a8b2c1;
   --textwh:   #e2e8f0;
-  --shadow-g: 0 0 20px rgba(0,255,157,.18);
-  --shadow-c: 0 0 20px rgba(0,229,255,.18);
-  --shadow-p: 0 0 20px rgba(255,45,110,.18);
-  --glass-bg: rgba(8, 13, 24, 0.65);
-  --glass-border: rgba(0, 229, 255, 0.3);
-  --glass-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.6);
+  --shadow-g: 0 0 20px rgba(0,255,157,.25);
+  --shadow-c: 0 0 20px rgba(0,229,255,.25);
+  --shadow-p: 0 0 20px rgba(255,45,110,.25);
+  --glass-bg: rgba(8, 13, 24, 0.55);
+  --glass-border: rgba(0, 229, 255, 0.4);
+  --glass-shadow: 0 16px 40px rgba(0, 0, 0, 0.7), inset 0 0 20px rgba(0, 229, 255, 0.05);
   --r:        6px;
   --r2:       10px;
   --font-hd:  'Orbitron', sans-serif;
@@ -126,4 +126,114 @@ body.chaos-active {
   bottom: 100%;
   pointer-events: none;
   animation: scanline 8s linear infinite;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   PREMIUM UI ELEMENTS (Workspace Badges & Aesthetics)
+═══════════════════════════════════════════════════════════════ */
+.env-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-family: var(--font-hd);
+  font-size: 10px;
+  font-weight: bold;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(4px);
+  box-shadow: 0 0 10px rgba(0, 0, 0, 0.5);
+}
+
+.env-badge.rust-std {
+  color: #ff6b35;
+  border-color: rgba(255, 107, 53, 0.5);
+  box-shadow: inset 0 0 8px rgba(255, 107, 53, 0.2);
+}
+
+.env-badge.esp-idf-c {
+  color: #00e5ff;
+  border-color: rgba(0, 229, 255, 0.5);
+  box-shadow: inset 0 0 8px rgba(0, 229, 255, 0.2);
+}
+
+.env-badge.python {
+  color: #ffbe0b;
+  border-color: rgba(255, 190, 11, 0.5);
+  box-shadow: inset 0 0 8px rgba(255, 190, 11, 0.2);
+}
+
+.btn, .btn-icon, .btn-action, .nav-group-items button, .tab {
+  transition: all 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+  position: relative;
+  overflow: hidden;
+}
+.btn:hover, .btn-action:hover, .tab:not(.active):hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 15px rgba(0, 229, 255, 0.2);
+}
+.btn:active, .btn-action:active, .tab:active {
+  transform: translateY(1px);
+}
+.btn.btn-primary:hover::after {
+  content: "";
+  position: absolute;
+  top: 0; left: -100%;
+  width: 50%; height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.2), transparent);
+  animation: light-sweep 1s infinite;
+}
+@keyframes light-sweep {
+  0% { left: -100%; }
+  100% { left: 200%; }
+}
+
+@keyframes cyberpunk-glitch {
+  0% { transform: translate(0) }
+  20% { transform: translate(-2px, 1px) }
+  40% { transform: translate(-1px, -1px) }
+  60% { transform: translate(2px, 1px) }
+  80% { transform: translate(1px, -1px) }
+  100% { transform: translate(0) }
+}
+.welcome-logo { animation: cyberpunk-glitch 5s infinite; }
+
+.stagger-item { opacity: 0; animation: fade-in-up 0.4s forwards cubic-bezier(0.2, 0.8, 0.2, 1); }
+@keyframes fade-in-up {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.stagger-item:nth-child(1) { animation-delay: 0.05s; }
+.stagger-item:nth-child(2) { animation-delay: 0.1s; }
+.stagger-item:nth-child(3) { animation-delay: 0.15s; }
+.stagger-item:nth-child(4) { animation-delay: 0.2s; }
+.stagger-item:nth-child(5) { animation-delay: 0.25s; }
+.stagger-item:nth-child(6) { animation-delay: 0.3s; }
+.stagger-item:nth-child(7) { animation-delay: 0.35s; }
+.stagger-item:nth-child(8) { animation-delay: 0.4s; }
+.stagger-item:nth-child(9) { animation-delay: 0.45s; }
+.stagger-item:nth-child(10) { animation-delay: 0.5s; }
+
+/* Interactive glow on stat boxes */
+.dash-stat-box {
+  position: relative;
+  overflow: hidden;
+}
+.dash-stat-box::before {
+  content: '';
+  position: absolute;
+  top: var(--mouse-y, 50%);
+  left: var(--mouse-x, 50%);
+  width: 200px;
+  height: 200px;
+  background: radial-gradient(circle, rgba(0, 229, 255, 0.15) 0%, transparent 60%);
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.3s;
+}
+.dash-stat-box:hover::before {
+  opacity: 1;
 }

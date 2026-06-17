@@ -1,13 +1,16 @@
 import os
 import secrets
+import time
 from pathlib import Path
+from collections import defaultdict
 
 import jwt
 from datetime import datetime, timedelta, timezone
-from fastapi import APIRouter, HTTPException, Depends, WebSocket
+from fastapi import APIRouter, HTTPException, Depends, WebSocket, Request
 from fastapi.security import OAuth2PasswordBearer
 from pydantic import BaseModel
-
+from ..core.logger import log as logger
+from ..core.limiter import limiter
 
 def _load_secret_key() -> str:
     """Resolve the JWT signing key.
@@ -60,7 +63,6 @@ from ..core.db import load_users_db, get_user_db, save_user_db, delete_user_db
 
 _PBKDF2_ROUNDS = 200_000
 ROLES = ("admin", "analyst")
-_DEFAULT_CREDS = {"admin": "admin", "analyst": "analyst"}
 
 
 def _hash_password(password: str, salt: bytes) -> bytes:
@@ -82,28 +84,65 @@ def _verify(user: dict, password: str) -> bool:
     return _hmac.compare_digest(expected, _hash_password(password, salt))
 
 
+# --- Rate limiting for login ------------------------------------------------ #
+# Simple in-memory rate limiter: max 5 failed attempts per IP per 15 minutes
+_LOGIN_ATTEMPTS: dict[str, list[float]] = defaultdict(list)
+_MAX_ATTEMPTS = 5
+_WINDOW_SECONDS = 15 * 60  # 15 minutes
+
+def _check_rate_limit(ip: str) -> tuple[bool, int]:
+    """Check if IP is rate limited. Returns (allowed, remaining_attempts)."""
+    now = time.time()
+    attempts = _LOGIN_ATTEMPTS[ip]
+    # Remove old attempts outside the window
+    while attempts and attempts[0] < now - _WINDOW_SECONDS:
+        attempts.pop(0)
+    if len(attempts) >= _MAX_ATTEMPTS:
+        return False, 0
+    return True, _MAX_ATTEMPTS - len(attempts)
+
+def _record_failed_attempt(ip: str) -> None:
+    _LOGIN_ATTEMPTS[ip].append(time.time())
+
+def _clear_attempts(ip: str) -> None:
+    """Clear attempts on successful login."""
+    _LOGIN_ATTEMPTS.pop(ip, None)
+
+
 async def seed_default_users():
-    """Create missing default admin/analyst accounts (idempotent)."""
-    using_defaults = []
-    for username, default in _DEFAULT_CREDS.items():
+    """Create missing default admin/analyst accounts (idempotent).
+
+    If NETRUNNER_ADMIN_PASSWORD / NETRUNNER_ANALYST_PASSWORD env vars are set,
+    use those. Otherwise, generate a random secure password on first run and
+    print it to the console so the admin can log in once and immediately change it.
+    """
+    for username in ("admin", "analyst"):
         if await get_user_db(username):
             continue
         env_pw = os.environ.get(f"NETRUNNER_{username.upper()}_PASSWORD")
-        pw = env_pw or default
-        if not env_pw:
-            using_defaults.append(username)
+        if env_pw:
+            pw = env_pw
+            source = f"NETRUNNER_{username.upper()}_PASSWORD"
+        else:
+            # Generate a secure random password for first-run access
+            pw = secrets.token_urlsafe(16)
+            source = "AUTO-GENERATED (change immediately!)"
+            logger.warning(
+                f"\n{'='*60}\n"
+                f"FIRST RUN: Created default '{username}' user with random password:\n"
+                f"  Username: {username}\n"
+                f"  Password: {pw}\n"
+                f"  Source:   {source}\n"
+                f"CHANGE THIS PASSWORD IMMEDIATELY AFTER FIRST LOGIN!\n"
+                f"{'='*60}\n"
+            )
         h, s = _make_hash(pw)
         await save_user_db({
             "username": username, "password_hash": h, "salt": s,
             "role": "admin" if username == "admin" else "analyst",
             "created": date.today().isoformat(),
         })
-    if using_defaults:
-        print(
-            "WARNING: Netrunner seeded DEFAULT login passwords for "
-            f"{using_defaults}. Change them (or set NETRUNNER_<USER>_PASSWORD "
-            "before first run) before exposing this service."
-        )
+        logger.info(f"Created default '{username}' user (source: {source})")
 
 def create_access_token(data: dict):
     to_encode = data.copy()
@@ -128,11 +167,20 @@ def require_admin(user: dict = Depends(get_current_user)):
     return user
 
 @router.post("/auth/login")
-async def login(req: LoginRequest):
+@limiter.limit("5/minute")
+async def login(req: LoginRequest, request: Request):
+    # Rate limiting by client IP
+    client_ip = request.client.host if request.client else "unknown"
+    allowed, remaining = _check_rate_limit(client_ip)
+    if not allowed:
+        raise HTTPException(429, "Too many login attempts. Please try again in 15 minutes.")
+
     user = await get_user_db(req.username)
     if not user or not _verify(user, req.password):
+        _record_failed_attempt(client_ip)
         raise HTTPException(401, "Invalid credentials")
 
+    _clear_attempts(client_ip)
     token = create_access_token({"sub": req.username, "role": user["role"]})
     return {"access_token": token, "token_type": "bearer", "role": user["role"], "username": req.username}
 

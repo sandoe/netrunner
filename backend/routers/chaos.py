@@ -53,56 +53,41 @@ async def chaos_loop():
             payload_script = RedTeamGenerator.generate_shodan_query(target_ip=target_ip)
             log_desc = f"OSINT Footprinting (Shodan) against {target_ip}"
             
-        cmds = [
-            f"cat << 'EOFRED' > /tmp/chaos_rt.py\n{payload_script}\nEOFRED",
-            "python3 /tmp/chaos_rt.py > /dev/null 2>&1 &",
-            "rm -f /tmp/chaos_rt.py"
-        ]
+        from ..core.emulation import execute_emulation_payload
         
-        now = datetime.now()
-        
-        # Run asynchronously so we never block the event loop if the node hangs!
-        async def execute_chaos_payload(nid, node_data, commands, desc, attack_type):
-            try:
-                results, err = await session_manager.run(nid, node_data, commands)
-                if err:
-                    return
+        async def execute_chaos_wrapper(nid, node_data, script, desc, target):
+            await execute_emulation_payload(
+                nid=nid,
+                node=node_data,
+                payload_script=script,
+                log_desc=desc,
+                target_ip=target,
+                script_name="chaos_rt.py",
+                background=True
+            )
+            
+            # Immediately trigger an active response from AI Autopilot (Blue Team)
+            simulated_event = {
+                "id": f"evt_chaos_{int(now.timestamp())}_{random.randint(1000, 9999)}",
+                "timestamp": now.timestamp(),
+                "source": {
+                    "ip": "10.99.99.99",
+                    "city": "Threat Emulation Source",
+                    "lat": 37.7749,
+                    "lng": -122.4194
+                },
+                "target": {
+                    "ip": node_data.get("host"),
+                    "city": "Internal Network Target",
+                    "lat": 35.6762,
+                    "lng": 139.6503
+                },
+                "type": desc,
+                "severity": "critical"
+            }
+            await soar_engine.process_event(simulated_event)
                 
-                log_msg = {
-                    "timestamp": now.isoformat(),
-                    "message": f"[CHAOS MONKEY] Deployed real {desc} on node {node_data.get('name', nid)}",
-                    "ts": now.strftime("%H:%M:%S"),
-                    "msg": f"[CHAOS MONKEY] Deployed real {desc} on node {node_data.get('name', nid)}"
-                }
-                soar_engine.action_logs.insert(0, log_msg)
-                if len(soar_engine.action_logs) > 50:
-                    soar_engine.action_logs.pop()
-                    
-                # Immediately trigger an active response from AI Autopilot (Blue Team)
-                simulated_event = {
-                    "id": f"evt_chaos_{int(now.timestamp())}_{random.randint(1000, 9999)}",
-                    "timestamp": now.timestamp(),
-                    "source": {
-                        "ip": "10.99.99.99",
-                        "city": "Threat Emulation Source",
-                        "lat": 37.7749,
-                        "lng": -122.4194
-                    },
-                    "target": {
-                        "ip": node_data.get("host"),
-                        "city": "Internal Network Target",
-                        "lat": 35.6762,
-                        "lng": 139.6503
-                    },
-                    "type": desc,
-                    "severity": "critical"
-                }
-                await soar_engine.process_event(simulated_event)
-                
-            except Exception as e:
-                pass
-                
-        asyncio.create_task(execute_chaos_payload(nid, node, cmds, log_desc, attack_choice))
+        asyncio.create_task(execute_chaos_wrapper(nid, node, payload_script, log_desc, target_ip))
 
 from pydantic import BaseModel
 from fastapi import APIRouter, HTTPException, Depends
@@ -162,21 +147,18 @@ async def api_trigger_manual_attack(req: ManualAttackRequest):
         log_detail = f"Firewall scan probing blocked port {req.port}"
         ssh_cmd = f"echo 'May 21 22:38:03 localhost kernel: [UFW BLOCK] IN=eth0 OUT= MAC=01:02:03:04:05:06 SRC={req.attacker_ip} DST={target_ip} LEN=40 TOS=0x00 PREC=0x00 TTL=64 ID=12345 PROTO=TCP SPT=49201 DPT={req.port} WINDOW=512 RES=0x00 SYN URGP=0' | sudo tee -a /var/log/ufw.log || sudo tee -a /var/log/syslog || echo 'FW log write failed'"
 
+    from ..core.emulation import execute_manual_attack
+    
     # 2. Try to perform high-fidelity remote file append if node has active session & monitoring is on
-    write_success = False
-    if ssh_cmd and node.get("threat_monitoring") and req.node_id in session_manager.active_ids():
-        try:
-            node_ssh = dict(node)
-            username, password = await load_credentials(req.node_id)
-            node_ssh["username"] = username
-            node_ssh["password"] = password
-            
-            results, err = await session_manager.run(req.node_id, node_ssh, [ssh_cmd])
-            if not err and results:
-                write_success = True
-                print(f"[Attack Emulation] Successfully appended real log on remote node {req.node_id}")
-        except Exception as e:
-            print(f"[Attack Emulation] Remote log append failed or was skipped: {e}")
+    write_success = await execute_manual_attack(
+        nid=req.node_id,
+        node=node,
+        ssh_cmd=ssh_cmd,
+        alert_type=alert_type,
+        log_detail=log_detail,
+        attacker_ip=req.attacker_ip,
+        target_ip=target_ip
+    )
 
     # 3. Create high-fidelity CTI event so that it updates the WebGL Globe instantly!
     attacker_geo = await get_ip_geolocation(req.attacker_ip, default_name="Custom Attacker")
@@ -207,18 +189,6 @@ async def api_trigger_manual_attack(req: ManualAttackRequest):
     
     # Broadcast to the real-time CTI websocket queue
     await cti_queue.put(event)
-    
-    # Log in Red Team Activity feed
-    from ..core.soar import soar_engine
-    log_msg = {
-        "timestamp": now.isoformat(),
-        "message": f"[RED TEAM MANUAL STRIKE] Launched {log_detail} from {req.attacker_ip} against {node_name} ({target_ip})",
-        "ts": now.strftime("%H:%M:%S"),
-        "msg": f"[RED TEAM MANUAL STRIKE] Launched {log_detail} from {req.attacker_ip} against {node_name} ({target_ip})"
-    }
-    soar_engine.action_logs.insert(0, log_msg)
-    if len(soar_engine.action_logs) > 50:
-        soar_engine.action_logs.pop()
         
     return {
         "status": "success",

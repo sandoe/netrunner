@@ -7,6 +7,7 @@ from typing import Dict, Any, List
 
 from .db import load_settings_db, load_nodes_db
 from .state import global_state
+from .logger import log as logger
 
 # Simple list of random coordinates (latitude, longitude) for major cities globally
 # This simulates geo-IP locations.
@@ -113,7 +114,7 @@ class CTIEngine:
                 with urllib.request.urlopen(req, timeout=10) as response:
                     return json.loads(response.read())
             except Exception as e:
-                print(f"[CTI] OTX Fetch Error: {e}")
+                logger.error(f"[CTI] OTX Fetch Error: {e}")
                 return None
 
         data = await asyncio.to_thread(_do_fetch)
@@ -133,7 +134,7 @@ class CTIEngine:
         if names:
             self.otx_threat_names = list(set(names))
             
-        print(f"[CTI] Loaded {len(self.otx_iocs)} IOCs from AlienVault OTX.")
+        logger.info(f"[CTI] Loaded {len(self.otx_iocs)} IOCs from AlienVault OTX.")
 
     async def stream_threats(self, queue: asyncio.Queue):
         """Generates a continuous stream of simulated threat intelligence events."""
@@ -169,7 +170,7 @@ class CTIEngine:
                             targeted_node_name = chosen_node.get("name", "Managed Server")
                             is_targeted = True
             except Exception as e:
-                print(f"[CTI] Error targeting real node: {e}")
+                logger.warning(f"[CTI] Error targeting real node: {e}")
             
             threat_name = random.choice(self.otx_threat_names) if is_otx and self.otx_threat_names else random.choice(THREAT_TYPES)
             if is_otx:
@@ -217,7 +218,7 @@ class CTIEngine:
             # Wait a bit before generating the next threat
             await asyncio.sleep(random.uniform(0.5, 2.5))
 
-    async def inject_agent_event(self, queue: asyncio.Queue, target_host: str, alert_type: str, severity: str, attacker_ip: str, target_name: str = "Target Node"):
+    async def inject_agent_event(self, queue: asyncio.Queue, target_host: str, alert_type: str, severity: str, attacker_ip: str, target_name: str = "Target Node", node_id: str = "unknown"):
         """Injects a targeted event from the Go agent directly into the CTI queue."""
         # Geolocate the source IP
         attacker_geo = await get_ip_geolocation(attacker_ip, default_name="Global Attack Source")
@@ -245,13 +246,12 @@ class CTIEngine:
             "target": target,
             "type": alert_type,
             "severity": severity,
-            "targeted": True
+            "targeted": True,
+            "node_id": node_id
         }
         
         await queue.put(event)
 
 cti_engine = CTIEngine()
 cti_queue = asyncio.Queue()
-
-
 

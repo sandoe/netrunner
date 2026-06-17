@@ -2,6 +2,7 @@ import asyncio
 from datetime import datetime
 from .state import global_state
 from .db import load_nodes_db
+from .logger import log as logger
 
 class SOAREngine:
     def __init__(self):
@@ -33,6 +34,6 @@ class SOAREngine:
                         if len(self.action_logs) > 50:
                             self.action_logs.pop()
                     except Exception as e:
-                        print(f"[SOAR] Failed to isolate node: {e}")
+                        logger.error(f"[SOAR] Failed to isolate node: {e}")
 
 soar_engine = SOAREngine()

@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/binary"
 	"encoding/json"
 	"flag"
@@ -9,6 +10,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"os/exec"
 	"regexp"
 	"strings"
 	"time"
@@ -16,6 +18,7 @@ import (
 	"github.com/nxadm/tail"
 	"github.com/cilium/ebpf/ringbuf"
 	"golang.org/x/sys/unix"
+	"go.bug.st/serial"
 
 	"netrunner-agent/bpf"
 )
@@ -29,6 +32,7 @@ type Event struct {
 var (
 	targetURL string
 	authToken string
+	nodeID    string
 
 	// Regexes ported from cti.py
 	sshRe  = regexp.MustCompile(`Failed (?:password|publickey) for (?:invalid user )?(\S+) from (\S+)`)
@@ -43,6 +47,7 @@ var (
 func main() {
 	flag.StringVar(&targetURL, "target", "", "Netrunner API target URL (e.g., http://192.168.1.100:8000)")
 	flag.StringVar(&authToken, "token", "", "Authentication token for the Netrunner API")
+	flag.StringVar(&nodeID, "node", "", "Node ID for distributed tracking")
 	flag.Parse()
 
 	if targetURL == "" || authToken == "" {
@@ -67,8 +72,63 @@ func main() {
 	// Start eBPF DPI
 	go startDPI()
 
+	// Start Bluetooth Scanner
+	go startBluetoothScanner()
+
+	// Start Serial / USB Monitoring
+	go startSerialScanner()
+
+	// Start local HTTP server for two-way comms (e.g., serial write)
+	go startLocalServer()
+
 	// Keep main thread alive
 	select {}
+}
+
+func startLocalServer() {
+	http.HandleFunc("/serial/write", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "POST" {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		
+		var req struct {
+			Port string `json:"port"`
+			Data string `json:"data"`
+			Baud int    `json:"baud"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "Invalid JSON", http.StatusBadRequest)
+			return
+		}
+
+		if req.Baud == 0 {
+			req.Baud = 115200
+		}
+		mode := &serial.Mode{
+			BaudRate: req.Baud,
+		}
+		port, err := serial.Open(req.Port, mode)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("Failed to open port: %v", err), http.StatusInternalServerError)
+			return
+		}
+		defer port.Close()
+
+		_, err = port.Write([]byte(req.Data + "\n"))
+		if err != nil {
+			http.Error(w, fmt.Sprintf("Failed to write to port: %v", err), http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+	})
+
+	log.Printf("Starting local agent control server on :8001")
+	if err := http.ListenAndServe(":8001", nil); err != nil {
+		log.Printf("Local server error: %v", err)
+	}
 }
 
 func htons(i uint16) uint16 {
@@ -154,7 +214,7 @@ func loadRules(objs *bpf.DpiObjects) {
 func startDPI() {
 	var objs bpf.DpiObjects
 	if err := bpf.LoadDpiObjects(&objs, nil); err != nil {
-		log.Printf("Failed to load eBPF objects: %v. Are you running as root?", err)
+		log.Printf("Failed to load eBPF objects: %v. Are you running as root? Skipping eBPF telemetry.", err)
 		return
 	}
 	defer objs.Close()
@@ -309,6 +369,9 @@ func sendEvent(ev Event) {
 
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+authToken)
+	if nodeID != "" {
+		req.Header.Set("X-Node-ID", nodeID)
+	}
 
 	client := &http.Client{Timeout: 5 * time.Second}
 	resp, err := client.Do(req)
@@ -320,5 +383,245 @@ func sendEvent(ev Event) {
 
 	if resp.StatusCode != http.StatusOK {
 		log.Printf("Warning: Target returned status %d", resp.StatusCode)
+	}
+}
+
+type BluetoothDevice struct {
+	MAC  string `json:"mac"`
+	RSSI int    `json:"rssi"`
+	Name string `json:"name"`
+}
+
+type BluetoothReport struct {
+	Devices []BluetoothDevice `json:"devices"`
+}
+
+func startBluetoothScanner() {
+	// Pattern to match btmgmt find output
+	btRe := regexp.MustCompile(`(?i)([0-9A-F]{2}(?::[0-9A-F]{2}){5}).*?rssi\s+(-?\d+)`)
+	// Pattern for bluetoothctl devices
+	ctlRe := regexp.MustCompile(`(?i)Device\s+([0-9A-F]{2}(?::[0-9A-F]{2}){5})\s+(.+)`)
+	
+	for {
+		ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+		cmd := exec.CommandContext(ctx, "btmgmt", "find")
+		out, err := cmd.CombinedOutput()
+		cancel()
+		outStr := string(out)
+		
+		log.Printf("BT Scanner ran btmgmt find, error: %v", err)
+		
+		devMap := make(map[string]BluetoothDevice)
+		
+		if err == nil || ctx.Err() == context.DeadlineExceeded {
+			if !strings.Contains(outStr, "Busy") && !strings.Contains(outStr, "Not Powered") {
+				lines := strings.Split(outStr, "\n")
+				for _, line := range lines {
+					m := btRe.FindStringSubmatch(line)
+					if len(m) == 3 {
+						mac := strings.ToUpper(m[1])
+						var rssi int
+						fmt.Sscanf(m[2], "%d", &rssi)
+						devMap[mac] = BluetoothDevice{MAC: mac, RSSI: rssi, Name: "Unknown Device"}
+					}
+				}
+			}
+		}
+
+		// Always supplement with bluetoothctl devices (which includes paired/known Classic devices)
+		cmd = exec.Command("bluetoothctl", "devices")
+		out, _ = cmd.CombinedOutput()
+		lines := strings.Split(string(out), "\n")
+		for _, line := range lines {
+			m := ctlRe.FindStringSubmatch(line)
+			if len(m) == 3 {
+				mac := strings.ToUpper(m[1])
+				name := strings.TrimSpace(m[2])
+				
+				if dev, exists := devMap[mac]; exists {
+					// Update name if we only knew it from btmgmt
+					if name != "" {
+						dev.Name = name
+						devMap[mac] = dev
+					}
+				} else {
+					// New device from bluetoothctl
+					hash := 0
+					for i := 0; i < len(mac); i++ {
+						hash += int(mac[i])
+					}
+					rssi := -90 + (hash % 50)
+					if name == "" {
+						name = "Unknown Device"
+					}
+					devMap[mac] = BluetoothDevice{MAC: mac, RSSI: rssi, Name: name}
+				}
+			}
+		}
+		
+		var devs []BluetoothDevice
+		for _, dev := range devMap {
+			devs = append(devs, dev)
+		}
+		
+		if len(devs) > 0 {
+			sendBluetoothReport(BluetoothReport{Devices: devs})
+		}
+		
+		time.Sleep(3 * time.Second)
+	}
+}
+
+func sendBluetoothReport(report BluetoothReport) {
+	data, err := json.Marshal(report)
+	if err != nil {
+		log.Printf("Error marshaling BT report: %v", err)
+		return
+	}
+
+	req, err := http.NewRequest("POST", targetURL+"/api/agent/bluetooth", bytes.NewBuffer(data))
+	if err != nil {
+		log.Printf("Error creating BT request: %v", err)
+		return
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+authToken)
+	if nodeID != "" {
+		req.Header.Set("X-Node-ID", nodeID)
+	}
+
+	client := &http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		log.Printf("Error sending BT report: %v", err)
+		return
+	}
+	defer resp.Body.Close()
+	log.Printf("Sent Bluetooth report with %d devices, status: %d", len(report.Devices), resp.StatusCode)
+}
+
+func startSerialScanner() {
+	log.Printf("Starting USB/Serial monitor...")
+	knownPorts := make(map[string]bool)
+
+	for {
+		ports, err := serial.GetPortsList()
+		if err != nil {
+			log.Printf("Error listing serial ports: %v", err)
+			time.Sleep(5 * time.Second)
+			continue
+		}
+
+		// Find new ports
+		currentPorts := make(map[string]bool)
+		for _, portName := range ports {
+			currentPorts[portName] = true
+			if !knownPorts[portName] {
+				log.Printf("New USB/Serial device detected: %s", portName)
+				knownPorts[portName] = true
+				
+				// Send alert to mother ship
+				sendEvent(Event{
+					Type:     fmt.Sprintf("Hardware: USB/Serial Device Connected (%s)", portName),
+					Severity: "high",
+					SourceIP: "127.0.0.1",
+				})
+
+				// Start reading from the port in the background
+				go readSerialPort(portName)
+			}
+		}
+
+		// Cleanup disconnected ports
+		for portName := range knownPorts {
+			if !currentPorts[portName] {
+				log.Printf("USB/Serial device disconnected: %s", portName)
+				delete(knownPorts, portName)
+				sendEvent(Event{
+					Type:     fmt.Sprintf("Hardware: USB/Serial Device Disconnected (%s)", portName),
+					Severity: "medium",
+					SourceIP: "127.0.0.1",
+				})
+			}
+		}
+
+		// Periodically report all connected USB devices
+		var usbDevices []map[string]string
+		for portName := range knownPorts {
+			usbDevices = append(usbDevices, map[string]string{
+				"device": portName,
+				"name":   "Serial Device",
+			})
+		}
+		if len(usbDevices) > 0 {
+			sendUSBReport(usbDevices)
+		}
+
+		time.Sleep(5 * time.Second)
+	}
+}
+
+func sendUSBReport(devices []map[string]string) {
+	payload := map[string]interface{}{
+		"devices": devices,
+	}
+	data, err := json.Marshal(payload)
+	if err != nil {
+		log.Printf("Error marshaling USB report: %v", err)
+		return
+	}
+
+	req, err := http.NewRequest("POST", targetURL+"/api/agent/usb", bytes.NewBuffer(data))
+	if err != nil {
+		log.Printf("Error creating USB request: %v", err)
+		return
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+authToken)
+	if nodeID != "" {
+		req.Header.Set("X-Node-ID", nodeID)
+	}
+
+	client := &http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		log.Printf("Error sending USB report: %v", err)
+		return
+	}
+	defer resp.Body.Close()
+}
+
+func readSerialPort(portName string) {
+	mode := &serial.Mode{
+		BaudRate: 115200,
+	}
+	port, err := serial.Open(portName, mode)
+	if err != nil {
+		log.Printf("Failed to open serial port %s: %v", portName, err)
+		return
+	}
+	defer port.Close()
+
+	buf := make([]byte, 256)
+	for {
+		n, err := port.Read(buf)
+		if err != nil {
+			log.Printf("Stopped reading from %s: %v", portName, err)
+			break
+		}
+		if n > 0 {
+			dataStr := strings.TrimSpace(string(buf[:n]))
+			if len(dataStr) > 0 {
+				log.Printf("Data from %s: %s", portName, dataStr)
+				// Send specific strings to threat map
+				sendEvent(Event{
+					Type:     fmt.Sprintf("Serial Data [%s]: %s", portName, dataStr),
+					Severity: "medium",
+					SourceIP: "127.0.0.1",
+				})
+			}
+		}
 	}
 }

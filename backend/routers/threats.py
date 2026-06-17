@@ -101,3 +101,10 @@ async def get_threat_nodes(user: dict = Depends(get_current_user)):
             })
     return result
 
+
+@router.get("/api/threats/history")
+async def get_threat_history(limit: int = 100, user: dict = Depends(get_current_user)):
+    """Retrieves historical threat events."""
+    from ..core.db import load_threat_events_db
+    events = await load_threat_events_db(limit=limit)
+    return events
