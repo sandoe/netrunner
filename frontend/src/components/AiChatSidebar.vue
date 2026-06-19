@@ -153,6 +153,7 @@ function initTerminal() {
         el.select()
         document.execCommand('copy')
         document.body.removeChild(el)
+        term?.focus() // Return focus to terminal
       }
       showToast('Copied!')
     } catch (err) {
