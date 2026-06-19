@@ -1,8 +1,8 @@
 <template>
   <div class="modal-overlay" @click.self="$emit('close')">
-    <div class="cyber-modal-card sniffer-modal">
+    <div class="cyber-modal-card sniffer-modal" role="dialog" aria-modal="true" aria-labelledby="sniffer-title">
       <div class="cyber-modal-header">
-        <div class="modal-title">📡 NETWORK SNIFFER: LIVE STREAM</div>
+        <div class="modal-title" id="sniffer-title">📡 NETWORK SNIFFER: LIVE STREAM</div>
         <button class="btn-close-modal" @click="$emit('close')">×</button>
       </div>
       <div class="cyber-modal-body">
@@ -41,6 +41,12 @@ const props = defineProps<{
 }>()
 
 const emit = defineEmits(['close'])
+
+onMounted(() => document.addEventListener('keydown', handleEscape))
+onUnmounted(() => document.removeEventListener('keydown', handleEscape))
+function handleEscape(e: KeyboardEvent) {
+  if (e.key === 'Escape') emit('close')
+}
 
 const packets = ref<any[]>([])
 
@@ -103,15 +109,16 @@ watch(() => props.dataRaw, (newVal) => {
   background: rgba(0, 229, 255, 0.1);
 }
 
-.col-time { color: #888 !important; }
-.col-src { color: #aaa !important; }
-.col-qry { color: #ffbe0b !important; font-weight: bold; }
+.col-time { color: var(--text) !important; }
+.col-src { color: var(--textbr) !important; }
+.col-qry { color: var(--yellow) !important; font-weight: bold; }
 
 .empty-state {
   padding: 20px;
   text-align: center;
-  color: #666;
+  color: var(--text);
   font-family: var(--font-hd);
   letter-spacing: 2px;
 }
+button:focus-visible, .btn-action:focus-visible, .btn-close:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
 </style>

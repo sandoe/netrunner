@@ -39,7 +39,8 @@ async def _ssh_terminal(ws: WebSocket, nid: str, node: dict) -> None:
     client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
 
     try:
-        client.connect(
+        await asyncio.to_thread(
+            client.connect,
             hostname=host, port=port,
             username=username, password=password,
             timeout=10, look_for_keys=False, allow_agent=False,
@@ -52,7 +53,7 @@ async def _ssh_terminal(ws: WebSocket, nid: str, node: dict) -> None:
         return
 
     chan = client.invoke_shell(term="xterm-256color", width=220, height=50)
-    chan.settimeout(0.05)
+    chan.settimeout(None)
 
     await ws.send_json({"type": "status", "connected": True})
 
@@ -68,7 +69,7 @@ async def _ssh_terminal(ws: WebSocket, nid: str, node: dict) -> None:
                     break
                 asyncio.run_coroutine_threadsafe(recv_queue.put(data), loop)
             except Exception:
-                import time; time.sleep(0.05)
+                break
         asyncio.run_coroutine_threadsafe(recv_queue.put(None), loop)
 
     reader_thread = threading.Thread(target=_read_ssh, daemon=True)
@@ -93,7 +94,7 @@ async def _ssh_terminal(ws: WebSocket, nid: str, node: dict) -> None:
                 data = msg.get("data", "")
                 if isinstance(data, str):
                     data = data.encode("utf-8", errors="replace")
-                chan.sendall(data)
+                await asyncio.to_thread(chan.sendall, data)
             elif msg.get("type") == "resize":
                 cols = int(msg.get("cols", 220))
                 rows = int(msg.get("rows", 50))
@@ -220,10 +221,10 @@ async def _telnet_terminal(ws: WebSocket, nid: str, node: dict) -> None:
         loop = asyncio.get_event_loop()
 
         try:
-            sock = socket.create_connection((host, port), timeout=10)
-            sock.settimeout(0.05)
+            sock = await asyncio.to_thread(socket.create_connection, (host, port), 10)
+            sock.settimeout(None)
             # Send restore command sequence to turn stty echo back on, restore standard prompt, and reset TERM capability
-            sock.sendall(b"\r\nstty echo; export TERM=xterm-256color; export PS1='\\h:\\w\\$ '; clear\r\n")
+            await asyncio.to_thread(sock.sendall, b"\r\nstty echo; export TERM=xterm-256color; export PS1='\\h:\\w\\$ '; clear\r\n")
         except Exception as e:
             await ws.send_json({"type": "error", "data": f"Telnet connect failed: {e}"})
             return
@@ -241,8 +242,6 @@ async def _telnet_terminal(ws: WebSocket, nid: str, node: dict) -> None:
                     if not data:
                         break
                     asyncio.run_coroutine_threadsafe(recv_queue.put(data), loop)
-                except socket.timeout:
-                    continue
                 except Exception:
                     break
             asyncio.run_coroutine_threadsafe(recv_queue.put(None), loop)
@@ -258,7 +257,7 @@ async def _telnet_terminal(ws: WebSocket, nid: str, node: dict) -> None:
                 try:
                     clean_data, response = handler.feed(chunk)
                     if response:
-                        sock.sendall(response)
+                        await asyncio.to_thread(sock.sendall, response)
                     if clean_data:
                         await ws.send_json({"type": "output", "data": clean_data.decode("utf-8", errors="replace")})
                 except Exception:
@@ -274,7 +273,7 @@ async def _telnet_terminal(ws: WebSocket, nid: str, node: dict) -> None:
                     if isinstance(data, str):
                         data = data.encode("utf-8", errors="replace")
                     try:
-                        sock.sendall(data)
+                        await asyncio.to_thread(sock.sendall, data)
                     except Exception:
                         break
                 elif msg.get("type") == "resize":
@@ -282,7 +281,7 @@ async def _telnet_terminal(ws: WebSocket, nid: str, node: dict) -> None:
                     rows = int(msg.get("rows", 50))
                     resize_payload = handler.resize(cols, rows)
                     try:
-                        sock.sendall(resize_payload)
+                        await asyncio.to_thread(sock.sendall, resize_payload)
                     except Exception:
                         break
         except (WebSocketDisconnect, asyncio.TimeoutError, Exception):
@@ -290,6 +289,10 @@ async def _telnet_terminal(ws: WebSocket, nid: str, node: dict) -> None:
         finally:
             stop.set()
             send_task.cancel()
+            try:
+                sock.shutdown(socket.SHUT_RDWR)
+            except Exception:
+                pass
             try:
                 sock.close()
             except Exception:

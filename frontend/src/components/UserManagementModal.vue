@@ -1,8 +1,8 @@
 <template>
   <div class="modal-overlay" @click.self="$emit('close')">
-    <div class="modal-content cyber-glass">
+    <div class="modal-content cyber-glass" role="dialog" aria-modal="true" aria-labelledby="user-mgmt-title">
       <div class="modal-header">
-        <div class="modal-title">
+        <div class="modal-title" id="user-mgmt-title">
           <span class="icon">👤</span>
           <span>USER MANAGEMENT</span>
         </div>
@@ -31,7 +31,8 @@
                 </select>
               </div>
               <button type="submit" class="btn-add-user" :disabled="busy || !form.username || !form.password">
-                {{ busy ? '...' : '+ ADD' }}
+                <span v-if="busy" class="spinner"></span>
+                <span v-else>+ ADD</span>
               </button>
             </div>
             <div v-if="error" class="msg error">{{ error }}</div>
@@ -70,10 +71,16 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, onUnmounted } from 'vue'
 import { api } from '@/api/client'
 
-defineEmits(['close'])
+const emit = defineEmits(['close'])
+
+onMounted(() => document.addEventListener('keydown', handleEscape))
+onUnmounted(() => document.removeEventListener('keydown', handleEscape))
+function handleEscape(e: KeyboardEvent) {
+  if (e.key === 'Escape') emit('close')
+}
 
 const users = ref<{ username: string, role: string, created?: string }[]>([])
 const form = ref({ username: '', password: '', role: 'analyst' })
@@ -149,33 +156,33 @@ onMounted(load)
   padding: 16px 20px;
   border-bottom: 1px solid var(--border, #1a2540);
 }
-.modal-title { display: flex; align-items: center; gap: 10px; color: #fff; letter-spacing: 2px; font-size: 14px; }
-.btn-close { background: none; border: none; color: #888; font-size: 24px; cursor: pointer; line-height: 1; }
-.btn-close:hover { color: #ff2d6e; }
+.modal-title { display: flex; align-items: center; gap: 10px; color: var(--textwh); letter-spacing: 2px; font-size: 14px; }
+.btn-close { background: none; border: none; color: var(--text); font-size: 24px; cursor: pointer; line-height: 1; }
+.btn-close:hover { color: var(--pink); }
 .modal-body { padding: 20px; display: flex; flex-direction: column; gap: 18px; max-height: 70vh; overflow-y: auto; }
 
-.card { border: 1px solid var(--border, #1a2540); border-radius: 6px; padding: 16px; background: rgba(0, 0, 0, 0.25); }
-.card-title { color: #00e5ff; font-size: 11px; letter-spacing: 2px; margin-bottom: 14px; }
+.card { border: 1px solid var(--border); border-radius: 6px; padding: 16px; background: rgba(0, 0, 0, 0.25); }
+.card-title { color: var(--cyan); font-size: 11px; letter-spacing: 2px; margin-bottom: 14px; }
 
 .create-form .row { display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; }
 .fg { display: flex; flex-direction: column; flex: 1 1 140px; min-width: 0; }
 .fg-role { flex: 0 0 110px; }
-.fg label { font-size: 10px; color: #6b7a99; margin-bottom: 5px; letter-spacing: 1px; }
+.fg label { font-size: 10px; color: var(--text); margin-bottom: 5px; letter-spacing: 1px; }
 .fg input, .fg select {
   background: rgba(0, 0, 0, 0.5);
-  border: 1px solid #2a3a5a;
-  color: #fff;
+  border: 1px solid var(--border2);
+  color: var(--textwh);
   padding: 9px 10px;
   font-family: var(--font-co, 'JetBrains Mono', monospace);
   font-size: 13px;
   border-radius: 4px;
   outline: none;
 }
-.fg input:focus, .fg select:focus { border-color: #00e5ff; box-shadow: 0 0 10px rgba(0, 229, 255, 0.2); }
+.fg input:focus, .fg select:focus { border-color: var(--cyan); box-shadow: 0 0 10px rgba(0, 229, 255, 0.2); }
 .btn-add-user {
   background: rgba(0, 229, 255, 0.1);
-  border: 1px solid #0a8fa3;
-  color: #00e5ff;
+  border: 1px solid var(--cyan-d);
+  color: var(--cyan);
   padding: 9px 16px;
   font-family: var(--font-hd, 'Orbitron', monospace);
   font-size: 12px;
@@ -188,21 +195,22 @@ onMounted(load)
 .btn-add-user:disabled { opacity: 0.4; cursor: not-allowed; }
 
 .msg { margin-top: 12px; font-family: var(--font-co, monospace); font-size: 12px; }
-.msg.error { color: #ff2d6e; }
-.msg.ok { color: #00ff9d; }
+.msg.error { color: var(--pink); }
+.msg.ok { color: var(--green); }
 
 .user-table { width: 100%; border-collapse: collapse; font-family: var(--font-co, 'JetBrains Mono', monospace); font-size: 12px; }
-.user-table th { text-align: left; color: #6b7a99; font-size: 10px; letter-spacing: 1px; padding: 6px 8px; border-bottom: 1px solid #1a2540; }
-.user-table td { padding: 9px 8px; border-bottom: 1px solid rgba(26, 37, 64, 0.5); color: #cdd6e4; }
-.u-name { color: #fff; }
-.you { color: #00e5ff; font-size: 10px; margin-left: 6px; }
-.u-date { color: #6b7a99; }
+.user-table th { text-align: left; color: var(--text); font-size: 10px; letter-spacing: 1px; padding: 6px 8px; border-bottom: 1px solid var(--border); }
+.user-table td { padding: 9px 8px; border-bottom: 1px solid rgba(26, 37, 64, 0.5); color: var(--textbr); }
+.u-name { color: var(--textwh); }
+.you { color: var(--cyan); font-size: 10px; margin-left: 6px; }
+.u-date { color: var(--text); }
 .u-action { text-align: right; }
 .role-badge { padding: 2px 8px; border-radius: 3px; font-size: 10px; letter-spacing: 1px; }
-.role-badge.admin { background: rgba(255, 45, 110, 0.15); color: #ff2d6e; border: 1px solid rgba(255, 45, 110, 0.4); }
-.role-badge.analyst { background: rgba(0, 229, 255, 0.1); color: #00e5ff; border: 1px solid rgba(0, 229, 255, 0.3); }
-.btn-del { background: none; border: 1px solid #3a2030; color: #ff2d6e; width: 24px; height: 24px; border-radius: 4px; cursor: pointer; }
+.role-badge.admin { background: rgba(255, 45, 110, 0.15); color: var(--pink); border: 1px solid rgba(255, 45, 110, 0.4); }
+.role-badge.analyst { background: rgba(0, 229, 255, 0.1); color: var(--cyan); border: 1px solid rgba(0, 229, 255, 0.3); }
+.btn-del { background: none; border: 1px solid var(--border); color: var(--pink); width: 24px; height: 24px; border-radius: 4px; cursor: pointer; }
 .btn-del:hover:not(:disabled) { background: rgba(255, 45, 110, 0.15); }
 .btn-del:disabled { opacity: 0.25; cursor: not-allowed; }
-.empty { color: #6b7a99; text-align: center; padding: 16px; }
+.empty { color: var(--text); text-align: center; padding: 16px; }
+button:focus-visible, .btn-action:focus-visible, .btn-close:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
 </style>

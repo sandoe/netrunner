@@ -2,6 +2,14 @@ import type { NrNode, NrLink, CommandResult, SavedConfig, CaptureMeta } from '@/
 
 const BASE = '/api'
 
+export function isUiContextEnabled() {
+  return localStorage.getItem('ai_context_enabled') === 'true'
+}
+
+export function setUiContextEnabled(val: boolean) {
+  localStorage.setItem('ai_context_enabled', val ? 'true' : 'false')
+}
+
 async function req<T>(method: string, path: string, body?: unknown): Promise<T> {
   const headers: Record<string, string> = { 'Content-Type': 'application/json' }
   const token = localStorage.getItem('nr_token')
@@ -242,3 +250,27 @@ export function wsTerminalUrl(nodeId: string): string {
   const hostname = location.hostname
   return `${proto}://${hostname}:8081/ws/terminal?nodeId=${nodeId}`
 }
+
+export async function sendUiEvent(type: string, path: string, element?: string, data?: any) {
+  if (!isUiContextEnabled()) return
+  const token = localStorage.getItem('nr_token') || ''
+  try {
+    await fetch('/api/telemetry/ui', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
+      },
+      body: JSON.stringify({
+        type,
+        timestamp: new Date().toISOString(),
+        path,
+        element,
+        data
+      })
+    })
+  } catch (e) {
+    console.error('Failed to send UI telemetry', e)
+  }
+}
+

@@ -29,6 +29,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     bluez \
     docker.io \
     docker-cli \
+    pandoc \
+    texlive-latex-base \
+    texlive-fonts-recommended \
     && rm -rf /var/lib/apt/lists/*
 
 # Install backend dependencies

@@ -5843,6 +5843,225 @@ export type UpdatePlaybookPlaybooksPlaybookIdPatchResponses = {
 
 export type UpdatePlaybookPlaybooksPlaybookIdPatchResponse = UpdatePlaybookPlaybooksPlaybookIdPatchResponses[keyof UpdatePlaybookPlaybooksPlaybookIdPatchResponses];
 
+export type GetDashboardSummaryAnalyticsSummaryGetData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/analytics/summary';
+};
+
+export type GetDashboardSummaryAnalyticsSummaryGetResponses = {
+    /**
+     * Response Get Dashboard Summary Analytics Summary Get
+     *
+     * Successful Response
+     */
+    200: {
+        [key: string]: unknown;
+    };
+};
+
+export type GetDashboardSummaryAnalyticsSummaryGetResponse = GetDashboardSummaryAnalyticsSummaryGetResponses[keyof GetDashboardSummaryAnalyticsSummaryGetResponses];
+
+export type GetIntegrationsIntegrationsGetData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/integrations';
+};
+
+export type GetIntegrationsIntegrationsGetResponses = {
+    /**
+     * Response Get Integrations Integrations Get
+     *
+     * Successful Response
+     */
+    200: Array<{
+        [key: string]: unknown;
+    }>;
+};
+
+export type GetIntegrationsIntegrationsGetResponse = GetIntegrationsIntegrationsGetResponses[keyof GetIntegrationsIntegrationsGetResponses];
+
+export type CreateIntegrationIntegrationsPostData = {
+    /**
+     * Data
+     */
+    body: {
+        [key: string]: unknown;
+    };
+    path?: never;
+    query?: never;
+    url: '/integrations';
+};
+
+export type CreateIntegrationIntegrationsPostErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type CreateIntegrationIntegrationsPostError = CreateIntegrationIntegrationsPostErrors[keyof CreateIntegrationIntegrationsPostErrors];
+
+export type CreateIntegrationIntegrationsPostResponses = {
+    /**
+     * Response Create Integration Integrations Post
+     *
+     * Successful Response
+     */
+    200: {
+        [key: string]: unknown;
+    };
+};
+
+export type CreateIntegrationIntegrationsPostResponse = CreateIntegrationIntegrationsPostResponses[keyof CreateIntegrationIntegrationsPostResponses];
+
+export type DeleteIntegrationIntegrationsIntegrationIdDeleteData = {
+    body?: never;
+    path: {
+        /**
+         * Integration Id
+         */
+        integration_id: string;
+    };
+    query?: never;
+    url: '/integrations/{integration_id}';
+};
+
+export type DeleteIntegrationIntegrationsIntegrationIdDeleteErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type DeleteIntegrationIntegrationsIntegrationIdDeleteError = DeleteIntegrationIntegrationsIntegrationIdDeleteErrors[keyof DeleteIntegrationIntegrationsIntegrationIdDeleteErrors];
+
+export type DeleteIntegrationIntegrationsIntegrationIdDeleteResponses = {
+    /**
+     * Response Delete Integration Integrations  Integration Id  Delete
+     *
+     * Successful Response
+     */
+    200: {
+        [key: string]: string;
+    };
+};
+
+export type DeleteIntegrationIntegrationsIntegrationIdDeleteResponse = DeleteIntegrationIntegrationsIntegrationIdDeleteResponses[keyof DeleteIntegrationIntegrationsIntegrationIdDeleteResponses];
+
+export type UpdateIntegrationIntegrationsIntegrationIdPatchData = {
+    /**
+     * Data
+     */
+    body: {
+        [key: string]: unknown;
+    };
+    path: {
+        /**
+         * Integration Id
+         */
+        integration_id: string;
+    };
+    query?: never;
+    url: '/integrations/{integration_id}';
+};
+
+export type UpdateIntegrationIntegrationsIntegrationIdPatchErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type UpdateIntegrationIntegrationsIntegrationIdPatchError = UpdateIntegrationIntegrationsIntegrationIdPatchErrors[keyof UpdateIntegrationIntegrationsIntegrationIdPatchErrors];
+
+export type UpdateIntegrationIntegrationsIntegrationIdPatchResponses = {
+    /**
+     * Response Update Integration Integrations  Integration Id  Patch
+     *
+     * Successful Response
+     */
+    200: {
+        [key: string]: unknown;
+    };
+};
+
+export type UpdateIntegrationIntegrationsIntegrationIdPatchResponse = UpdateIntegrationIntegrationsIntegrationIdPatchResponses[keyof UpdateIntegrationIntegrationsIntegrationIdPatchResponses];
+
+export type TestIntegrationIntegrationsIntegrationIdTestPostData = {
+    body?: never;
+    path: {
+        /**
+         * Integration Id
+         */
+        integration_id: string;
+    };
+    query?: never;
+    url: '/integrations/{integration_id}/test';
+};
+
+export type TestIntegrationIntegrationsIntegrationIdTestPostErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type TestIntegrationIntegrationsIntegrationIdTestPostError = TestIntegrationIntegrationsIntegrationIdTestPostErrors[keyof TestIntegrationIntegrationsIntegrationIdTestPostErrors];
+
+export type TestIntegrationIntegrationsIntegrationIdTestPostResponses = {
+    /**
+     * Response Test Integration Integrations  Integration Id  Test Post
+     *
+     * Successful Response
+     */
+    200: {
+        [key: string]: string;
+    };
+};
+
+export type TestIntegrationIntegrationsIntegrationIdTestPostResponse = TestIntegrationIntegrationsIntegrationIdTestPostResponses[keyof TestIntegrationIntegrationsIntegrationIdTestPostResponses];
+
+export type SearchThreatsHuntingSearchGetData = {
+    body?: never;
+    path?: never;
+    query: {
+        /**
+         * Q
+         */
+        q: string;
+        /**
+         * Limit
+         */
+        limit?: number;
+    };
+    url: '/hunting/search';
+};
+
+export type SearchThreatsHuntingSearchGetErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type SearchThreatsHuntingSearchGetError = SearchThreatsHuntingSearchGetErrors[keyof SearchThreatsHuntingSearchGetErrors];
+
+export type SearchThreatsHuntingSearchGetResponses = {
+    /**
+     * Response Search Threats Hunting Search Get
+     *
+     * Successful Response
+     */
+    200: {
+        [key: string]: unknown;
+    };
+};
+
+export type SearchThreatsHuntingSearchGetResponse = SearchThreatsHuntingSearchGetResponses[keyof SearchThreatsHuntingSearchGetResponses];
+
 export type ListDirectoryApiNodesNidFsListGetData = {
     body?: never;
     path: {

@@ -110,7 +110,12 @@
 
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
-import { PlaybooksService } from '@/api_client'
+import { 
+  listPlaybooksPlaybooksGet,
+  updatePlaybookPlaybooksPlaybookIdPatch,
+  deletePlaybookPlaybooksPlaybookIdDelete,
+  createPlaybookPlaybooksPost
+} from '@/api_client'
 import type { PlaybookResponse } from '@/api_client'
 
 const playbooks = ref<PlaybookResponse[]>([])
@@ -122,7 +127,8 @@ const editingActions = ref<any[]>([])
 
 const fetchPlaybooks = async () => {
   try {
-    const res = await PlaybooksService.listPlaybooks()
+    const res = await listPlaybooksPlaybooksGet()
+    playbooks.value = res.data || []
     playbooks.value = res as unknown as PlaybookResponse[]
   } catch (err) {
     console.error("Failed to load playbooks", err)
@@ -152,7 +158,7 @@ const formatActionType = (type: string) => {
 
 const toggleActive = async (pb: PlaybookResponse) => {
   try {
-    await PlaybooksService.updatePlaybook({
+    await updatePlaybookPlaybooksPlaybookIdPatch({
       path: { playbook_id: pb.id },
       body: { is_active: !pb.is_active }
     })
@@ -165,7 +171,7 @@ const toggleActive = async (pb: PlaybookResponse) => {
 const deletePlaybook = async (id: string) => {
   if (!confirm("Are you sure you want to delete this playbook?")) return
   try {
-    await PlaybooksService.deletePlaybook({ path: { playbook_id: id } })
+    await deletePlaybookPlaybooksPlaybookIdDelete({ path: { playbook_id: id } })
     await fetchPlaybooks()
   } catch (err) {
     console.error(err)
@@ -200,12 +206,12 @@ const savePlaybook = async () => {
     }
 
     if (editingPlaybook.value.id) {
-      await PlaybooksService.updatePlaybook({
+      await updatePlaybookPlaybooksPlaybookIdPatch({
         path: { playbook_id: editingPlaybook.value.id },
         body
       })
     } else {
-      await PlaybooksService.createPlaybook({ body })
+      await createPlaybookPlaybooksPost({ body })
     }
     
     closeEditor()

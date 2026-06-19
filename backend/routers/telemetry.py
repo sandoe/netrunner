@@ -1,6 +1,10 @@
 import asyncio
+import os
 import json
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+import aiofiles
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Request, HTTPException
+from pydantic import BaseModel
+from typing import Optional, Dict, Any
 from ..core.telemetry import telemetry_cache
 from ..core.state import telemetry_queue
 
@@ -45,3 +49,29 @@ async def websocket_telemetry(websocket: WebSocket):
     except WebSocketDisconnect:
         if websocket in telemetry_clients:
             telemetry_clients.remove(websocket)
+
+class UIEvent(BaseModel):
+    type: str
+    timestamp: str
+    path: str
+    element: Optional[str] = None
+    data: Optional[Dict[str, Any]] = None
+
+LOG_FILE = os.environ.get("UI_CONTEXT_LOG_PATH", "data/ui_context.log")
+
+@router.post("/api/telemetry/ui")
+async def log_ui_event(event: UIEvent):
+    try:
+        os.makedirs(os.path.dirname(LOG_FILE), exist_ok=True)
+        async with aiofiles.open(LOG_FILE, "a", encoding="utf-8") as f:
+            log_entry = json.dumps({
+                "timestamp": event.timestamp,
+                "type": event.type,
+                "path": event.path,
+                "element": event.element,
+                "data": event.data
+            })
+            await f.write(f"{log_entry}\n")
+        return {"status": "ok"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail="Failed to log event")

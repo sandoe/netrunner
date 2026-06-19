@@ -3,26 +3,36 @@
     <div class="topology-toolbar">
       <div class="toolbar-group">
         <button class="btn-tool" :class="{ active: mode === 'select' }" @click="mode = 'select'">
-          <span class="icon">🖱️</span> SELECT
+          <span class="icon" aria-hidden="true">🖱️</span> SELECT
         </button>
         <button class="btn-tool" :class="{ active: mode === 'draw' }" @click="mode = 'draw'">
-          <span class="icon">🔌</span> DRAW LINK
+          <span class="icon" aria-hidden="true">🔌</span> DRAW LINK
         </button>
       </div>
       <div class="toolbar-group">
         <button class="btn-tool" @click="fit">CENTER</button>
         <button class="btn-tool" @click="toggleLayout">
-          <span class="icon">🕸️</span> {{ layoutMode === 'floating' ? 'FLOATING' : 'HIERARCHICAL' }}
+          <span class="icon" aria-hidden="true">🕸️</span> {{ layoutMode === 'floating' ? 'FLOATING' : 'UNIFI' }}
         </button>
         <button class="btn-tool btn-discover" @click="doAutoDiscover" :disabled="discovering">
-          <span class="icon">{{ discovering ? '⌛' : '📡' }}</span> AUTO-DISCOVER
+          <span class="icon" aria-hidden="true"><span v-if="discovering" class="spinner"></span><template v-else>📡</template></span> AUTO-DISCOVER
         </button>
         <button class="btn-tool btn-gns3" @click="pickGns3Project" :disabled="syncing">
-          <span class="icon">{{ syncing ? '⌛' : '☁️' }}</span> GNS3 SYNC
+          <span class="icon" aria-hidden="true"><span v-if="syncing" class="spinner"></span><template v-else>☁️</template></span> GNS3 SYNC
         </button>
         <button class="btn-tool" :class="{ active: showReachPanel }" @click="showReachPanel = !showReachPanel">
-          <span class="icon">📶</span> REACHABILITY
+          <span class="icon" aria-hidden="true">📶</span> REACHABILITY
         </button>
+      </div>
+      <div class="toolbar-group">
+        <label class="btn-tool layer-toggle" :class="{ active: showThreats }">
+          <input type="checkbox" v-model="showThreats" class="sr-only" />
+          <span class="icon" aria-hidden="true">🔴</span> THREATS
+        </label>
+        <label class="btn-tool layer-toggle" :class="{ active: showAgents }">
+          <input type="checkbox" v-model="showAgents" class="sr-only" />
+          <span class="icon" aria-hidden="true">🤖</span> AGENTS
+        </label>
       </div>
       <div class="toolbar-info" v-if="mode === 'draw'">
         CLICK SOURCE NODE, THEN TARGET NODE TO LINK.
@@ -43,9 +53,9 @@
     <div v-if="showReachPanel" class="reach-panel">
       <div class="reach-head">
         <span>📶 REACHABILITY</span>
-        <button class="reach-close" @click="showReachPanel = false">×</button>
+        <button class="reach-close" aria-label="Close reachability panel" @click="showReachPanel = false">×</button>
       </div>
-      <div v-for="row in reachRows" :key="row.id" class="reach-row" @click="store.select(row.id)">
+      <div v-for="row in reachRows" :key="row.id" class="reach-row" :class="{ active: store.selectedId === row.id }" role="button" tabindex="0" @click="store.select(row.id)" @keydown.enter="store.select(row.id)" @keydown.space.prevent="store.select(row.id)">
         <span class="reach-dot" :style="{ background: row.color }"></span>
         <span class="reach-name">{{ row.name }}</span>
         <span class="reach-lat">{{ row.label }}</span>
@@ -58,36 +68,51 @@
       <div class="ctx-backdrop" @click="closeCtx" @contextmenu.prevent="closeCtx"></div>
       <div class="ctx-menu" :style="{ left: ctxMenu.x + 'px', top: ctxMenu.y + 'px' }">
         <div class="ctx-title">{{ ctxMenu.name }}</div>
-        <button class="ctx-item" @click="ctxEdit">✎ Reconfigure (IP, telnet/SSH…)</button>
-        <template v-if="!isConsoleless(ctxMenu.nodeId)">
-          <button v-if="!store.isConnected(ctxMenu.nodeId)" class="ctx-item ok" @click="ctxConnect">▶ Connect</button>
-          <button v-else class="ctx-item warn" @click="ctxDisconnect">■ Disconnect</button>
+        <template v-if="ctxMenu.type === 'node'">
+          <button class="ctx-item" @click="ctxEdit">✎ Reconfigure (IP, telnet/SSH…)</button>
+          <template v-if="!isConsoleless(ctxMenu.targetId)">
+            <button v-if="!store.isConnected(ctxMenu.targetId)" class="ctx-item ok" @click="ctxConnect">▶ Connect</button>
+            <button v-else class="ctx-item warn" @click="ctxDisconnect">■ Disconnect</button>
+          </template>
+          <div v-else class="ctx-note">⚡ L2 device — no console</div>
+          <button class="ctx-item" style="color: var(--pink); border-color: var(--pink);" @click="ctxBruteForce">💥 Launch Brute Force</button>
+          <button class="ctx-item" @click="ctxTogglePin">
+            {{ pinnedId === ctxMenu.targetId ? '📌 Unpin from centre' : '📌 Pin to centre' }}
+          </button>
         </template>
-        <div v-else class="ctx-note">⚡ L2 device — no console</div>
-        <button class="ctx-item" style="color: var(--pink); border-color: var(--pink);" @click="ctxBruteForce">💥 Launch Brute Force</button>
-        <button class="ctx-item" @click="ctxTogglePin">
-          {{ pinnedId === ctxMenu.nodeId ? '📌 Unpin from centre' : '📌 Pin to centre' }}
-        </button>
+        <button class="ctx-item" @click="ctxStartPacketCapture">📡 Start Packet Capture</button>
       </div>
     </template>
 
     <!-- Sub Modal for Brute Force Attack -->
-    <div v-if="attackTarget" class="modal-overlay" style="position: fixed; top: 0; left: 0; right: 0; bottom: 0; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,0.85); z-index: 9999;" @click.self="attackTarget = null">
-      <div class="cyber-modal-card" style="width: 400px; background: rgba(10,12,18,0.95); border: 1px solid var(--pink);">
+    <dialog ref="attackDialog" v-if="attackTarget" class="modal-overlay" style="position: fixed; top: 0; left: 0; right: 0; bottom: 0; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,0.85); z-index: 9999; border: none; width: 100%; height: 100%;" @click.self="attackTarget = null; $refs.attackDialog.close()">
+      <div class="cyber-modal-card" style="width: 100%; max-width: 400px; background: rgba(10,12,18,0.95); border: 1px solid var(--pink);">
         <div class="cyber-modal-header">
           <div class="modal-title" style="color: var(--pink)">💥 LAUNCH BRUTE FORCE</div>
-          <button class="btn-close-modal" @click="attackTarget = null">×</button>
+          <button class="btn-close-modal" aria-label="Close modal" @click="attackTarget = null; $refs.attackDialog.close()">×</button>
         </div>
         <div class="cyber-modal-body" style="text-align: center">
-          <p style="color: #a0a0a0; margin-bottom: 20px;">TARGET NODE: <strong style="color: #00e5ff">{{ attackTarget }}</strong></p>
+          <p style="color: #a0a0a0; margin-bottom: 20px;">TARGET NODE: <strong style="color: var(--cyan)">{{ attackTarget }}</strong></p>
           <div style="display: flex; gap: 10px; justify-content: center">
             <button class="btn-action btn-danger" @click="launchAttack('ssh')">[ CRACK SSH ]</button>
             <button class="btn-action btn-danger" @click="launchAttack('ftp')">[ CRACK FTP ]</button>
             <button class="btn-action btn-danger" @click="launchAttack('mysql')">[ CRACK MYSQL ]</button>
             <button class="btn-action btn-danger" @click="launchAttack('postgres')">[ CRACK POSTGRES ]</button>
           </div>
-          <div v-if="attackStatus" style="margin-top: 15px; color: var(--pink); font-family: monospace; text-shadow: 0 0 8px var(--pink); font-weight: bold;">{{ attackStatus }}</div>
+          <div v-if="attackStatus" style="margin-top: 15px; font-family: monospace; font-weight: bold;" :style="{ color: attackStatus.includes('ERROR') ? 'var(--pink)' : 'var(--green)', textShadow: attackStatus.includes('ERROR') ? '0 0 8px var(--pink)' : '0 0 8px var(--green)' }" aria-live="assertive">{{ attackStatus }}</div>
         </div>
+      </div>
+    </dialog>
+
+    <!-- Floating Packet Captures Widget -->
+    <div v-if="activeCaptures.length > 0" class="packet-captures-widget">
+      <div class="pc-head">📡 PACKET CAPTURES</div>
+      <div v-for="cap in activeCaptures" :key="cap.capture_id" class="pc-item">
+        <div class="pc-info">
+          <div><strong class="pc-target">{{ cap.interface }}</strong></div>
+          <div class="pc-details">{{ cap.status }} · {{ Math.round(cap.file_size_bytes / 1024) }} KB</div>
+        </div>
+        <button v-if="cap.status === 'running'" class="btn-stop-capture" @click="stopCapture(cap.capture_id)">■ Stop</button>
       </div>
     </div>
 
@@ -100,7 +125,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, watch, onUnmounted, computed } from 'vue'
+import { ref, onMounted, watch, onUnmounted, computed, nextTick } from 'vue'
 import ForceGraph3D from '3d-force-graph'
 import * as THREE from 'three'
 import SpriteText from 'three-spritetext'
@@ -139,8 +164,8 @@ const reachRows = computed(() => {
 })
 
 // Right-click context menu on nodes
-const ctxMenu = ref<{ show: boolean, x: number, y: number, nodeId: string, name: string }>(
-  { show: false, x: 0, y: 0, nodeId: '', name: '' })
+const ctxMenu = ref<{ show: boolean, x: number, y: number, targetId: string, name: string, type: 'node' | 'link' }>(
+  { show: false, x: 0, y: 0, targetId: '', name: '', type: 'node' })
 // GNS3 node types that have no usable interactive console (L2 fabric etc.)
 const CONSOLELESS = new Set(['ethernet_switch', 'ethernet_hub', 'frame_relay_switch', 'atm_switch', 'cloud', 'nat'])
 function isConsoleless(id: string): boolean {
@@ -167,7 +192,67 @@ function linkHealth(link: any): 'up' | 'down' | 'unknown' {
   return known === 2 ? 'up' : 'unknown'
 }
 function closeCtx() { ctxMenu.value.show = false }
-function ctxEdit() { store.select(ctxMenu.value.nodeId); emit('editNode', ctxMenu.value.nodeId); closeCtx() }
+function ctxEdit() { store.select(ctxMenu.value.targetId); emit('editNode', ctxMenu.value.targetId); closeCtx() }
+
+const activeCaptures = ref<any[]>([])
+let captureInterval: any = null
+
+async function fetchCaptures() {
+  try {
+    const res = await fetch('/api/packet_capture/list', {
+      headers: { 'Authorization': 'Bearer ' + localStorage.getItem('nr_token') }
+    })
+    if (res.ok) {
+      const list = await res.json()
+      const fullList = await Promise.all(list.map(async (cap: any) => {
+        const sRes = await fetch(`/api/packet_capture/status/${cap.capture_id}`, {
+          headers: { 'Authorization': 'Bearer ' + localStorage.getItem('nr_token') }
+        })
+        return sRes.ok ? await sRes.json() : cap
+      }))
+      activeCaptures.value = fullList
+    }
+  } catch (e) {
+    console.error('Failed to fetch captures:', e)
+  }
+}
+
+async function ctxStartPacketCapture() {
+  const targetId = ctxMenu.value.targetId
+  closeCtx()
+  try {
+    const res = await fetch('/api/packet_capture/start', {
+      method: 'POST',
+      headers: { 
+        'Authorization': 'Bearer ' + localStorage.getItem('nr_token'),
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ interface: targetId })
+    })
+    const data = await res.json()
+    if (!res.ok) throw new Error(data.detail || 'Start capture failed')
+    fetchCaptures()
+  } catch (err: any) {
+    alert('Start capture failed: ' + err.message)
+  }
+}
+
+async function stopCapture(id: string) {
+  try {
+    const res = await fetch(`/api/packet_capture/stop/${id}`, {
+      method: 'POST',
+      headers: { 'Authorization': 'Bearer ' + localStorage.getItem('nr_token') }
+    })
+    if (res.ok) {
+      fetchCaptures()
+    } else {
+      const data = await res.json()
+      alert('Stop capture failed: ' + data.detail)
+    }
+  } catch (err: any) {
+    alert('Stop capture failed: ' + err.message)
+  }
+}
 
 const attackTarget = ref<string | null>(null)
 const attackStatus = ref('')
@@ -176,6 +261,13 @@ function ctxBruteForce() {
   attackTarget.value = ctxMenu.value.name
   attackStatus.value = ''
   closeCtx()
+  nextTick(() => {
+    // Focus or showModal logic if necessary, handled by Vue reactivity on <dialog>
+    const dialog = document.querySelector('dialog')
+    if (dialog && typeof dialog.showModal === 'function' && !dialog.open) {
+      dialog.showModal()
+    }
+  })
 }
 
 async function launchAttack(service: string) {
@@ -223,12 +315,12 @@ async function launchAttack(service: string) {
 }
 
 async function ctxConnect() {
-  const id = ctxMenu.value.nodeId; closeCtx()
+  const id = ctxMenu.value.targetId; closeCtx()
   try { await api.connectNode(id); store.manuallyDisconnected.delete(id); await store.refreshConnections() }
   catch (e) { alert('Connect failed: ' + String(e)) }
 }
 async function ctxDisconnect() {
-  const id = ctxMenu.value.nodeId; closeCtx()
+  const id = ctxMenu.value.targetId; closeCtx()
   try { await api.disconnectNode(id); store.manuallyDisconnected.add(id); await store.refreshConnections() }
   catch (e) { alert('Disconnect failed: ' + String(e)) }
 }
@@ -237,7 +329,7 @@ async function ctxDisconnect() {
 // anchor your gateway/router as the hub instead of letting physics decide.
 const pinnedId = ref<string | null>(null)
 function ctxTogglePin() {
-  const id = ctxMenu.value.nodeId; closeCtx()
+  const id = ctxMenu.value.targetId; closeCtx()
   const setFixed = (nid: string, v: number | undefined) => {
     const n = nodeCache.get(nid)
     if (n) { n.fx = v; n.fy = v; n.fz = v }
@@ -262,6 +354,8 @@ const syncing = ref(false)
 const debugStats = ref<{nodes: number, links: number} | null>(null)
 const initError = ref<string | null>(null)
 const telemetryData = ref<Record<string, Record<string, any>>>({})
+const showThreats = ref(false)
+const showAgents = ref(false)
 // Real per-node vitals (CPU/RAM/net) from the telemetry poller
 const nodeVitals = ref<Record<string, { cpu: number | null, ram: number | null, net_tx: number, net_rx: number }>>({})
 // Active TCP reachability per node (online + connect latency)
@@ -273,7 +367,12 @@ function toggleLayout() {
   if (graph && typeof graph.dagMode === 'function') {
     graph.dagMode(layoutMode.value === 'hierarchical' ? 'td' : null)
     if (layoutMode.value === 'hierarchical') {
-      graph.dagLevelDistance(60)
+      graph.dagLevelDistance(80)
+      // Lock camera to a flat 2D top-down perspective (Unifi style)
+      graph.cameraPosition({ x: 0, y: -40, z: 250 }, { x: 0, y: -40, z: 0 }, 1000)
+    } else {
+      // Return to a nice 3D angle
+      graph.cameraPosition({ x: 0, y: 150, z: 300 }, { x: 0, y: 0, z: 0 }, 1000)
     }
   }
 }
@@ -454,21 +553,7 @@ function getGraphData() {
     nodesList.push(cached)
   })
 
-  // Create virtual gateway if no regular nodes exist
-  if (nodesList.length === 0) {
-    const virtualId = 'gateway-virtual'
-    activeIds.add(virtualId)
-    let cached = nodeCache.get(virtualId)
-    if (!cached) {
-      cached = { id: virtualId }
-      nodeCache.set(virtualId, cached)
-    }
-    cached.name = 'Internet Gateway (Virtual)'
-    cached.type = 'router'
-    cached.connected = true
-    cached.val = 4
-    nodesList.push(cached)
-  }
+
 
   // Inject ghost nodes safely
   ghostNodes.value.forEach((ghost, i) => {
@@ -522,6 +607,8 @@ function getGraphData() {
     linksList.push(cached)
   })
 
+
+
   // Ghost links
   ghostNodes.value.forEach((ghost, i) => {
     const ghostId = `ghost-${i}-${ghost.ip || ghost.name || 'unknown'}`
@@ -530,7 +617,7 @@ function getGraphData() {
     
     const srcNode = store.nodeList.find(n => 
       n.name.trim().toLowerCase() === (ghost.source_node || '').trim().toLowerCase()
-    ) || store.nodeList[0] || { id: 'gateway-virtual' }
+    ) || store.nodeList[0] || { id: 'unknown-source' }
 
     let cached = linkCache.get(linkId)
     if (!cached) {
@@ -669,30 +756,73 @@ function startAnimationLoop() {
         if (node.__threeObj) {
           const group = node.__threeObj
           
-          // 1. Rotate the custom animGroup
+          const isVulnerable = node.tags && node.tags.includes('vulnerable')
+          const isGhost = node.type === 'ghost'
+          // For demonstration, we simulate 'agents' as nodes tagged 'agent' or if their name implies it
+          const isAgent = (node.tags && node.tags.includes('agent')) || (node.name && node.name.toLowerCase().includes('agent'))
+          
+          // 0. Update base colors dynamically based on layers
+          let targetColor = 0x00e5ff
+          if (node.id === store.selectedId) targetColor = 0xff2d6e
+          else if (node.id === drawSource.value) targetColor = 0xffbe0b
+          else if (showThreats.value && (isGhost || isVulnerable)) targetColor = 0xff0000 // Pure red for active threat layer
+          else if (showAgents.value && isAgent) targetColor = 0x0088ff // Deep blue for active agent layer
+          else if (isGhost || isVulnerable) targetColor = 0xff2d6e
+          else if (node.connected) targetColor = 0x00ff9d
+
+          // Apply color to core
+          const core = group.children[0]
+          if (core && core.material && core.material.color) {
+            core.material.color.setHex(targetColor)
+          }
+
+          // 1. Rotate the custom animGroup and apply colors
           const animGroup = group.children.find((c: any) => c.__isAnimGroup)
           if (animGroup) {
             animGroup.rotation.x += 0.005
             animGroup.rotation.y += 0.01
+            animGroup.traverse((child: any) => {
+              if (child.material && child.material.color) {
+                child.material.color.setHex(targetColor)
+              }
+            })
           }
           
-          // 2. Pulse the breathing neon aura scale — tint + intensify by real CPU load
+          // 2. Pulse the breathing neon aura scale
           const aura = group.children.find((c: any) => c.__isAura)
           if (aura) {
-            const v = nodeVitals.value[node.id]
-            const cpu = v && v.cpu !== null ? v.cpu : null
-            // Load-driven aura: faster/larger pulse and green→amber→red tint
-            const load = cpu !== null ? cpu / 100 : 0
-            const speed = 1 + load * 3
-            const scale = 1.0 + Math.sin(time * speed) * (0.12 + load * 0.25)
-            aura.scale.setScalar(scale)
-            if (cpu !== null) {
-              // green (0x00ff9d) -> amber (0xffbe0b) -> red (0xff2d6e)
-              const col = cpu < 50
-                ? new THREE.Color(0x00ff9d).lerp(new THREE.Color(0xffbe0b), cpu / 50)
-                : new THREE.Color(0xffbe0b).lerp(new THREE.Color(0xff2d6e), (cpu - 50) / 50)
-              aura.material.color.copy(col)
-              aura.material.opacity = 0.12 + load * 0.25
+            if (showThreats.value && (isGhost || isVulnerable)) {
+              const speed = 5
+              const scale = 1.2 + Math.sin(time * speed) * 0.4
+              aura.scale.setScalar(scale)
+              aura.material.color.setHex(0xff0000)
+              aura.material.opacity = 0.5 + Math.sin(time * speed) * 0.2
+            } else if (showAgents.value && isAgent) {
+              const speed = 3
+              const scale = 1.1 + Math.sin(time * speed) * 0.3
+              aura.scale.setScalar(scale)
+              aura.material.color.setHex(0x0088ff)
+              aura.material.opacity = 0.4 + Math.sin(time * speed) * 0.2
+            } else {
+              const v = nodeVitals.value[node.id]
+              const cpu = v && v.cpu !== null ? v.cpu : null
+              // Load-driven aura: faster/larger pulse and green→amber→red tint
+              const load = cpu !== null ? cpu / 100 : 0
+              const speed = 1 + load * 3
+              const scale = 1.0 + Math.sin(time * speed) * (0.12 + load * 0.25)
+              aura.scale.setScalar(scale)
+              
+              if (cpu !== null) {
+                // green (0x00ff9d) -> amber (0xffbe0b) -> red (0xff2d6e)
+                const col = cpu < 50
+                  ? new THREE.Color(0x00ff9d).lerp(new THREE.Color(0xffbe0b), cpu / 50)
+                  : new THREE.Color(0xffbe0b).lerp(new THREE.Color(0xff2d6e), (cpu - 50) / 50)
+                aura.material.color.copy(col)
+                aura.material.opacity = 0.12 + load * 0.25
+              } else {
+                aura.material.color.setHex(targetColor)
+                aura.material.opacity = 0.15
+              }
             }
           }
         }
@@ -966,12 +1096,40 @@ function initGraph() {
       g.onNodeRightClick((node: any, event: MouseEvent) => {
         if (!node) return
         event.preventDefault?.()
+        let x = event.clientX
+        let y = event.clientY
+        const menuWidth = 220
+        const menuHeight = 200
+        if (x + menuWidth > window.innerWidth) x = window.innerWidth - menuWidth - 10
+        if (y + menuHeight > window.innerHeight) y = window.innerHeight - menuHeight - 10
         ctxMenu.value = {
           show: true,
-          x: event.clientX,
-          y: event.clientY,
-          nodeId: node.id as string,
+          x,
+          y,
+          targetId: node.id as string,
           name: node.name || node.id,
+          type: 'node'
+        }
+      })
+    }
+
+    if (typeof g.onLinkRightClick === 'function') {
+      g.onLinkRightClick((link: any, event: MouseEvent) => {
+        if (!link) return
+        event.preventDefault?.()
+        let x = event.clientX
+        let y = event.clientY
+        const menuWidth = 220
+        const menuHeight = 200
+        if (x + menuWidth > window.innerWidth) x = window.innerWidth - menuWidth - 10
+        if (y + menuHeight > window.innerHeight) y = window.innerHeight - menuHeight - 10
+        ctxMenu.value = {
+          show: true,
+          x,
+          y,
+          targetId: link.id as string,
+          name: 'Link ' + link.id,
+          type: 'link'
         }
       })
     }
@@ -1075,6 +1233,9 @@ watch(telemetryData, () => {
 }, { deep: true })
 
 onMounted(() => {
+  fetchCaptures()
+  captureInterval = setInterval(fetchCaptures, 3000)
+
   store.refresh().then(() => {
     initGraph()
     updateGraph()
@@ -1110,6 +1271,7 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
+  if (captureInterval) clearInterval(captureInterval)
   stopAnimationLoop()
   if (resizeObserver) resizeObserver.disconnect()
   if (telemetryWs) telemetryWs.close()
@@ -1331,5 +1493,132 @@ onUnmounted(() => {
   color: var(--text);
   font-size: 12px;
   margin: 12px 0 20px 0;
+}
+.btn-tool:focus-visible, .layer-toggle:focus-within {
+  outline: 2px solid var(--cyan);
+  outline-offset: 2px;
+}
+
+.reach-row:focus-visible {
+  outline: 2px solid var(--cyan);
+  outline-offset: -2px;
+}
+
+.btn-close-modal:focus-visible, .reach-close:focus-visible {
+  outline: 2px solid var(--pink);
+  outline-offset: 2px;
+}
+
+.reach-row.active {
+  background: rgba(0, 229, 255, 0.15);
+  border-left: 2px solid var(--cyan);
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.spinner {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border: 2px solid rgba(255,255,255,0.3);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+  vertical-align: middle;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.packet-captures-widget {
+  position: absolute;
+  bottom: 20px;
+  right: 20px;
+  z-index: 12;
+  width: 250px;
+  max-height: 40%;
+  overflow-y: auto;
+  background: rgba(10, 16, 30, 0.92);
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  backdrop-filter: blur(8px);
+  padding: 8px;
+  font-family: var(--font-co);
+}
+.pc-head {
+  font-family: var(--font-hd);
+  font-size: 11px;
+  color: var(--cyan);
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 6px;
+  letter-spacing: 1px;
+}
+.pc-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 6px;
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  margin-bottom: 4px;
+}
+.pc-info {
+  display: flex;
+  flex-direction: column;
+}
+.pc-target {
+  color: var(--textwh);
+  font-size: 11px;
+  word-break: break-all;
+}
+.pc-details {
+  color: var(--text);
+  font-size: 10px;
+}
+.btn-stop-capture {
+  background: rgba(255, 45, 110, 0.15);
+  color: var(--pink);
+  border: 1px solid var(--pink);
+  padding: 4px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 10px;
+  transition: all 0.2s;
+  white-space: nowrap;
+  margin-left: 8px;
+}
+.btn-stop-capture:hover {
+  background: rgba(255, 45, 110, 0.3);
+}
+
+@media (max-width: 768px) {
+  .topology-toolbar {
+    top: 10px;
+    left: 10px;
+    right: 10px;
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
+  .reach-panel {
+    top: auto;
+    bottom: 20px;
+    left: 10px;
+    right: 10px;
+    width: auto;
+    max-height: 40%;
+  }
 }
 </style>

@@ -137,15 +137,186 @@ TOOLS = [
     }
 ]
 
+from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect, Depends
+from .auth import get_current_user, authenticate_ws
+import pty
+import os
+import fcntl
+import termios
+import struct
+import shlex
+
 # ---------------------------------------------------------------------------
 # Routes
 # ---------------------------------------------------------------------------
 
-@router.post("/ai/chat")
+@router.websocket("/ai/ws")
+async def ai_ws(ws: WebSocket):
+    token_data = await authenticate_ws(ws)
+    if not token_data:
+        return
+    await ws.accept()
+    from .settings import load_settings
+    settings = await load_settings()
+
+    cli_path = settings.get("ai_cli_path")
+    if not cli_path:
+        await ws.send_json({"type": "error", "data": "AI CLI command path is not set in Settings."})
+        await ws.close()
+        return
+
+    cli_type = settings.get("ai_cli_type", "opencode")
+    
+    env = os.environ.copy()
+    api_key = settings.get("ai_api_key")
+    if api_key:
+        env["OPENAI_API_KEY"] = api_key
+        env["ANTHROPIC_API_KEY"] = api_key
+        env["GOOGLE_GENERATIVE_AI_API_KEY"] = api_key
+        env["GEMINI_API_KEY"] = api_key
+        env["NVIDIA_API_KEY"] = api_key
+        
+    base_url = settings.get("ai_base_url")
+    if base_url:
+        env["OPENAI_BASE_URL"] = base_url
+        
+    model = settings.get("ai_model")
+    if model:
+        env["LLM_MODEL"] = model
+        env["OPENAI_MODEL_NAME"] = model
+        
+    # Construct command
+    # For opencode, we can pass the workspace directory
+    if cli_type == "opencode":
+        cmd_str = f"{cli_path} /host/home/aso/Dokumenter/github/netrunner"
+    else:
+        cmd_str = cli_path
+
+    pid, fd = pty.fork()
+    if pid == 0:
+        # Child process
+        os.execvpe("sh", ["sh", "-c", cmd_str], env)
+    
+    # Parent process
+    try:
+        import asyncio
+        loop = asyncio.get_running_loop()
+        
+        def pty_data_available():
+            try:
+                data = os.read(fd, 4096)
+                if data:
+                    asyncio.create_task(ws.send_json({
+                        "type": "output", 
+                        "data": data.decode('utf-8', errors='replace')
+                    }))
+            except Exception:
+                pass
+                
+        loop.add_reader(fd, pty_data_available)
+        
+        await ws.send_json({"type": "status", "connected": True})
+        
+        while True:
+            msg = await ws.receive_json()
+            if msg.get("type") == "input":
+                os.write(fd, msg["data"].encode("utf-8"))
+            elif msg.get("type") == "resize":
+                cols, rows = msg.get("cols", 80), msg.get("rows", 24)
+                winsize = struct.pack("HHHH", rows, cols, 0, 0)
+                fcntl.ioctl(fd, termios.TIOCSWINSZ, winsize)
+                
+    except WebSocketDisconnect:
+        pass
+    finally:
+        try:
+            loop.remove_reader(fd)
+            os.close(fd)
+        except Exception:
+            pass
+            
+        import signal
+        try:
+            os.kill(pid, signal.SIGKILL)
+            os.waitpid(pid, 0)
+        except Exception:
+            pass
+
+@router.post("/ai/chat", dependencies=[Depends(get_current_user)])
 async def chat(req: ChatRequest):
     from .settings import load_settings
 
     settings = await load_settings()
+    execution_mode = settings.get("ai_execution_mode", "api")
+
+    # -----------------------------------------------------------------------
+    # CLI Execution Mode
+    # -----------------------------------------------------------------------
+    if execution_mode == "cli":
+        cli_path = settings.get("ai_cli_path")
+        if not cli_path:
+            raise HTTPException(status_code=400, detail="AI CLI command path is not set in Settings.")
+        
+        last_msg = req.messages[-1].content if req.messages else ""
+        import asyncio
+        import shlex
+        
+        safe_msg = shlex.quote(last_msg)
+        cli_type = settings.get("ai_cli_type", "antigravity")
+        model = settings.get("ai_model", "")
+        
+        if cli_type == "opencode":
+            cmd = f"{cli_path} run {safe_msg}"
+            if model:
+                cmd += f" -m {shlex.quote(model)}"
+        elif cli_type == "claude":
+            cmd = f"{cli_path} -p {safe_msg}"
+        else:
+            cmd = f"{cli_path} {safe_msg}"
+        
+        env = os.environ.copy()
+        api_key = settings.get("ai_api_key")
+        
+        if api_key:
+            # Inject the key into all standard provider variables
+            # so the CLI can use it regardless of which model string it receives
+            env["OPENAI_API_KEY"] = api_key
+            env["ANTHROPIC_API_KEY"] = api_key
+            env["GOOGLE_GENERATIVE_AI_API_KEY"] = api_key
+            env["GEMINI_API_KEY"] = api_key
+            env["NVIDIA_API_KEY"] = api_key
+            
+        base_url = settings.get("ai_base_url")
+        if base_url:
+            env["OPENAI_BASE_URL"] = base_url
+            
+        model = settings.get("ai_model")
+        if model:
+            env["LLM_MODEL"] = model
+            env["OPENAI_MODEL_NAME"] = model
+            
+        try:
+            proc = await asyncio.create_subprocess_shell(
+                cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                env=env
+            )
+            stdout, stderr = await proc.communicate()
+            
+            out_text = stdout.decode().strip()
+            err_text = stderr.decode().strip()
+            
+            if proc.returncode != 0:
+                raise Exception(f"Process exited with code {proc.returncode}. Error: {err_text} | Output: {out_text}")
+                
+            return {"role": "assistant", "content": out_text or err_text or "Process completed with no output."}
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"CLI execution failed: {e}")
+
+    # -----------------------------------------------------------------------
+    # API Execution Mode
+    # -----------------------------------------------------------------------
     provider = (settings.get("ai_provider") or "openai").strip().lower()
     model = req.model or settings.get("ai_model") or ("llama3.1" if provider == "ollama" else "gpt-4o")
     api_key = settings.get("ai_api_key") or settings.get("openai_api_key") or os.environ.get("OPENAI_API_KEY")

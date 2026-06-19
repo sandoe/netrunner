@@ -138,6 +138,20 @@ class CTIEngine:
 
     async def stream_threats(self, queue: asyncio.Queue):
         """Generates a continuous stream of simulated threat intelligence events."""
+        # Wait 5 seconds so the frontend map has time to render
+        await asyncio.sleep(5)
+        
+        # Determine if we should run in fully REAL mode (no simulation)
+        # We will turn off the random noise loop so you only see REAL data
+        settings = await load_settings_db()
+        use_simulation = settings.get("enable_threat_simulation", False) # default off
+        
+        if not use_simulation:
+            logger.info("[CTI] Threat simulation disabled. Only streaming REAL live data from agents and local logs.")
+            # We just hang here forever so the task doesn't die, real events come from tail_monitored_nodes_logs
+            while True:
+                await asyncio.sleep(3600)
+                
         while True:
             # Check settings periodically to see if API key was added
             if time.time() - self.last_fetch > 60:
@@ -251,6 +265,86 @@ class CTIEngine:
         }
         
         await queue.put(event)
+
+    async def tail_monitored_nodes_logs(self, queue: asyncio.Queue):
+        """Tails the local system journal for real SSH activity and streams it to the map."""
+        import re
+        import asyncio.subprocess
+        
+        # Regex to find IPv4 addresses
+        ip_regex = re.compile(r'\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b')
+        
+        try:
+            # Tail the ssh journal, wait for new lines only
+            process = await asyncio.create_subprocess_exec(
+                'journalctl', '-u', 'ssh', '-f', '-n', '0',
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.DEVNULL
+            )
+            
+            logger.info("[CTI] Started tailing real SSH logs from journalctl.")
+            
+            while True:
+                line = await process.stdout.readline()
+                if not line:
+                    break
+                    
+                text = line.decode('utf-8', errors='ignore').strip()
+                
+                # Check for failed logins, disconnects, or general SSH activity
+                if "ssh" in text.lower():
+                    # Extract IP
+                    match = ip_regex.search(text)
+                    if match:
+                        attacker_ip = match.group(0)
+                        
+                        # Determine severity
+                        severity = "low"
+                        alert_type = "SSH Activity"
+                        if "Failed password" in text or "Invalid user" in text:
+                            severity = "high"
+                            alert_type = "SSH Brute Force"
+                        elif "Disconnected" in text or "Connection closed" in text:
+                            severity = "low"
+                            alert_type = "SSH Probe Dropped"
+                        elif "Accepted" in text:
+                            severity = "critical"
+                            alert_type = "SSH Successful Login!"
+                        
+                        # Geolocate attacker
+                        attacker_geo = await get_ip_geolocation(attacker_ip, default_name="Unknown Attacker")
+                        
+                        source = {
+                            "ip": attacker_ip,
+                            "city": f"{attacker_geo['name']} (IP: {attacker_ip})",
+                            "lat": attacker_geo["lat"] + (random.random() - 0.5) * 0.5,
+                            "lng": attacker_geo["lng"] + (random.random() - 0.5) * 0.5
+                        }
+                        
+                        # Target is this Netrunner server itself
+                        target_geo = await get_ip_geolocation("127.0.0.1", default_name="Netrunner Core")
+                        target = {
+                            "ip": "127.0.0.1",
+                            "city": "Netrunner HQ",
+                            "lat": target_geo["lat"],
+                            "lng": target_geo["lng"]
+                        }
+                        
+                        event = {
+                            "id": f"real_evt_{int(time.time()*1000)}",
+                            "timestamp": time.time(),
+                            "source": source,
+                            "target": target,
+                            "type": alert_type,
+                            "severity": severity,
+                            "targeted": True,
+                            "node_id": "netrunner-core"
+                        }
+                        
+                        logger.info(f"[CTI] Real Threat Detected: {alert_type} from {attacker_ip}")
+                        await queue.put(event)
+        except Exception as e:
+            logger.error(f"[CTI] Failed to tail real logs: {e}")
 
 cti_engine = CTIEngine()
 cti_queue = asyncio.Queue()

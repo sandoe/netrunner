@@ -60,30 +60,24 @@
       <nav class="nav-menu">
         <div class="nav-group">
           <div class="nav-group-head" @click="toggleNavCat('dashboard')">
-            <span>📊 DASHBOARD</span>
+            <span>📊 COMMAND CENTER</span>
             <span class="nav-group-chevron" :class="{ collapsed: collapsedNavCats.has('dashboard') }">⌃</span>
           </div>
           <div v-if="!collapsedNavCats.has('dashboard')" class="nav-group-items">
-            <button class="btn-pulse" :class="{ active: viewMode === 'pulse' }" @click="viewMode = 'pulse'">⚡ NETWORK PULSE</button>
-            <button :class="{ active: viewMode === 'topology' }" @click="viewMode = 'topology'">🕸️ TOPOLOGY</button>
-            <button class="btn-warroom" :class="{ active: viewMode === 'warroom' }" @click="viewMode = 'warroom'">🚨 WAR ROOM</button>
+            <button :class="{ active: viewMode === 'dashboard' }" @click="viewMode = 'dashboard'">⎈ DASHBOARD</button>
+            <button class="btn-bell" :class="{ active: viewMode === 'alerts' }" @click="viewMode = 'alerts'">🚨 ALERT INBOX</button>
+            <button :class="{ active: viewMode === 'reports' }" @click="viewMode = 'reports'">📑 REPORTS</button>
           </div>
         </div>
 
         <div class="nav-group">
-          <div class="nav-group-head" @click="toggleNavCat('infrastructure')">
-            <span>🔌 INFRASTRUCTURE</span>
-            <span class="nav-group-chevron" :class="{ collapsed: collapsedNavCats.has('infrastructure') }">⌃</span>
+          <div class="nav-group-head" @click="toggleNavCat('network')">
+            <span>🌐 NETWORK & INFRASTRUCTURE</span>
+            <span class="nav-group-chevron" :class="{ collapsed: collapsedNavCats.has('network') }">⌃</span>
           </div>
-          <div v-if="!collapsedNavCats.has('infrastructure')" class="nav-group-items">
-            <button :class="{ active: viewMode === 'node' }" @click="viewMode = 'node'">🖥️ NODES</button>
-            <button class="btn-sdn" :class="{ active: viewMode === 'sdn-config' }" @click="viewMode = 'sdn-config'">⚙️ CONFIGURATION</button>
-            <button class="btn-sdn" :class="{ active: viewMode === 'sdn-clients' }" @click="viewMode = 'sdn-clients'">💻 CLIENTS</button>
-            <button class="btn-sdn" :class="{ active: viewMode === 'sdn-traffic' }" @click="viewMode = 'sdn-traffic'">
-              📈 L7 ANALYTICS
-              <span class="api-led" :class="serviceStatus.influxdb ? 'up' : 'down'" title="InfluxDB Service"></span>
-            </button>
-            <button class="btn-sdn" :class="{ active: viewMode === 'sdn-hotspot' }" @click="viewMode = 'sdn-hotspot'">🎟️ HOTSPOT MANAGER</button>
+          <div v-if="!collapsedNavCats.has('network')" class="nav-group-items">
+            <button :class="{ active: viewMode === 'topology' }" @click="viewMode = 'topology'">🕸️ TOPOLOGY & MAPS</button>
+            <button class="btn-sdn" :class="{ active: viewMode === 'network' }" @click="viewMode = 'network'">🔌 NETWORK CONTROLLER</button>
             <button class="btn-sdn" :class="{ active: viewMode === 'host' }" @click="viewMode = 'host'">💻 LOCAL HOST</button>
             <button class="btn-attack" :class="{ active: viewMode === 'database' }" @click="viewMode = 'database'">
               🗄️ DATABASE CONTROL
@@ -93,28 +87,17 @@
         </div>
 
         <div class="nav-group">
-          <div class="nav-group-head" @click="toggleNavCat('recon')">
-            <span>📡 RECON & THREATS</span>
-            <span class="nav-group-chevron" :class="{ collapsed: collapsedNavCats.has('recon') }">⌃</span>
+          <div class="nav-group-head" @click="toggleNavCat('intel')">
+            <span>🕵️ OPERATIONS & INTEL</span>
+            <span class="nav-group-chevron" :class="{ collapsed: collapsedNavCats.has('intel') }">⌃</span>
           </div>
-          <div v-if="!collapsedNavCats.has('recon')" class="nav-group-items">
-            <button class="btn-recon" :class="{ active: viewMode === 'recon' }" @click="viewMode = 'recon'">🔍 RECON ENGINE</button>
-            <button class="btn-recon" :class="{ active: viewMode === 'agent-map' }" @click="viewMode = 'agent-map'">🗺️ GLOBAL MAP</button>
-            <button :class="{ active: viewMode === 'threat' }" @click="viewMode = 'threat'">🌐 THREAT MAP</button>
-            <button class="btn-intelligence" :class="{ active: viewMode === 'intelligence' }" @click="viewMode = 'intelligence'">🧠 INTELLIGENCE</button>
-            <button :class="{ active: viewMode === 'wifi' }" @click="viewMode = 'wifi'">📶 WIFI & CSI</button>
-            <button class="btn-bluetooth" :class="{ active: viewMode === 'bluetooth' }" @click="viewMode = 'bluetooth'">🛜 BLUETOOTH</button>
-            <button :class="{ active: viewMode === 'history' }" @click="viewMode = 'history'">🕗 HISTORY</button>
-          </div>
-        </div>
-
-        <div class="nav-group">
-          <div class="nav-group-head" @click="toggleNavCat('offensive')">
-            <span>⚔️ OFFENSIVE OPS</span>
-            <span class="nav-group-chevron" :class="{ collapsed: collapsedNavCats.has('offensive') }">⌃</span>
-          </div>
-          <div v-if="!collapsedNavCats.has('offensive')" class="nav-group-items">
-            <button class="btn-attack" :class="{ active: viewMode === 'bruteforce' }" @click="viewMode = 'bruteforce'">🎯 CONTROL ROOM</button>
+          <div v-if="!collapsedNavCats.has('intel')" class="nav-group-items">
+            <button class="btn-recon" :class="{ active: viewMode === 'hunting' }" @click="viewMode = 'hunting'">🔍 THREAT HUNTING</button>
+            <button class="btn-recon" :class="{ active: viewMode === 'recon' }" @click="viewMode = 'recon'">📡 RECON ENGINE</button>
+            <button class="btn-intelligence" :class="{ active: viewMode === 'intelligence' }" @click="viewMode = 'intelligence'">🧠 INTELLIGENCE & TTP</button>
+            <button class="btn-attack" :class="{ active: viewMode === 'attack' }" @click="viewMode = 'attack'">☠️ ATTACK MATRIX</button>
+            <button :class="{ active: viewMode === 'history' }" @click="viewMode = 'history'">🕗 THREAT TIMELINE</button>
+            <button class="btn-attack" :class="{ active: viewMode === 'bruteforce' }" @click="viewMode = 'bruteforce'">🎯 BRUTEFORCE OPS</button>
           </div>
         </div>
       </nav>
@@ -407,7 +390,7 @@
 import { ref, computed, onMounted, onUnmounted, watch, nextTick, provide } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useNodesStore } from '@/stores/nodes'
-import { api } from '@/api/client'
+import { api, sendUiEvent } from '@/api/client'
 import SystemPanel from './components/SystemPanel.vue'
 import WorkloadsPanel from './components/WorkloadsPanel.vue'
 import SecurityPanel from './components/SecurityPanel.vue'
@@ -417,7 +400,6 @@ import ShellPanel       from './components/ShellPanel.vue'
 import UsbPanel         from './components/UsbPanel.vue'
 import FileExplorerPanel from './components/FileExplorerPanel.vue'
 import VpnManagerModal  from './components/VpnManagerModal.vue'
-import NetworkPulse from './components/NetworkPulse.vue'
 import AttackMatrix from './components/AttackMatrix.vue'
 import { useNocAudio } from '@/composables/useNocAudio'
 import { useAmbient } from '@/composables/useAmbient'
@@ -425,24 +407,15 @@ import BootSequence from './components/BootSequence.vue'
 import NodeForm  from './components/NodeForm.vue'
 import TopologyView from './components/TopologyView.vue'
 import ReconView from './components/ReconView.vue'
-import WifiView from './components/WifiView.vue'
-import ThreatMap from './components/ThreatMap.vue'
 import BruteforceControlRoom from '@/components/BruteforceControlRoom.vue'
 import DatabaseControlView from '@/views/DatabaseControlView.vue'
 import KnowledgeGraph from '@/components/KnowledgeGraph.vue'
 import ThreatTimeline from './components/ThreatTimeline.vue'
-import BluetoothView from './components/BluetoothView.vue'
 import AiChatSidebar from './components/AiChatSidebar.vue'
 import SettingsModal from './components/SettingsModal.vue'
 import UserManagementModal from './components/UserManagementModal.vue'
 import LoginView from './components/LoginView.vue'
-import WarRoomDashboard from './components/WarRoomDashboard.vue'
-import InfrastructureView from './components/InfrastructureView.vue'
-import ClientsView from './components/ClientsView.vue'
-import TrafficAnalyticsView from './components/TrafficAnalyticsView.vue'
-import HotspotManagerView from './components/HotspotManagerView.vue'
 import HostControlView from '@/views/HostControlView.vue'
-import AgentMapView from '@/views/AgentMapView.vue'
 import type { NrNode } from '@/types'
 
 const route = useRoute()
@@ -475,6 +448,20 @@ function toggleHolo() {
 // Infrastructure events / alerts
 interface EventItem { id: number; ts: number; severity: string; node_id: string; node_name: string; kind: string; message: string }
 const events = ref<EventItem[]>([])
+
+onMounted(() => {
+  document.addEventListener('click', (e) => {
+    const target = e.target as HTMLElement
+    const interactable = target.closest('button, a, .node, .btn, .nav-link, .tab')
+    if (interactable) {
+      const text = interactable.textContent?.replace(/\s+/g, ' ').trim().substring(0, 50) 
+        || interactable.getAttribute('title') 
+        || interactable.id 
+        || 'unknown'
+      sendUiEvent('click', window.location.pathname, text)
+    }
+  })
+})
 const showAlerts = ref(false)
 const seenEventId = ref(0)
 let eventsBaselineSet = false

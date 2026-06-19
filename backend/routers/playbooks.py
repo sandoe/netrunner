@@ -7,7 +7,8 @@ from ..core.db import (
     load_playbooks_db,
     save_playbook_db,
     update_playbook_db,
-    delete_playbook_db
+    delete_playbook_db,
+    insert_audit_log
 )
 
 router = APIRouter(prefix="/playbooks", tags=["playbooks"])
@@ -53,10 +54,19 @@ async def create_playbook(data: PlaybookCreate):
         "is_active": data.is_active,
         "conditions": data.conditions,
         "actions": data.actions,
-        "created_at": now,
         "updated_at": now
     }
     await save_playbook_db(doc)
+    
+    await insert_audit_log({
+        "id": str(uuid.uuid4()),
+        "user_id": "system_admin", # Mock user since auth isn't fully injected here
+        "action": "CREATE_PLAYBOOK",
+        "resource": playbook_id,
+        "details": f"Created playbook: {data.name}",
+        "timestamp": now
+    })
+    
     return doc
 
 @router.patch("/{playbook_id}", response_model=Dict[str, str])
@@ -67,6 +77,16 @@ async def update_playbook(playbook_id: str, data: PlaybookUpdate):
         return {"status": "no changes"}
     
     await update_playbook_db(playbook_id, update_data)
+    
+    await insert_audit_log({
+        "id": str(uuid.uuid4()),
+        "user_id": "system_admin",
+        "action": "UPDATE_PLAYBOOK",
+        "resource": playbook_id,
+        "details": f"Updated playbook fields: {list(update_data.keys())}",
+        "timestamp": time.time()
+    })
+    
     return {"status": "updated"}
 
 @router.delete("/{playbook_id}", response_model=Dict[str, str])

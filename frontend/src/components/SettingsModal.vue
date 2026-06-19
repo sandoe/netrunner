@@ -1,8 +1,8 @@
 <template>
   <div class="modal-overlay" @click.self="$emit('close')">
-    <div class="modal-content cyber-glass">
+    <div class="modal-content cyber-glass" role="dialog" aria-modal="true" aria-labelledby="settings-title">
       <div class="modal-header">
-        <div class="modal-title">
+        <div class="modal-title" id="settings-title">
           <span class="icon">⚙️</span>
           <span>SYSTEM SETTINGS</span>
         </div>
@@ -27,44 +27,102 @@
         <!-- Main Content Area -->
         <div class="settings-content">
           <transition name="fade" mode="out-in">
-            <!-- GENERAL / INTEGRATIONS TAB -->
-            <div v-if="activeTab === 'general'" class="tab-pane" key="general">
+            <!-- AI ENGINE TAB -->
+            <div v-if="activeTab === 'ai'" class="tab-pane" key="ai">
               
               <div class="settings-card">
                 <div class="card-header">
                   <div class="card-icon">🧠</div>
-                  <div class="card-title">AI Assistant</div>
+                  <div class="card-title">AI Engine Configuration</div>
                 </div>
                 <div class="card-body">
                   <div class="form-group">
-                    <label>AI PROVIDER</label>
-                    <select v-model="aiProvider" class="form-input custom-select">
-                      <option value="openai">OpenAI</option>
-                      <option value="openrouter">OpenRouter / compatible</option>
-                      <option value="ollama">Ollama / local compatible</option>
-                      <option value="custom">Custom OpenAI-compatible API</option>
-                    </select>
-                  </div>
-                  <div class="form-group">
-                    <label>MODEL</label>
-                    <input v-model="aiModel" :placeholder="aiModelPlaceholder" class="form-input" />
-                  </div>
-                  <div class="form-group" v-if="aiProvider !== 'openai'">
-                    <label>BASE URL</label>
-                    <input v-model="aiBaseUrl" :placeholder="aiBaseUrlPlaceholder" class="form-input" />
-                  </div>
-                  <div class="form-group">
-                    <label>{{ aiProvider === 'ollama' ? 'API KEY (OPTIONAL)' : 'API KEY' }}</label>
-                    <div class="input-with-hint">
-                      <input v-model="apiKey" type="password" :placeholder="aiKeyPlaceholder" class="form-input" />
-                      <div class="hint" v-if="currentKeyMasked">
-                        <span class="status-dot active"></span> Active Key: <span class="masked-text">{{ currentKeyMasked }}</span>
-                      </div>
+                    <label>EXECUTION MODE</label>
+                    <div class="custom-select-wrapper">
+                      <select v-model="aiExecutionMode" class="form-input custom-select">
+                        <option value="api">Direct API Call (Cloud/Local API)</option>
+                        <option value="cli">CLI Agent (Local Process)</option>
+                      </select>
                     </div>
                   </div>
+
+                  <!-- API MODE -->
+                  <transition name="fade">
+                    <div v-if="aiExecutionMode === 'api'">
+                      <div class="form-group mt-3">
+                        <label>AI PROVIDER</label>
+                        <div class="custom-select-wrapper">
+                          <select v-model="aiProvider" class="form-input custom-select">
+                            <option value="openai">OpenAI</option>
+                            <option value="openrouter">OpenRouter / compatible</option>
+                            <option value="ollama">Ollama / local compatible</option>
+                            <option value="custom">Custom OpenAI-compatible API</option>
+                          </select>
+                        </div>
+                      </div>
+                      <div class="form-group">
+                        <label>MODEL</label>
+                        <input v-model="aiModel" :placeholder="aiModelPlaceholder" class="form-input" />
+                      </div>
+                      <div class="form-group" v-if="aiProvider !== 'openai'">
+                        <label>BASE URL</label>
+                        <input v-model="aiBaseUrl" :placeholder="aiBaseUrlPlaceholder" class="form-input" />
+                      </div>
+                      <div class="form-group">
+                        <label>{{ aiProvider === 'ollama' ? 'API KEY (OPTIONAL)' : 'API KEY' }}</label>
+                        <div class="input-with-hint">
+                          <input v-model="apiKey" type="password" :placeholder="aiKeyPlaceholder" class="form-input" />
+                          <div class="hint" v-if="currentKeyMasked">
+                            <span class="status-dot active"></span> Active Key: <span class="masked-text">{{ currentKeyMasked }}</span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                  <!-- CLI MODE -->
+                    <div v-else-if="aiExecutionMode === 'cli'">
+                      <div class="form-group mt-3">
+                        <label>AGENT TYPE</label>
+                        <div class="custom-select-wrapper">
+                          <select v-model="aiCliType" class="form-input custom-select">
+                            <option value="antigravity">Antigravity / Gemini SDK</option>
+                            <option value="claude">Claude CLI</option>
+                            <option value="codex">Codex API Tool</option>
+                            <option value="opencode">OpenCode Local Agent</option>
+                          </select>
+                        </div>
+                      </div>
+                      <div class="form-group">
+                        <label>CLI COMMAND PATH</label>
+                        <input v-model="aiCliPath" placeholder="/usr/local/bin/antigravity or npx claude" class="form-input" />
+                      </div>
+                      <div class="form-group">
+                        <label>MODEL OVERRIDE (OPTIONAL)</label>
+                        <input v-model="aiModel" placeholder="e.g. meta/llama-3.1-405b-instruct" class="form-input" />
+                      </div>
+                      <div class="form-group">
+                        <label>BASE URL OVERRIDE (OPTIONAL)</label>
+                        <input v-model="aiBaseUrl" placeholder="e.g. https://integrate.api.nvidia.com/v1" class="form-input" />
+                      </div>
+                      <div class="form-group">
+                        <label>AGENT API KEY</label>
+                        <div class="input-with-hint">
+                          <input v-model="apiKey" type="password" placeholder="Key used specifically for this agent process" class="form-input" />
+                          <div class="hint" v-if="currentKeyMasked">
+                            <span class="status-dot active"></span> Active Key: <span class="masked-text">{{ currentKeyMasked }}</span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </transition>
                 </div>
               </div>
 
+            </div>
+
+            <!-- INTEGRATIONS TAB -->
+            <div v-else-if="activeTab === 'integrations'" class="tab-pane" key="integrations">
+              
               <div class="settings-card">
                 <div class="card-header">
                   <div class="card-icon">🛡️</div>
@@ -203,17 +261,27 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted, onUnmounted, computed } from 'vue'
 import { api } from '@/api/client'
 
 const emit = defineEmits(['close', 'saved'])
 
-const activeTab = ref('general')
+onMounted(() => document.addEventListener('keydown', handleEscape))
+onUnmounted(() => document.removeEventListener('keydown', handleEscape))
+function handleEscape(e: KeyboardEvent) {
+  if (e.key === 'Escape') emit('close')
+}
+
+const activeTab = ref('ai')
 const tabs = [
-  { id: 'general', label: 'Integrations', icon: '🔌' },
+  { id: 'ai', label: 'AI Engine', icon: '🧠' },
+  { id: 'integrations', label: 'Integrations', icon: '🔌' },
   { id: 'database', label: 'Database', icon: '🗄️' }
 ]
 
+const aiExecutionMode = ref('api')
+const aiCliType = ref('antigravity')
+const aiCliPath = ref('')
 const apiKey = ref('')
 const aiProvider = ref('openai')
 const aiBaseUrl = ref('')
@@ -283,6 +351,9 @@ const computedDbUrl = computed(() => {
 async function load() {
   try {
     const res = await api.getSettings()
+    aiExecutionMode.value = res.ai_execution_mode || 'api'
+    aiCliType.value = res.ai_cli_type || 'antigravity'
+    aiCliPath.value = res.ai_cli_path || ''
     aiProvider.value = res.ai_provider || 'openai'
     aiBaseUrl.value = res.ai_base_url || ''
     aiModel.value = res.ai_model || (aiProvider.value === 'ollama' ? 'llama3.1' : 'gpt-4o')
@@ -351,6 +422,9 @@ async function save() {
   saving.value = true
   try {
     const payload: any = { 
+        ai_execution_mode: aiExecutionMode.value,
+        ai_cli_type: aiCliType.value,
+        ai_cli_path: aiCliPath.value,
         ai_provider: aiProvider.value,
         ai_base_url: aiBaseUrl.value,
         ai_model: aiModel.value,
@@ -430,7 +504,7 @@ onMounted(load)
 /* Sidebar Nav */
 .settings-nav {
   width: 200px; background: rgba(5, 8, 15, 0.5); border-right: 1px solid rgba(0, 229, 255, 0.1);
-  padding: 16px 0; display: flex; flex-direction: column; gap: 4px;
+  padding: 16px 0; display: flex; flex-direction: column; gap: 4px; flex-shrink: 0;
 }
 .nav-tab {
   display: flex; align-items: center; gap: 12px; padding: 12px 20px;
@@ -504,7 +578,7 @@ label { display: flex; align-items: center; gap: 8px; font-family: var(--font-hd
   border-radius: 6px; color: var(--textwh); font-family: var(--font-co); font-size: 12px; outline: none; transition: all 0.2s;
 }
 .form-input:focus { border-color: var(--cyan); box-shadow: 0 0 12px rgba(0,229,255,0.15); background: rgba(0, 0, 0, 0.5); }
-.form-input::placeholder { color: rgba(255, 255, 255, 0.2); }
+.form-input::placeholder { color: rgba(255, 255, 255, 0.5); }
 
 .custom-select-wrapper { position: relative; }
 .custom-select { appearance: none; cursor: pointer; }
@@ -512,6 +586,16 @@ label { display: flex; align-items: center; gap: 8px; font-family: var(--font-hd
 
 .db-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
 .full-width { grid-column: span 2; }
+
+@media (max-width: 768px) {
+  .modal-body-layout { flex-direction: column; height: auto; max-height: 70vh; }
+  .settings-nav { width: 100%; border-right: none; border-bottom: 1px solid rgba(0, 229, 255, 0.1); flex-direction: row; padding: 8px; overflow-x: auto; }
+  .nav-tab { border-left: none; border-bottom: 3px solid transparent; flex: 1; justify-content: center; padding: 12px 8px; }
+  .nav-tab.active { border-left-color: transparent; border-bottom-color: var(--cyan); box-shadow: inset 0 20px 20px -20px rgba(0, 229, 255, 0.3); }
+  .db-grid { grid-template-columns: 1fr; }
+  .full-width { grid-column: span 1; }
+  .tab-label { display: none; }
+}
 
 .raw-url { margin-top: 24px; padding-top: 16px; border-top: 1px dashed rgba(255, 255, 255, 0.1); }
 .raw-input { font-size: 11px; color: var(--textbr); background: rgba(0, 0, 0, 0.5); border-color: transparent; }
@@ -551,4 +635,6 @@ label { display: flex; align-items: center; gap: 8px; font-family: var(--font-hd
 }
 .btn-restart:hover:not(:disabled) { background: var(--pink); color: #fff; box-shadow: 0 0 15px rgba(255, 45, 110, 0.4); }
 .btn-restart:disabled { opacity: 0.5; cursor: not-allowed; }
+.nav-tab:focus-visible, .btn-action:focus-visible, .btn-close:focus-visible, .btn-cancel:focus-visible, .btn-save:focus-visible, .btn-restart:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
+button:focus-visible, .btn-action:focus-visible, .btn-close:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
 </style>

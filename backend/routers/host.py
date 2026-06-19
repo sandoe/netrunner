@@ -18,8 +18,7 @@ def get_disk_usage(path: str):
     except Exception:
         return None
 
-@router.get("/system/host")
-async def get_host_metrics():
+def _collect_host_metrics():
     # If /host is mounted, check it. Otherwise fallback to /
     disk_path = "/host" if os.path.exists("/host") else "/"
     
@@ -71,6 +70,11 @@ async def get_host_metrics():
         "disk": get_disk_usage(disk_path),
         "usb_devices": usb_devices
     }
+
+@router.get("/system/host")
+async def get_host_metrics():
+    import asyncio
+    return await asyncio.to_thread(_collect_host_metrics)
 
 @router.post("/system/cleanup")
 async def api_system_cleanup():

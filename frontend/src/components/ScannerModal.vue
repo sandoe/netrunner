@@ -1,8 +1,8 @@
 <template>
   <div class="modal-overlay" @click.self="$emit('close')">
-    <div class="cyber-modal-card scanner-modal">
+    <div class="cyber-modal-card scanner-modal" role="dialog" aria-modal="true" aria-labelledby="scanner-modal-title">
       <div class="cyber-modal-header">
-        <div class="modal-title">🕸️ SUBNET SCANNER: {{ networkBase }}</div>
+        <div class="modal-title" id="scanner-modal-title">🕸️ SUBNET SCANNER: {{ networkBase }}</div>
         <button class="btn-close-modal" @click="$emit('close')">×</button>
       </div>
       <div class="cyber-modal-body">
@@ -30,13 +30,13 @@
 
     <!-- Sub Modal for Brute Force Attack -->
     <div v-if="attackTarget" class="modal-overlay" style="z-index: 1000" @click.self="attackTarget = null">
-      <div class="cyber-modal-card" style="width: 400px">
+      <div class="cyber-modal-card" style="width: 400px; max-width: 95vw;" role="dialog" aria-modal="true" aria-labelledby="attack-modal-title">
         <div class="cyber-modal-header">
-          <div class="modal-title" style="color: var(--pink)">💥 LAUNCH BRUTE FORCE</div>
+          <div class="modal-title" id="attack-modal-title" style="color: var(--pink)">💥 LAUNCH BRUTE FORCE</div>
           <button class="btn-close-modal" @click="attackTarget = null">×</button>
         </div>
         <div class="cyber-modal-body" style="text-align: center">
-          <p style="color: #a0a0a0; margin-bottom: 20px;">TARGET NODE: <strong style="color: #00e5ff">{{ attackTarget }}</strong></p>
+          <p style="color: var(--textbr); margin-bottom: 20px;">TARGET NODE: <strong style="color: var(--cyan)">{{ attackTarget }}</strong></p>
           <div style="display: flex; gap: 10px; justify-content: center; flex-wrap: wrap;">
             <button class="btn-action btn-danger" @click="launchAttack('ssh')">[ CRACK SSH ]</button>
             <button class="btn-action btn-danger" @click="launchAttack('ftp')">[ CRACK FTP ]</button>
@@ -54,7 +54,16 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, watch } from 'vue'
+import { ref, onMounted, onUnmounted, watch } from 'vue'
+
+onMounted(() => document.addEventListener('keydown', handleEscape))
+onUnmounted(() => document.removeEventListener('keydown', handleEscape))
+function handleEscape(e: KeyboardEvent) {
+  if (e.key === 'Escape') {
+    if (attackTarget.value) attackTarget.value = null
+    else emit('close')
+  }
+}
 
 const props = defineProps<{
   dataRaw: string
@@ -205,7 +214,7 @@ watch(() => props.dataRaw, (newVal) => {
 }
 
 .topo-mac {
-  color: #888;
+  color: var(--text);
   font-family: var(--font-co);
   font-size: 9px;
   margin-top: 4px;
@@ -214,7 +223,7 @@ watch(() => props.dataRaw, (newVal) => {
 .empty-state {
   padding: 20px;
   text-align: center;
-  color: #666;
+  color: var(--text);
   font-family: var(--font-hd);
   letter-spacing: 2px;
 }
@@ -241,9 +250,10 @@ watch(() => props.dataRaw, (newVal) => {
 .btn-danger { border-color: rgba(255, 45, 110, 0.4); color: var(--pink); background: rgba(255, 45, 110, 0.05); transition: all 0.2s;}
 .btn-danger:hover:not(:disabled) {
   background: rgba(255, 45, 110, 0.15);
-  border-color: #ff0055;
+  border-color: var(--pink);
   color: #fff;
-  box-shadow: 0 0 15px #ff0055, inset 0 0 10px rgba(255, 0, 85, 0.2);
-  text-shadow: 0 0 5px #ff0055;
+  box-shadow: 0 0 15px var(--pink), inset 0 0 10px rgba(255, 0, 85, 0.2);
+  text-shadow: 0 0 5px var(--pink);
 }
+button:focus-visible, .btn-action:focus-visible, .btn-close:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
 </style>

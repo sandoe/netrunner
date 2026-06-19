@@ -1,8 +1,8 @@
 <template>
   <div class="modal-overlay" @click.self="$emit('close')">
-    <div class="modal-content cyber-panel">
+    <div class="modal-content cyber-panel" role="dialog" aria-modal="true" aria-labelledby="vpn-manager-title">
       <div class="modal-header">
-        <h2 class="title">WIREGUARD VPN MANAGER</h2>
+        <h2 class="title" id="vpn-manager-title">WIREGUARD VPN MANAGER</h2>
         <button class="btn-close" @click="$emit('close')">×</button>
       </div>
 
@@ -22,7 +22,8 @@
         <div class="action-bar">
           <input type="text" v-model="newClientName" placeholder="Client Name (e.g. Elev-01)" class="cyber-input" @keyup.enter="createClient" />
           <button class="btn-tool btn-add" @click="createClient" :disabled="!newClientName || creating">
-            {{ creating ? 'GENERATING...' : 'ADD CLIENT' }}
+            <span v-if="creating" class="spinner"></span>
+            <span v-else>ADD CLIENT</span>
           </button>
         </div>
 
@@ -57,9 +58,15 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, onUnmounted } from 'vue'
 
 const emit = defineEmits(['close'])
+
+onMounted(() => document.addEventListener('keydown', handleEscape))
+onUnmounted(() => document.removeEventListener('keydown', handleEscape))
+function handleEscape(e: KeyboardEvent) {
+  if (e.key === 'Escape') emit('close')
+}
 
 const loading = ref(true)
 const creating = ref(false)
@@ -217,13 +224,13 @@ onMounted(() => {
   width: 12px;
   height: 12px;
   border-radius: 50%;
-  background: #ff5252;
-  box-shadow: 0 0 10px #ff5252;
+  background: var(--pink);
+  box-shadow: 0 0 10px var(--pink);
 }
 
 .status-indicator.active {
-  background: #00e676;
-  box-shadow: 0 0 10px #00e676;
+  background: var(--green);
+  box-shadow: 0 0 10px var(--green);
 }
 
 .status-text {
@@ -248,7 +255,7 @@ onMounted(() => {
   flex: 1;
   background: var(--bg3);
   border: 1px solid var(--border);
-  color: #fff;
+  color: var(--textwh);
   padding: 10px;
   font-family: var(--font-ui);
   font-size: 13px;
@@ -355,4 +362,5 @@ onMounted(() => {
   font-family: var(--font-hd);
   padding: 40px;
 }
+button:focus-visible, .btn-action:focus-visible, .btn-close:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
 </style>

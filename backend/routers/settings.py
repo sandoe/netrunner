@@ -12,6 +12,9 @@ from ..core.db import load_settings_db, save_setting_db
 router = APIRouter()
 
 class Settings(BaseModel):
+    ai_execution_mode: str = "api"
+    ai_cli_type: str = "antigravity"
+    ai_cli_path: str = ""
     ai_provider: str = "openai"
     ai_api_key: str = ""
     ai_base_url: str = ""
@@ -45,6 +48,9 @@ async def get_settings():
     from ..core.db import DATABASE_URL
     
     return {
+        "ai_execution_mode": s.get("ai_execution_mode", "api"),
+        "ai_cli_type": s.get("ai_cli_type", "antigravity"),
+        "ai_cli_path": s.get("ai_cli_path", ""),
         "ai_provider": s.get("ai_provider", "openai"),
         "ai_api_key_set": bool(key),
         "ai_masked_key": masked,
@@ -65,7 +71,7 @@ async def get_settings():
 @router.post("/settings")
 async def update_settings(settings: dict):
     s = await load_settings()
-    for key in ("ai_provider", "ai_base_url", "ai_model"):
+    for key in ("ai_execution_mode", "ai_cli_type", "ai_cli_path", "ai_provider", "ai_base_url", "ai_model"):
         if key in settings:
             s[key] = settings[key]
             await save_setting_db(key, settings[key])

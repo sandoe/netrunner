@@ -81,12 +81,25 @@ def get_influx_client():
     return _influx_client
 
 
+from sqlalchemy.pool import NullPool
+from sqlalchemy import event
+
 # Ensure parent directory exists for SQLite
 if DATABASE_URL.startswith("sqlite"):
     db_path = DATABASE_URL.split(":///")[1]
     Path(db_path).parent.mkdir(parents=True, exist_ok=True)
+    engine = create_async_engine(DATABASE_URL, poolclass=NullPool)
+    
+    @event.listens_for(engine.sync_engine, "connect")
+    def set_sqlite_pragma(dbapi_connection, connection_record):
+        cursor = dbapi_connection.cursor()
+        cursor.execute("PRAGMA journal_mode=WAL")
+        cursor.execute("PRAGMA synchronous=NORMAL")
+        cursor.execute("PRAGMA busy_timeout=5000")
+        cursor.close()
+else:
+    engine = create_async_engine(DATABASE_URL)
 
-engine = create_async_engine(DATABASE_URL)
 AsyncSessionLocal = async_sessionmaker(engine, expire_on_commit=False)
 
 
@@ -171,6 +184,33 @@ class PlaybookModel(Base):
     created_at: Mapped[float] = mapped_column(Float)
     updated_at: Mapped[float] = mapped_column(Float)
 
+class IntegrationModel(Base):
+    __tablename__ = "integrations"
+    id: Mapped[str] = mapped_column(String(50), primary_key=True)
+    provider: Mapped[str] = mapped_column(String(50))  # e.g., "slack", "splunk", "teams"
+    name: Mapped[str] = mapped_column(String(100))
+    url: Mapped[str] = mapped_column(String(255))
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[float] = mapped_column(Float)
+
+class AuditLogModel(Base):
+    __tablename__ = "audit_logs"
+    id: Mapped[str] = mapped_column(String(50), primary_key=True)
+    user_id: Mapped[str] = mapped_column(String(100))
+    action: Mapped[str] = mapped_column(String(100))
+    resource: Mapped[str] = mapped_column(String(100))
+    details: Mapped[str] = mapped_column(Text)
+    timestamp: Mapped[float] = mapped_column(Float)
+
+class ThreatIntelModel(Base):
+    __tablename__ = "threat_intel"
+    id: Mapped[str] = mapped_column(String(50), primary_key=True)
+    ip: Mapped[str] = mapped_column(String(100), index=True)
+    source: Mapped[str] = mapped_column(String(100))
+    threat_type: Mapped[str] = mapped_column(String(100))
+    severity: Mapped[str] = mapped_column(String(50))
+    timestamp: Mapped[float] = mapped_column(Float)
+
 
 class AlertModel(Base):
     __tablename__ = "alerts"
@@ -183,6 +223,14 @@ class AlertModel(Base):
     created_at: Mapped[float] = mapped_column()
     updated_at: Mapped[float] = mapped_column()
 
+
+class ReportModel(Base):
+    __tablename__ = "reports"
+    id: Mapped[str] = mapped_column(String(50), primary_key=True)
+    timerange_hours: Mapped[int] = mapped_column(Integer)
+    summary_json: Mapped[str] = mapped_column(Text)
+    markdown_content: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[float] = mapped_column(Float)
 
 # --- SDN & Infrastructure Models ---
 
@@ -560,6 +608,37 @@ async def update_alert_status(alert_id: str, status: str):
             row.updated_at = time.time()
             await session.commit()
 
+# --- reports --------------------------------------------------------------- #
+def _report_to_dict(row: "ReportModel") -> dict:
+    return {
+        "id": row.id,
+        "timerange_hours": row.timerange_hours,
+        "summary_json": json.loads(row.summary_json),
+        "markdown_content": row.markdown_content,
+        "created_at": row.created_at,
+    }
+
+async def load_reports_db() -> list[dict]:
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(select(ReportModel).order_by(ReportModel.created_at.desc()))
+        return [_report_to_dict(r) for r in result.scalars()]
+
+async def get_report_db(report_id: str) -> Optional[dict]:
+    async with AsyncSessionLocal() as session:
+        row = await session.get(ReportModel, report_id)
+        return _report_to_dict(row) if row else None
+
+async def save_report_db(report: dict):
+    async with AsyncSessionLocal() as session:
+        await session.merge(ReportModel(
+            id=report["id"],
+            timerange_hours=report["timerange_hours"],
+            summary_json=json.dumps(report["summary_json"]),
+            markdown_content=report["markdown_content"],
+            created_at=report["created_at"]
+        ))
+        await session.commit()
+
 async def load_playbooks_db():
     async with AsyncSessionLocal() as session:
         result = await session.execute(select(PlaybookModel))
@@ -598,4 +677,81 @@ async def delete_playbook_db(playbook_id: str):
         await session.execute(delete(PlaybookModel).where(PlaybookModel.id == playbook_id))
         await session.commit()
 
+async def load_integrations_db() -> list[dict]:
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(select(IntegrationModel))
+        return [
+            {
+                "id": r.id,
+                "provider": r.provider,
+                "name": r.name,
+                "url": r.url,
+                "is_active": r.is_active,
+                "created_at": r.created_at
+            } for r in result.scalars().all()
+        ]
+
+async def save_integration_db(integration: dict):
+    async with AsyncSessionLocal() as session:
+        obj = IntegrationModel(**integration)
+        await session.merge(obj)
+        await session.commit()
+
+async def update_integration_db(integration_id: str, data: dict):
+    async with AsyncSessionLocal() as session:
+        row = await session.get(IntegrationModel, integration_id)
+        if row:
+            for k, v in data.items():
+                if hasattr(row, k):
+                    setattr(row, k, v)
+            await session.commit()
+
+async def delete_integration_db(integration_id: str):
+    async with AsyncSessionLocal() as session:
+        await session.execute(delete(IntegrationModel).where(IntegrationModel.id == integration_id))
+        await session.commit()
+
+async def insert_audit_log(log_entry: dict):
+    async with AsyncSessionLocal() as session:
+        obj = AuditLogModel(**log_entry)
+        session.add(obj)
+        await session.commit()
+
+async def load_audit_logs_db(limit: int = 100) -> list[dict]:
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(select(AuditLogModel).order_by(AuditLogModel.timestamp.desc()).limit(limit))
+        return [
+            {
+                "id": r.id,
+                "user_id": r.user_id,
+                "action": r.action,
+                "resource": r.resource,
+                "details": r.details,
+                "timestamp": r.timestamp
+            } for r in result.scalars().all()
+        ]
+
+async def insert_threat_intel(intel_entry: dict):
+    async with AsyncSessionLocal() as session:
+        # Check if already exists
+        result = await session.execute(select(ThreatIntelModel).where(ThreatIntelModel.ip == intel_entry["ip"]))
+        existing = result.scalars().first()
+        if existing:
+            return
+        obj = ThreatIntelModel(**intel_entry)
+        session.add(obj)
+        await session.commit()
+
+async def check_ip_threat_intel(ip: str) -> dict | None:
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(select(ThreatIntelModel).where(ThreatIntelModel.ip == ip))
+        r = result.scalars().first()
+        if r:
+            return {
+                "ip": r.ip,
+                "source": r.source,
+                "threat_type": r.threat_type,
+                "severity": r.severity
+            }
+        return None
 

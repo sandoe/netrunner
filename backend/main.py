@@ -12,7 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from .routers import ai, scripts, gns3, links, nodes, preview, terminal, settings, threats, defense, system, chaos, auth, redteam, deception, agent, rules, internal, telemetry, wifi, recon, analyze, kubernetes, vpn, bluetooth, agents, bruteforce, intelligence, sdn, database, host, usb, mcu, files, events, mcu_repl, alerts, reports, playbooks
+from .routers import ai, scripts, gns3, links, nodes, preview, terminal, settings, threats, defense, system, chaos, auth, redteam, deception, agent, rules, internal, telemetry, wifi, recon, analyze, kubernetes, vpn, bluetooth, agents, bruteforce, intelligence, sdn, database, host, usb, mcu, files, events, mcu_repl, alerts, reports, playbooks, analytics, integrations, hunting
 from .routers.auth import get_current_user
 
 # Require a valid JWT for protected routers (login + internal m2m stay open).
@@ -68,10 +68,11 @@ async def lifespan(app: FastAPI):
     from .core.telemetry import poll_telemetry_loop
     from .core.wifi_csi import start_csi_engine
     from .core.bluetooth import start_bluetooth_engine
-    from .services.network_simulation import simulate_network_traffic, threat_event_generator
+
     from .services.ids_engine import start_ids
     from .services.soar_playbooks import start_soar
     from .services.vuln_scanner import start_scanner
+    from .services.threat_intel import start_threat_intel_sync
     from .core.storage import check_storage_limits
 
     threats._threat_task = asyncio.create_task(threats.broadcast_threats())
@@ -82,13 +83,13 @@ async def lifespan(app: FastAPI):
     from .core.state import telemetry_queue
     telemetry._reach_task = asyncio.create_task(reachability_loop(telemetry_queue))
     
-    asyncio.create_task(simulate_network_traffic())
-    asyncio.create_task(threat_event_generator())
+
     
     # Start Advanced Network Services (IDS, SOAR, Vulnerability Scanner)
-    asyncio.create_task(start_ids())
-    asyncio.create_task(start_soar())
-    asyncio.create_task(start_scanner())
+    ids_task = asyncio.create_task(start_ids())
+    soar_task = asyncio.create_task(start_soar())
+    vuln_task = asyncio.create_task(start_scanner())
+    threat_intel_task = asyncio.create_task(start_threat_intel_sync())
     
     wifi._broadcast_csi_task = asyncio.create_task(wifi.broadcast_csi())
     asyncio.create_task(check_storage_limits())
@@ -162,7 +163,6 @@ app.include_router(internal.router)
 app.include_router(nodes.router,    prefix="/api", dependencies=AUTH)
 app.include_router(links.router,    prefix="/api", dependencies=AUTH)
 app.include_router(gns3.router,     prefix="/api", dependencies=AUTH)
-app.include_router(ai.router,       prefix="/api", dependencies=AUTH)
 app.include_router(settings.router, prefix="/api", dependencies=AUTH)
 app.include_router(scripts.router,  prefix="/api", dependencies=AUTH)
 app.include_router(preview.router,  prefix="/api", dependencies=AUTH)
@@ -197,12 +197,25 @@ app.include_router(terminal.router)
 app.include_router(telemetry.router)
 app.include_router(wifi.router)
 app.include_router(bluetooth.router)
+app.include_router(ai.router,       prefix="/api")
 app.include_router(sdn.router)
 app.include_router(events.router)
 app.include_router(mcu_repl.router)
 app.include_router(alerts.router)
 app.include_router(reports.router)
 app.include_router(playbooks.router)
+app.include_router(analytics.router)
+app.include_router(integrations.router)
+app.include_router(hunting.router)
+
+# Super Expert Plugins
+from backend.plugins.packet_capture.router import router as packet_capture_router
+from backend.plugins.netbox_sync.router import router as netbox_sync_router
+from backend.plugins.bgp_control.router import router as bgp_control_router
+
+app.include_router(packet_capture_router, prefix="/api", dependencies=AUTH)
+app.include_router(netbox_sync_router, prefix="/api", dependencies=AUTH)
+app.include_router(bgp_control_router, prefix="/api", dependencies=AUTH)
 
 from .routers import files
 app.include_router(files.router)

@@ -1,8 +1,8 @@
 <template>
   <div class="modal-overlay" @click.self="$emit('close')">
-    <div class="cyber-modal-card map-modal">
+    <div class="cyber-modal-card map-modal" role="dialog" aria-modal="true" aria-labelledby="map-modal-title">
       <div class="cyber-modal-header">
-        <div class="modal-title">📌 TRACKER MAP - {{ title }}</div>
+        <div class="modal-title" id="map-modal-title">📌 TRACKER MAP - {{ title }}</div>
         <button class="btn-close-modal" @click="$emit('close')">×</button>
       </div>
       <div class="cyber-modal-body" style="padding: 0;">
@@ -40,6 +40,11 @@ L.Icon.Default.mergeOptions({
   iconUrl,
   shadowUrl
 })
+
+onMounted(() => document.addEventListener('keydown', handleEscape))
+function handleEscape(e: KeyboardEvent) {
+  if (e.key === 'Escape') emit('close')
+}
 
 const props = defineProps<{
   title: string
@@ -109,6 +114,7 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
+  document.removeEventListener('keydown', handleEscape)
   if (mapInstance.value) {
     mapInstance.value.remove()
   }
@@ -141,6 +147,15 @@ onUnmounted(() => {
   margin-right: 5px;
 }
 
+@media (max-width: 768px) {
+  .map-overlay-data {
+    position: relative;
+    top: auto;
+    right: auto;
+    margin: 10px;
+  }
+}
+
 .warning-text {
   font-family: var(--font-co);
   font-size: 10px;
@@ -150,4 +165,6 @@ onUnmounted(() => {
 .text-orange {
   color: #ff9900;
 }
+.btn-action:focus-visible, .btn-close-modal:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
+button:focus-visible, .btn-action:focus-visible, .btn-close:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
 </style>
