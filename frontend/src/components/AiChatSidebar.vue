@@ -184,6 +184,13 @@ function initTerminal() {
     return true
   })
 
+  // Prevent xterm from clearing the selection on right-click or middle-click mousedown
+  termEl.value.addEventListener('mousedown', (e) => {
+    if ((e.button === 2 || e.button === 1) && term?.hasSelection()) {
+      e.stopPropagation()
+    }
+  }, true)
+
   // Right-click to Copy (if selection) or Paste
   termEl.value.addEventListener('contextmenu', (e) => {
     e.preventDefault()
