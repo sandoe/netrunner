@@ -35,6 +35,7 @@
       </div>
 
       <div class="ai-terminal-wrap" ref="wrapEl">
+        <div v-if="copyToast" class="ai-toast">{{ copyToast }}</div>
         <div ref="termEl" class="xterm-container" />
       </div>
     </div>
@@ -134,6 +135,13 @@ function initTerminal() {
     }
   })
 
+  const copyToast = ref('')
+
+  function showToast(msg: string) {
+    copyToast.value = msg
+    setTimeout(() => { copyToast.value = '' }, 2000)
+  }
+
   async function safeCopy(text: string) {
     try {
       if (navigator.clipboard && window.isSecureContext) {
@@ -146,23 +154,23 @@ function initTerminal() {
         document.execCommand('copy')
         document.body.removeChild(el)
       }
-      term?.write('\r\n\x1b[1;32m[SYSTEM] Text copied to clipboard!\x1b[0m\r\n')
+      showToast('Copied!')
     } catch (err) {
       console.error('Copy failed:', err)
-      term?.write('\r\n\x1b[1;31m[ERROR] Failed to copy text to clipboard.\x1b[0m\r\n')
+      showToast('Copy failed')
     }
   }
 
   // Handle Copy/Paste (Ctrl+C, Ctrl+V)
   term.attachCustomKeyEventHandler((e) => {
-    if (e.ctrlKey && e.code === 'KeyC' && e.type === 'keydown') {
+    if ((e.ctrlKey || e.metaKey) && e.code === 'KeyC' && e.type === 'keydown') {
       if (term!.hasSelection()) {
         safeCopy(term!.getSelection())
-        term!.clearSelection()
+        // Do not clear selection, so user doesn't think it got deleted
         return false // Prevent sending SIGINT
       }
     }
-    if (e.ctrlKey && e.code === 'KeyV' && e.type === 'keydown') {
+    if ((e.ctrlKey || e.metaKey) && e.code === 'KeyV' && e.type === 'keydown') {
       if (navigator.clipboard && navigator.clipboard.readText) {
         navigator.clipboard.readText().then(text => {
           if (ws && ws.readyState === WebSocket.OPEN) {
@@ -180,7 +188,6 @@ function initTerminal() {
     e.preventDefault()
     if (term!.hasSelection()) {
       safeCopy(term!.getSelection())
-      term!.clearSelection()
     } else {
       if (navigator.clipboard && navigator.clipboard.readText) {
         navigator.clipboard.readText().then(text => {
@@ -498,6 +505,31 @@ onUnmounted(() => {
   background: var(--bg);
   height: 100%;
   width: 100%;
+}
+
+.ai-toast {
+  position: absolute;
+  top: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(0, 255, 157, 0.2);
+  border: 1px solid var(--green);
+  color: var(--green);
+  padding: 8px 16px;
+  border-radius: var(--r);
+  font-family: var(--font-hd);
+  font-size: 11px;
+  letter-spacing: 1px;
+  z-index: 1000;
+  pointer-events: none;
+  animation: fadeInOut 2s ease-in-out forwards;
+}
+
+@keyframes fadeInOut {
+  0% { opacity: 0; transform: translate(-50%, -10px); }
+  10% { opacity: 1; transform: translate(-50%, 0); }
+  90% { opacity: 1; transform: translate(-50%, 0); }
+  100% { opacity: 0; transform: translate(-50%, -10px); }
 }
 
 :deep(.xterm-viewport) {
