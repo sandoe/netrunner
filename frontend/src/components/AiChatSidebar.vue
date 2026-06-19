@@ -147,31 +147,13 @@ function initTerminal() {
       if (navigator.clipboard && window.isSecureContext) {
         await navigator.clipboard.writeText(text)
       } else {
-        const activeEl = document.activeElement as HTMLElement | null
-        const selection = window.getSelection()
-        const originalRange = selection && selection.rangeCount > 0 ? selection.getRangeAt(0) : null
-
-        const el = document.createElement('textarea')
-        el.value = text
-        el.setAttribute('readonly', '')
-        el.style.position = 'absolute'
-        el.style.left = '-9999px'
-        el.style.opacity = '0'
-        document.body.appendChild(el)
-        el.select()
+        const copyHandler = (e: ClipboardEvent) => {
+          e.clipboardData?.setData('text/plain', text)
+          e.preventDefault()
+        }
+        document.addEventListener('copy', copyHandler)
         document.execCommand('copy')
-        document.body.removeChild(el)
-
-        if (originalRange && selection) {
-          selection.removeAllRanges()
-          selection.addRange(originalRange)
-        }
-        
-        if (activeEl && typeof activeEl.focus === 'function') {
-          activeEl.focus()
-        } else {
-          term?.focus()
-        }
+        document.removeEventListener('copy', copyHandler)
       }
       showToast('Copied!')
     } catch (err) {
