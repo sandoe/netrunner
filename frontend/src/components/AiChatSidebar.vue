@@ -134,21 +134,42 @@ function initTerminal() {
     }
   })
 
+  async function safeCopy(text: string) {
+    try {
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(text)
+      } else {
+        const el = document.createElement('textarea')
+        el.value = text
+        document.body.appendChild(el)
+        el.select()
+        document.execCommand('copy')
+        document.body.removeChild(el)
+      }
+      term?.write('\r\n\x1b[1;32m[SYSTEM] Text copied to clipboard!\x1b[0m\r\n')
+    } catch (err) {
+      console.error('Copy failed:', err)
+      term?.write('\r\n\x1b[1;31m[ERROR] Failed to copy text to clipboard.\x1b[0m\r\n')
+    }
+  }
+
   // Handle Copy/Paste (Ctrl+C, Ctrl+V)
   term.attachCustomKeyEventHandler((e) => {
     if (e.ctrlKey && e.code === 'KeyC' && e.type === 'keydown') {
       if (term!.hasSelection()) {
-        navigator.clipboard.writeText(term!.getSelection())
+        safeCopy(term!.getSelection())
         term!.clearSelection()
         return false // Prevent sending SIGINT
       }
     }
     if (e.ctrlKey && e.code === 'KeyV' && e.type === 'keydown') {
-      navigator.clipboard.readText().then(text => {
-        if (ws && ws.readyState === WebSocket.OPEN) {
-          ws.send(JSON.stringify({ type: 'input', data: text }))
-        }
-      }).catch(() => {})
+      if (navigator.clipboard && navigator.clipboard.readText) {
+        navigator.clipboard.readText().then(text => {
+          if (ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ type: 'input', data: text }))
+          }
+        }).catch(() => {})
+      }
       return false
     }
     return true
@@ -158,14 +179,16 @@ function initTerminal() {
   termEl.value.addEventListener('contextmenu', (e) => {
     e.preventDefault()
     if (term!.hasSelection()) {
-      navigator.clipboard.writeText(term!.getSelection())
+      safeCopy(term!.getSelection())
       term!.clearSelection()
     } else {
-      navigator.clipboard.readText().then(text => {
-        if (ws && ws.readyState === WebSocket.OPEN) {
-          ws.send(JSON.stringify({ type: 'input', data: text }))
-        }
-      }).catch(() => {})
+      if (navigator.clipboard && navigator.clipboard.readText) {
+        navigator.clipboard.readText().then(text => {
+          if (ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ type: 'input', data: text }))
+          }
+        }).catch(() => {})
+      }
     }
   })
 
