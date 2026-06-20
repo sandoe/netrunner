@@ -1,5 +1,6 @@
 from fastapi import APIRouter, HTTPException, Depends
-from ..core.defense import apply_isolation, enforce_zero_trust
+from pydantic import BaseModel
+from ..core.defense import apply_isolation, enforce_zero_trust, release_isolation, block_ip_on_node, unblock_ip_on_node
 from ..core.scanner import run_local_nmap
 from .auth import require_admin
 from ..core.db import load_nodes_db, save_node_db
@@ -8,6 +9,14 @@ from ..core.session import session_manager
 from .nodes import _get_node_with_creds
 
 router = APIRouter()
+
+
+class BlockIPRequest(BaseModel):
+    ip: str
+
+class SOARActionRequest(BaseModel):
+    node_id: str
+    ip: str = ""
 
 @router.post("/nodes/{nid}/nmap", dependencies=[Depends(require_admin)])
 async def api_defense_nmap(nid: str):
@@ -217,3 +226,30 @@ async def api_remove_monitoring(nid: str):
         "status": "success", 
         "message": "Threat Monitor Agent successfully removed. Real-time tailing deactivated."
     }
+
+
+@router.post("/nodes/{nid}/release", dependencies=[Depends(require_admin)])
+async def api_defense_release(nid: str):
+    """Releases a node from isolation by flushing iptables rules."""
+    result = await release_isolation(nid)
+    if result.startswith("Error") or result.startswith("No SSH"):
+        raise HTTPException(400, result)
+    return {"status": "success", "release_log": result}
+
+
+@router.post("/nodes/{nid}/block-ip", dependencies=[Depends(require_admin)])
+async def api_defense_block_ip(nid: str, req: BlockIPRequest):
+    """Blocks a specific IP address on a node via iptables."""
+    result = await block_ip_on_node(nid, req.ip)
+    if "Failed" in result or "Error" in result:
+        raise HTTPException(400, result)
+    return {"status": "success", "message": result}
+
+
+@router.post("/nodes/{nid}/unblock-ip", dependencies=[Depends(require_admin)])
+async def api_defense_unblock_ip(nid: str, req: BlockIPRequest):
+    """Unblocks a specific IP address on a node via iptables."""
+    result = await unblock_ip_on_node(nid, req.ip)
+    if "Failed" in result or "Error" in result:
+        raise HTTPException(400, result)
+    return {"status": "success", "message": result}

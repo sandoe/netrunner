@@ -15,6 +15,13 @@ import DashboardView from '@/views/DashboardView.vue'
 import IntegrationsView from '@/views/IntegrationsView.vue'
 import ThreatHuntingView from '@/views/ThreatHuntingView.vue'
 import KismetView from '@/views/KismetView.vue'
+import ForensicsView from '@/views/ForensicsView.vue'
+import ComplianceView from '@/views/ComplianceView.vue'
+import LateralMovementView from '@/views/LateralMovementView.vue'
+import LogAggregationView from '@/views/LogAggregationView.vue'
+import SocialEngineeringView from '@/views/SocialEngineeringView.vue'
+import PrivescView from '@/views/PrivescView.vue'
+import IncidentResponseView from '@/views/IncidentResponseView.vue'
 import { sendUiEvent } from '@/api/client'
 
 const routes = [
@@ -35,6 +42,13 @@ const routes = [
   { path: '/database', name: 'database', component: DatabaseControlView },
   { path: '/intelligence', name: 'intelligence', component: KnowledgeGraph },
   { path: '/kismet', name: 'kismet', component: KismetView },
+  { path: '/forensics', name: 'forensics', component: ForensicsView },
+  { path: '/compliance', name: 'compliance', component: ComplianceView },
+  { path: '/lateral', name: 'lateral', component: LateralMovementView },
+  { path: '/logs', name: 'logs', component: LogAggregationView },
+  { path: '/social-engineering', name: 'social-engineering', component: SocialEngineeringView },
+  { path: '/privesc', name: 'privesc', component: PrivescView },
+  { path: '/ir', name: 'ir', component: IncidentResponseView },
 ]
 
 const router = createRouter({
