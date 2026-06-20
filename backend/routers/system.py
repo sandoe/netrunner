@@ -1,3 +1,4 @@
+import subprocess
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 import asyncio
@@ -6,6 +7,15 @@ from ..core.soar import soar_engine
 from .auth import require_admin
 
 router = APIRouter()
+
+@router.post("/system/nuke-test-dockers", dependencies=[Depends(require_admin)])
+async def nuke_test_dockers():
+    try:
+        cmd = "docker rm -f $(docker ps -a -q -f name=test-sw -f name=netrunner-sw) 2>/dev/null || true"
+        subprocess.run(cmd, shell=True, check=False)
+        return {"ok": True, "message": "Test docker containers nuked"}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
 
 async def check_port(host: str, port: int) -> bool:
     try:

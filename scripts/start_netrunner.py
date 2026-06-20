@@ -12,7 +12,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 VENV = ROOT / ".venv"
-PROGRESS_TOTAL = 5
+PROGRESS_TOTAL = 6
 _progress_step = 0
 
 
@@ -61,6 +61,20 @@ def ensure_backend(py: Path) -> None:
     progress("Installing backend dependencies")
     run([str(py), "-m", "pip", "install", "-q", "-r", "backend/requirements.txt"], env=env)
     finish_step("Backend dependencies")
+
+
+def ensure_databases() -> None:
+    docker_cmd = command("docker")
+    if not docker_cmd:
+        print("Warning: 'docker' not found. Ensure Redis and Postgres are running manually.", flush=True)
+        return
+    progress("Starting background databases")
+    try:
+        run([docker_cmd, "compose", "up", "-d", "redis", "postgres", "influxdb"], cwd=ROOT)
+        finish_step("Background databases")
+    except subprocess.CalledProcessError:
+        print("Warning: Failed to start background databases with docker compose.", flush=True)
+        finish_step("Background databases", skipped=True)
 
 
 def ensure_frontend(skip: bool) -> None:
@@ -127,6 +141,7 @@ def main() -> None:
     args, netrunner_args = parser.parse_known_args()
 
     py = ensure_venv()
+    ensure_databases()
     ensure_backend(py)
     ensure_frontend(args.skip_frontend)
     finish_step("Launcher ready")

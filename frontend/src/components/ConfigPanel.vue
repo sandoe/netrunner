@@ -1460,6 +1460,135 @@
             </div>
           </div>
 
+          <!-- PMF (802.11w) Form -->
+          <div v-if="activeType === 'pmf'" class="specialized-form">
+            <div class="form-row">
+              <label>SSID <input v-model="pmfForm.ssid" placeholder="MyNetwork" /></label>
+              <label>Password <input v-model="pmfForm.password" type="password" placeholder="WPA2/WPA3 passphrase" /></label>
+            </div>
+            <div class="form-row">
+              <label>Interface <input v-model="pmfForm.interface" placeholder="wlan0" list="detected-interfaces" /></label>
+              <label>Mode
+                <select v-model="pmfForm.mode">
+                  <option value="client">Client (Station)</option>
+                  <option value="ap">Access Point</option>
+                </select>
+              </label>
+            </div>
+            <div class="form-row">
+              <label>Country <input v-model="pmfForm.country" placeholder="DK" maxlength="2" style="width: 60px;" /></label>
+              <label>Channel <input v-model.number="pmfForm.ap_channel" type="number" min="1" max="14" :disabled="pmfForm.mode !== 'ap'" /></label>
+              <label class="checkbox-label">
+                <input type="checkbox" v-model="pmfForm.hidden" /> Hidden SSID
+              </label>
+            </div>
+            <div class="form-row">
+              <small style="color: var(--accent-light, #00f0ff); opacity: 0.7;">
+                PMF Required (802.11w) — protects against deauth/disassoc attacks. Requires WPA2-CCMP or WPA3 (SAE). Older clients may not connect.
+              </small>
+            </div>
+          </div>
+
+          <!-- WPA3-SAE Form -->
+          <div v-if="activeType === 'wpa3-sae'" class="specialized-form">
+            <div class="form-row">
+              <label>SSID <input v-model="wpa3SaeForm.ssid" placeholder="CorpWPA3" /></label>
+              <label>Password <input v-model="wpa3SaeForm.password" type="password" placeholder="WPA3 passphrase" /></label>
+            </div>
+            <div class="form-row">
+              <label>Interface <input v-model="wpa3SaeForm.interface" placeholder="wlan0" list="detected-interfaces" /></label>
+              <label>Mode
+                <select v-model="wpa3SaeForm.mode">
+                  <option value="client">Client (Station)</option>
+                  <option value="ap">Access Point</option>
+                </select>
+              </label>
+            </div>
+            <div class="form-row">
+              <label>Country <input v-model="wpa3SaeForm.country" placeholder="DK" maxlength="2" style="width: 60px;" /></label>
+              <label>Channel <input v-model.number="wpa3SaeForm.ap_channel" type="number" min="1" max="14" :disabled="wpa3SaeForm.mode !== 'ap'" /></label>
+              <label class="checkbox-label">
+                <input type="checkbox" v-model="wpa3SaeForm.hidden" /> Hidden SSID
+              </label>
+            </div>
+            <div class="form-row">
+              <label>SAE Groups <input v-model="wpa3SaeForm.sae_groups" placeholder="19 20 21" /></label>
+            </div>
+            <div class="form-row">
+              <small style="color: var(--accent-light, #00f0ff); opacity: 0.7;">
+                WPA3-SAE — offline dictionary attack protection even with weak passwords. Forward Secrecy prevents past traffic decryption. Requires WPA3-capable hardware.
+              </small>
+            </div>
+          </div>
+
+          <!-- OWE Form -->
+          <div v-if="activeType === 'owe'" class="specialized-form">
+            <div class="form-row">
+              <label>SSID <input v-model="oweForm.ssid" placeholder="OpenSecure" /></label>
+            </div>
+            <div class="form-row">
+              <label>Interface <input v-model="oweForm.interface" placeholder="wlan0" list="detected-interfaces" /></label>
+              <label>Mode
+                <select v-model="oweForm.mode">
+                  <option value="client">Client (Station)</option>
+                  <option value="ap">Access Point</option>
+                </select>
+              </label>
+            </div>
+            <div class="form-row">
+              <label>Country <input v-model="oweForm.country" placeholder="DK" maxlength="2" style="width: 60px;" /></label>
+              <label>Channel <input v-model.number="oweForm.ap_channel" type="number" min="1" max="14" :disabled="oweForm.mode !== 'ap'" /></label>
+            </div>
+            <div class="form-row">
+              <label>OWE Groups <input v-model="oweForm.owe_groups" placeholder="19 20" /></label>
+            </div>
+            <div class="form-row">
+              <small style="color: var(--accent-light, #00f0ff); opacity: 0.7;">
+                OWE — encryption on open networks without a password. DH key exchange per client. Passive eavesdroppers cannot sniff traffic.
+              </small>
+            </div>
+          </div>
+
+          <!-- 802.1X / EAP-TLS Form -->
+          <div v-if="activeType === 'eaptls'" class="specialized-form">
+            <div class="form-row">
+              <label>SSID <input v-model="eaptlsForm.ssid" placeholder="Enterprise" /></label>
+              <label>Identity <input v-model="eaptlsForm.identity" placeholder="username / certificate CN" /></label>
+            </div>
+            <div class="form-row">
+              <label>Interface <input v-model="eaptlsForm.interface" placeholder="wlan0" list="detected-interfaces" /></label>
+              <label>Mode
+                <select v-model="eaptlsForm.mode">
+                  <option value="client">Client (Station)</option>
+                  <option value="ap">Access Point</option>
+                </select>
+              </label>
+            </div>
+            <div class="form-row">
+              <label>Country <input v-model="eaptlsForm.country" placeholder="DK" maxlength="2" style="width: 60px;" /></label>
+              <label>Channel <input v-model.number="eaptlsForm.ap_channel" type="number" min="1" max="14" :disabled="eaptlsForm.mode !== 'ap'" /></label>
+              <label class="checkbox-label">
+                <input type="checkbox" v-model="eaptlsForm.hidden" /> Hidden SSID
+              </label>
+            </div>
+            <div class="form-row">
+              <label>CA Cert <input v-model="eaptlsForm.ca_cert" placeholder="/etc/ssl/certs/ca.pem" /></label>
+            </div>
+            <div class="form-row" v-if="eaptlsForm.mode === 'ap'">
+              <label>Server Cert <input v-model="eaptlsForm.server_cert" placeholder="/etc/ssl/certs/hostapd.pem" /></label>
+              <label>Server Key <input v-model="eaptlsForm.server_key" placeholder="/etc/ssl/private/hostapd.key" /></label>
+            </div>
+            <div class="form-row" v-if="eaptlsForm.mode === 'client'">
+              <label>Client Cert <input v-model="eaptlsForm.client_cert" placeholder="/etc/ssl/certs/client.pem" /></label>
+              <label>Client Key <input v-model="eaptlsForm.client_key" placeholder="/etc/ssl/private/client.key" /></label>
+            </div>
+            <div class="form-row">
+              <small style="color: var(--accent-light, #00f0ff); opacity: 0.7;">
+                802.1X/EAP-TLS — certificate-based enterprise auth. Each device has its own cert. Prevents Evil Twin attacks. Requires RADIUS server (FreeRADIUS) for AP mode.
+              </small>
+            </div>
+          </div>
+
           <div class="input-section" v-if="activeType !== 'direct-file'">
             <div class="section-label" style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
               <span>
@@ -1583,7 +1712,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch, computed, onUnmounted, nextTick } from 'vue'
+import { ref, watch, computed, onMounted, onUnmounted, nextTick } from 'vue'
 import { api } from '@/api/client'
 import type { CommandResult } from '@/types'
 
@@ -1658,6 +1787,10 @@ const CONFIG_CATEGORIES = {
         { type: 'dns-lookup', label: 'DNS Lookup (dig)' },
         { type: 'wol', label: 'Wake-on-LAN' },
         { type: 'arp-scan', label: 'Arp-scan' },
+        { type: 'pmf', label: 'PMF (802.11w)' },
+        { type: 'wpa3-sae', label: 'WPA3-SAE' },
+        { type: 'owe', label: 'OWE (Open Encryption)' },
+        { type: 'eaptls', label: '802.1X / EAP-TLS' },
     ]
   },
   advanced: {
@@ -1900,6 +2033,10 @@ const defaultMtrForm          = () => ({ target: '', count: 5 })
 const defaultDnsLookupForm    = () => ({ target: '', query_type: 'A', server: '' })
 const defaultWolForm          = () => ({ mac: '', interface: '' })
 const defaultArpScanForm      = () => ({ target: 'localnet', interface: '' })
+const defaultPmfForm          = () => ({ ssid: '', password: '', interface: 'wlan0', mode: 'client', country: 'DK', hidden: false, ap_channel: 6 })
+const defaultWpa3SaeForm      = () => ({ ssid: '', password: '', interface: 'wlan0', mode: 'client', country: 'DK', hidden: false, ap_channel: 6, sae_groups: '19 20 21' })
+const defaultOweForm          = () => ({ ssid: '', interface: 'wlan0', mode: 'client', country: 'DK', ap_channel: 6, owe_groups: '19 20' })
+const defaultEaptlsForm       = () => ({ ssid: '', interface: 'wlan0', mode: 'client', country: 'DK', hidden: false, ap_channel: 6, ca_cert: '/etc/ssl/certs/ca.pem', server_cert: '/etc/ssl/certs/hostapd.pem', server_key: '/etc/ssl/private/hostapd.key', client_cert: '/etc/ssl/certs/client.pem', client_key: '/etc/ssl/private/client.key', identity: '', bridge: 'br0' })
 
 const defaultWinIpForm = () => ({ interface: 'Ethernet', dhcp: false, address: '', gateway: '', dns: '' })
 const defaultWinRouteForm = () => ({ destination: '10.200.0.0/16', gateway: '', interface: '', metric: undefined as number | undefined, action: 'add' })
@@ -1940,7 +2077,7 @@ function resetForm() {
     'rpi-camera': defaultRpiCameraForm, 'rpi-watchdog': defaultRpiWatchdogForm,
     nmap: defaultNmapForm, iperf3: defaultIperf3Form, mtr: defaultMtrForm,
     speedtest: () => ({}), 'dns-lookup': defaultDnsLookupForm, wol: defaultWolForm,
-    'arp-scan': defaultArpScanForm, 'remote-desktop': defaultRemoteDesktopForm,
+  'arp-scan': defaultArpScanForm, 'pmf': defaultPmfForm, 'wpa3-sae': defaultWpa3SaeForm, 'owe': defaultOweForm, 'eaptls': defaultEaptlsForm, 'remote-desktop': defaultRemoteDesktopForm,
     'win-ip': defaultWinIpForm, 'win-route': defaultWinRouteForm, 'win-service': defaultWinServiceForm,
     'win-feature': defaultWinFeatureForm, 'win-hostname': defaultWinHostnameForm, 'win-file': defaultWinFileForm
   }
@@ -1955,7 +2092,7 @@ function resetForm() {
     'rpi-wifi': rpiWifiForm, 'rpi-spi': rpiSpiForm, 'rpi-i2c-enable': rpiI2cForm,
     'rpi-camera': rpiCameraForm, 'rpi-watchdog': rpiWatchdogForm,
     nmap: nmapForm, iperf3: iperf3Form, mtr: mtrForm,
-    'dns-lookup': dnsLookupForm, wol: wolForm, 'arp-scan': arpScanForm,
+  'dns-lookup': dnsLookupForm, wol: wolForm, 'arp-scan': arpScanForm, 'pmf': pmfForm, 'wpa3-sae': wpa3SaeForm, 'owe': oweForm, 'eaptls': eaptlsForm,
     'remote-desktop': remoteDesktopForm,
     'win-ip': winIpForm, 'win-route': winRouteForm, 'win-service': winServiceForm,
     'win-feature': winFeatureForm, 'win-hostname': winHostnameForm, 'win-file': winFileForm
@@ -2367,6 +2504,10 @@ const mtrForm         = ref(defaultMtrForm())
 const dnsLookupForm   = ref(defaultDnsLookupForm())
 const wolForm         = ref(defaultWolForm())
 const arpScanForm     = ref(defaultArpScanForm())
+const pmfForm         = ref(defaultPmfForm())
+const wpa3SaeForm     = ref(defaultWpa3SaeForm())
+const oweForm         = ref(defaultOweForm())
+const eaptlsForm      = ref(defaultEaptlsForm())
 
 const defaultsMap: Record<string, () => any> = {
   interface: defaultInterfaceForm, routes: defaultRouteForm, dns: defaultDnsForm,
@@ -2379,7 +2520,7 @@ const defaultsMap: Record<string, () => any> = {
   'rpi-camera': defaultRpiCameraForm, 'rpi-watchdog': defaultRpiWatchdogForm,
   nmap: defaultNmapForm, iperf3: defaultIperf3Form, mtr: defaultMtrForm,
   speedtest: () => ({}), 'dns-lookup': defaultDnsLookupForm, wol: defaultWolForm,
-  'arp-scan': defaultArpScanForm, 'remote-desktop': defaultRemoteDesktopForm,
+  'arp-scan': defaultArpScanForm, 'pmf': defaultPmfForm, 'wpa3-sae': defaultWpa3SaeForm, 'owe': defaultOweForm, 'eaptls': defaultEaptlsForm, 'remote-desktop': defaultRemoteDesktopForm,
   'win-ip': defaultWinIpForm, 'win-route': defaultWinRouteForm, 'win-service': defaultWinServiceForm,
   'win-feature': defaultWinFeatureForm, 'win-hostname': defaultWinHostnameForm, 'win-file': defaultWinFileForm
 }
@@ -2773,6 +2914,10 @@ function syncMtrForm() { inputJson.value = JSON.stringify(mtrForm.value, null, 2
 function syncDnsLookupForm() { inputJson.value = JSON.stringify(dnsLookupForm.value, null, 2) }
 function syncWolForm() { inputJson.value = JSON.stringify(wolForm.value, null, 2) }
 function syncArpScanForm() { inputJson.value = JSON.stringify(arpScanForm.value, null, 2) }
+function syncPmfForm() { inputJson.value = JSON.stringify(pmfForm.value, null, 2) }
+function syncWpa3SaeForm() { inputJson.value = JSON.stringify(wpa3SaeForm.value, null, 2) }
+function syncOweForm() { inputJson.value = JSON.stringify(oweForm.value, null, 2) }
+function syncEaptlsForm() { inputJson.value = JSON.stringify(eaptlsForm.value, null, 2) }
 
 function _stripEmpty<T extends Record<string, unknown>>(obj: T): Partial<T> {
   const out: Partial<T> = {}
@@ -3030,6 +3175,10 @@ syncFnMap.speedtest         = () => { inputJson.value = '{}' }
 syncFnMap['dns-lookup']     = syncDnsLookupForm
 syncFnMap.wol               = syncWolForm
 syncFnMap['arp-scan']       = syncArpScanForm
+syncFnMap.pmf               = syncPmfForm
+syncFnMap['wpa3-sae']       = syncWpa3SaeForm
+syncFnMap.owe               = syncOweForm
+syncFnMap.eaptls            = syncEaptlsForm
 syncFnMap['rpi-info']       = () => { inputJson.value = '{}' }
 syncFnMap['rpi-temperature'] = () => { inputJson.value = '{}' }
 syncFnMap['rpi-gpio-read-all'] = () => { inputJson.value = '{}' }
@@ -3122,6 +3271,10 @@ watch(mtrForm,         () => { if (activeType.value === 'mtr' && !isSyncing.valu
 watch(dnsLookupForm,   () => { if (activeType.value === 'dns-lookup' && !isSyncing.value)  syncDnsLookupForm() },   { deep: true })
 watch(wolForm,         () => { if (activeType.value === 'wol' && !isSyncing.value)         syncWolForm() },         { deep: true })
 watch(arpScanForm,     () => { if (activeType.value === 'arp-scan' && !isSyncing.value)    syncArpScanForm() },     { deep: true })
+watch(pmfForm,         () => { if (activeType.value === 'pmf' && !isSyncing.value)         syncPmfForm() },         { deep: true })
+watch(wpa3SaeForm,     () => { if (activeType.value === 'wpa3-sae' && !isSyncing.value)     syncWpa3SaeForm() },     { deep: true })
+watch(oweForm,         () => { if (activeType.value === 'owe' && !isSyncing.value)         syncOweForm() },         { deep: true })
+watch(eaptlsForm,      () => { if (activeType.value === 'eaptls' && !isSyncing.value)      syncEaptlsForm() },      { deep: true })
 
 watch([directFilePath, directFileContent, directFileMode, directFileBackup], () => {
   if (activeType.value === 'direct-file') syncDirectFileForm()
@@ -3304,6 +3457,30 @@ function selectPort(ifaceName: string) {
   if (activeType.value === 'arp-scan') {
     arpScanForm.value.interface = ifaceName
     syncArpScanForm()
+    return
+  }
+
+  if (activeType.value === 'pmf') {
+    pmfForm.value.interface = ifaceName
+    syncPmfForm()
+    return
+  }
+
+  if (activeType.value === 'wpa3-sae') {
+    wpa3SaeForm.value.interface = ifaceName
+    syncWpa3SaeForm()
+    return
+  }
+
+  if (activeType.value === 'owe') {
+    oweForm.value.interface = ifaceName
+    syncOweForm()
+    return
+  }
+
+  if (activeType.value === 'eaptls') {
+    eaptlsForm.value.interface = ifaceName
+    syncEaptlsForm()
     return
   }
 
@@ -3699,6 +3876,20 @@ watch(() => props.nodeId, () => {
 
 onUnmounted(() => {
   stopLiveMonitor()
+  window.removeEventListener('open-config-type', handleOpenConfigType)
+})
+
+function handleOpenConfigType(e: Event) {
+  const type = (e as CustomEvent).detail
+  if (type) {
+    activeType.value = type
+    const fn = syncFnMap[type]
+    if (fn) fn()
+  }
+}
+
+onMounted(() => {
+  window.addEventListener('open-config-type', handleOpenConfigType)
 })
 
 // Initial fetch on mount

@@ -288,6 +288,27 @@ async def api_node_delete(nid: str):
     await delete_credentials(nid)
     return {"ok": True}
 
+@router.post("/nodes/nuke-all", dependencies=[Depends(require_admin)])
+async def api_nuke_all_nodes():
+    nodes = await load_nodes()
+    import subprocess
+    import shlex
+    
+    # 1. Kill any docker containers associated with nodes, or test containers
+    for nid, node in list(nodes.items()):
+        if node.get("transport") == "docker" and node.get("host"):
+            subprocess.run(f"docker rm -f {shlex.quote(node['host'])} 2>/dev/null || true", shell=True)
+        # Delete from DB
+        await delete_node_db(nid)
+        session_manager.close(nid)
+        await delete_credentials(nid)
+        
+    # Also nuke generic test switches just in case
+    cmd = "docker rm -f $(docker ps -a -q -f name=test-sw -f name=netrunner-sw) 2>/dev/null || true"
+    subprocess.run(cmd, shell=True, check=False)
+    
+    return {"ok": True, "message": "Nuked all nodes and test containers"}
+
 
 @router.get("/events")
 async def api_events():

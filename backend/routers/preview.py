@@ -7,9 +7,10 @@ from ..generators.network import (
     gen_ip, gen_interface, gen_routes, gen_forwarding, gen_dhcp, gen_dns, gen_dhcp_server,
     gen_nat, gen_reset_node, gen_vlan_router, gen_vlan_switch, gen_wireguard,
     gen_persist_script, gen_nmap, gen_iperf3, gen_mtr, gen_speedtest,
-    gen_dns_lookup, gen_wol, gen_arp_scan,
+    gen_dns_lookup, gen_wol, gen_arp_scan, gen_pmf,
 )
 from ..generators.firewall import gen_iptables, gen_ufw, gen_nftables
+from ..generators.wifi_security import gen_wpa3_sae, gen_owe, gen_eaptls
 from ..generators.linux import (
     gen_service, gen_package, gen_user, gen_cron, gen_sysctl,
     gen_file_write, gen_hostname, gen_ssh_hardening, gen_authorized_key,
@@ -93,6 +94,14 @@ def api_preview(body: dict):
             cmds = gen_wol(cfg)
         elif t == "arp-scan":
             cmds = gen_arp_scan(cfg)
+        elif t == "pmf":
+            cmds = gen_pmf(cfg)
+        elif t == "wpa3-sae":
+            cmds = gen_wpa3_sae(cfg)
+        elif t == "owe":
+            cmds = gen_owe(cfg)
+        elif t == "eaptls":
+            cmds = gen_eaptls(cfg)
         elif t == "persist":
             cmds = gen_persist_script(cfg.get("name", "config"), cfg.get("commands", []))
 

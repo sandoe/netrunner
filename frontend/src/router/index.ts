@@ -14,6 +14,7 @@ import PlaybooksView from '@/views/PlaybooksView.vue'
 import DashboardView from '@/views/DashboardView.vue'
 import IntegrationsView from '@/views/IntegrationsView.vue'
 import ThreatHuntingView from '@/views/ThreatHuntingView.vue'
+import KismetView from '@/views/KismetView.vue'
 import { sendUiEvent } from '@/api/client'
 
 const routes = [
@@ -32,7 +33,8 @@ const routes = [
   { path: '/history', name: 'history', component: ThreatTimeline },
   { path: '/bruteforce', name: 'bruteforce', component: BruteforceControlRoom },
   { path: '/database', name: 'database', component: DatabaseControlView },
-  { path: '/intelligence', name: 'intelligence', component: KnowledgeGraph }
+  { path: '/intelligence', name: 'intelligence', component: KnowledgeGraph },
+  { path: '/kismet', name: 'kismet', component: KismetView },
 ]
 
 const router = createRouter({

@@ -738,3 +738,139 @@ def gen_arp_scan(cfg: dict) -> list[str]:
         "# ── Arp-scan ───────────────────────────────────────────────",
         " ".join(cmd)
     ]
+
+
+def gen_pmf(cfg: dict) -> list[str]:
+    """Generate Management Frame Protection (802.11w) configuration.
+
+    Supports three backends tried in order:
+      1. nmcli  (NetworkManager — most modern Linux distros)
+      2. wpa_supplicant config file  (client / station mode)
+      3. hostapd config file  (AP / hotspot mode)
+
+    Config keys:
+        ssid        – WiFi network name (required)
+        password    – WPA2/WPA3 passphrase (required for secured networks)
+        interface   – wireless interface, default "wlan0"
+        mode        – "client" (default) or "ap"
+        country     – two-letter country code, default "DK"
+        hidden      – bool, whether the SSID is hidden
+        ap_channel  – AP channel (only used in ap mode), default 6
+    """
+    ssid      = str(cfg.get("ssid", "")).strip()
+    password  = str(cfg.get("password", "")).strip()
+    iface     = str(cfg.get("interface", "wlan0")).strip() or "wlan0"
+    mode      = str(cfg.get("mode", "client")).strip().lower()
+    country   = str(cfg.get("country", "DK")).strip().upper()
+    hidden    = bool(cfg.get("hidden", False))
+    ap_channel = int(cfg.get("ap_channel", 6))
+
+    if not ssid:
+        raise ValueError("ssid is required for PMF configuration")
+
+    scan_ssid = "scan_ssid=1\n" if hidden else ""
+    marker = "__NETRUNNER_PMF_EOF__"
+
+    # ── wpa_supplicant (client / station) ─────────────────────────
+    wpa_conf = (
+        f"country={country}\n"
+        f"ctrl_interface=DIR=/var/run/wpa_supplicant GROUP=netdev\n"
+        f"update_config=1\n\n"
+        f"network={{\n"
+        f'    ssid="{ssid}"\n'
+        f"{scan_ssid}"
+        + (f'    psk="{password}"\n' if password else "    key_mgmt=NONE\n")
+        + f"    key_mgmt=WPA-PSK-SHA256 WPA-PSK\n"
+        + f"    proto=RSN\n"
+        + f"    pairwise=CCMP\n"
+        + f"    group=CCMP\n"
+        + f"    ieee80211w=2\n"
+        + f"}}"
+    )
+
+    # ── hostapd (AP / hotspot) ────────────────────────────────────
+    wpa_psk = password if password else ""
+    hostapd_conf = (
+        f"interface={iface}\n"
+        f"driver=nl80211\n"
+        f"ssid={ssid}\n"
+        f"hw_mode=g\n"
+        f"channel={ap_channel}\n"
+        f"wmm_enabled=1\n"
+        f"macaddr_acl=0\n"
+        f"auth_algs=1\n"
+        f"ignore_broadcast_ssid={'1' if hidden else '0'}\n\n"
+        f"# WPA2/WPA3 with PMF Required (802.11w)\n"
+        f"wpa=2\n"
+        f"wpa_passphrase={wpa_psk}\n"
+        f"wpa_key_mgmt=SAE\n"
+        f"wpa_pairwise=CCMP\n"
+        f"rsn_pairwise=CCMP\n"
+        f"ieee80211w=2\n"
+    )
+
+    # ── nmcli commands (NetworkManager) ───────────────────────────
+    # 802-11-wireless.pmf values: 1=disable, 2=optional, 3=required
+    nmcli_cmds = [
+        f"nmcli connection modify \"{ssid}\" 802-11-wireless.pmf 3",
+        f"nmcli connection modify \"{ssid}\" 802-11-wireless.key-mgmt \"wpa-psk-sha256 wpa-psk\"",
+    ]
+
+    cmds = [
+        "# ── Management Frame Protection (802.11w — PMF Required) ──",
+        "# PMF protects against deauthentication/disassociation attacks.",
+        "# Requires WPA2-CCMP or WPA3 (SAE). Older clients may not connect.",
+        "",
+    ]
+
+    if mode == "ap":
+        cmds += [
+            "# ── hostapd AP configuration with PMF ──────────────────",
+            f"mkdir -p /etc/hostapd",
+            f"cat > /etc/hostapd/hostapd.conf << '{marker}'",
+            hostapd_conf,
+            marker,
+            "",
+            "# ── Enable and start hostapd ────────────────────────────",
+            "systemctl unmask hostapd 2>/dev/null || true",
+            "systemctl enable hostapd 2>/dev/null || true",
+            "systemctl restart hostapd 2>/dev/null || "
+            f"hostapd -B /etc/hostapd/hostapd.conf 2>/dev/null || true",
+            "",
+            "# ── Verify PMF is active ────────────────────────────────",
+            f"iw dev {iface} info 2>/dev/null | grep -i 'pmf\\|mgmt' || "
+            f"iwpriv {iface} get_pmf 2>/dev/null || "
+            "echo 'Verify PMF manually: iw dev <iface> info'",
+        ]
+    else:
+        nmcli_connect = (
+            f"nmcli dev wifi connect \"{ssid}\""
+            + (f" password \"{password}\"" if password else "")
+            + f" 2>/dev/null && ("
+            + " && ".join(nmcli_cmds)
+            + f") && echo 'Connected via nmcli with PMF Required'"
+        )
+        wpa_file = (
+            f"cat > /etc/wpa_supplicant/wpa_supplicant.conf << '{marker}'\n"
+            f"{wpa_conf}\n"
+            f"{marker}\n"
+            f"wpa_cli -i {iface} reconfigure 2>/dev/null || "
+            f"wpa_supplicant -B -i {iface} -c /etc/wpa_supplicant/wpa_supplicant.conf 2>/dev/null || true\n"
+            f"sleep 3\n"
+            f"ip addr show {iface} | grep 'inet '"
+        )
+        cmds += [
+            "# ── Try nmcli first (NetworkManager) ───────────────────",
+            f"{nmcli_connect} || (",
+            "",
+            "# ── Fallback: wpa_supplicant with PMF ──────────────────",
+            wpa_file,
+            ")",
+            "",
+            "# ── Verify PMF is active ────────────────────────────────",
+            f"wpa_cli -i {iface} status 2>/dev/null | grep -i 'pmf\\|ieee80211w' || "
+            f"iw dev {iface} info 2>/dev/null | grep -i 'pmf' || "
+            "echo 'Verify PMF manually: wpa_cli status'",
+        ]
+
+    return cmds

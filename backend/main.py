@@ -12,7 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from .routers import ai, scripts, gns3, links, nodes, preview, terminal, settings, threats, defense, system, chaos, auth, redteam, deception, agent, rules, internal, telemetry, wifi, recon, analyze, kubernetes, vpn, bluetooth, agents, bruteforce, intelligence, sdn, database, host, usb, mcu, files, events, mcu_repl, alerts, reports, playbooks, analytics, integrations, hunting
+from .routers import ai, scripts, gns3, links, nodes, preview, terminal, settings, threats, defense, system, chaos, auth, redteam, deception, agent, rules, internal, telemetry, wifi, recon, analyze, kubernetes, vpn, bluetooth, agents, bruteforce, intelligence, sdn, database, host, usb, mcu, files, events, mcu_repl, alerts, reports, playbooks, analytics, integrations, hunting, kismet
 from .routers.auth import get_current_user
 
 # Require a valid JWT for protected routers (login + internal m2m stay open).
@@ -95,6 +95,7 @@ async def lifespan(app: FastAPI):
     asyncio.create_task(check_storage_limits())
     wifi._broadcast_mesh_task = asyncio.create_task(wifi.broadcast_mesh())
     bluetooth._bluetooth_broadcast_task = asyncio.create_task(bluetooth.broadcast_bluetooth())
+    kismet._kismet_broadcast_task = asyncio.create_task(kismet.broadcast_kismet())
     await start_csi_engine()
     await start_bluetooth_engine()
 
@@ -115,9 +116,12 @@ async def lifespan(app: FastAPI):
     if hasattr(bluetooth, "_bluetooth_broadcast_task") and bluetooth._bluetooth_broadcast_task:
         bluetooth._bluetooth_broadcast_task.cancel()
     
+    if hasattr(kismet, "_kismet_broadcast_task") and kismet._kismet_broadcast_task:
+        kismet._kismet_broadcast_task.cancel()
+
     from .core.bluetooth import stop_bluetooth_engine
     await stop_bluetooth_engine()
-    
+
     from .core.wifi_csi import generator, mesh_generator
     generator.stop()
     mesh_generator.stop()
@@ -207,6 +211,7 @@ app.include_router(playbooks.router)
 app.include_router(analytics.router)
 app.include_router(integrations.router)
 app.include_router(hunting.router)
+app.include_router(kismet.router)
 
 # Super Expert Plugins
 from backend.plugins.packet_capture.router import router as packet_capture_router

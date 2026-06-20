@@ -18,11 +18,22 @@
       <div class="sidebar-header">
         <div class="logo">
           <span class="logo-title">NETRUNNER</span>
-          <span class="logo-sub">
-            OS v1.0.0 
-            <span class="api-led" :class="backendApiStatus" :title="'Backend API: ' + backendApiStatus.toUpperCase()"></span>
-            <span class="api-led" :class="serviceStatus.mux ? 'up' : 'down'" title="Terminal MUX Service"></span>
-            <span class="api-led" :class="serviceStatus.redis ? 'up' : 'down'" title="Redis Task Queue"></span>
+          <span class="logo-sub" style="display: flex; flex-direction: column; gap: 4px; margin-top: 6px;">
+            <div>OS v1.0.0</div>
+            <div style="display: flex; gap: 12px; font-size: 0.7rem; color: var(--text-muted); flex-wrap: wrap; margin-top: 2px;">
+              <span title="Frontend UI" style="display: flex; align-items: center; gap: 4px;">
+                FRONTEND <span class="api-led up"></span>
+              </span>
+              <span :title="'Backend API: ' + backendApiStatus.toUpperCase()" style="display: flex; align-items: center; gap: 4px;">
+                BACKEND <span class="api-led" :class="backendApiStatus"></span>
+              </span>
+              <span title="Terminal MUX Service" style="display: flex; align-items: center; gap: 4px;">
+                MUX <span class="api-led" :class="serviceStatus.mux ? 'up' : 'down'"></span>
+              </span>
+              <span title="Redis Task Queue" style="display: flex; align-items: center; gap: 4px;">
+                REDIS <span class="api-led" :class="serviceStatus.redis ? 'up' : 'down'"></span>
+              </span>
+            </div>
           </span>
         </div>
         <div class="header-tools" style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; width: 100%; margin-top: 10px; place-items: center;">
@@ -41,6 +52,7 @@
         <span class="user-id" :title="currentUsername || 'operator'">{{ currentUsername || 'operator' }}</span>
         <span class="user-role" :class="userRole">{{ userRole }}</span>
         <div class="user-actions">
+          <button v-if="userRole === 'admin'" class="btn-user-action" style="color: var(--pink)" @click="nukeAllNodes" title="Nuke all nodes & dockers">🧨</button>
           <button v-if="userRole === 'admin'" class="btn-user-action" @click="showUsers = true" title="User management">👤</button>
           <button class="btn-user-action btn-logout" @click="logout" title="Log out">⏻</button>
         </div>
@@ -94,6 +106,7 @@
           <div v-if="!collapsedNavCats.has('intel')" class="nav-group-items">
             <button class="btn-recon" :class="{ active: viewMode === 'hunting' }" @click="viewMode = 'hunting'">🔍 THREAT HUNTING</button>
             <button class="btn-recon" :class="{ active: viewMode === 'recon' }" @click="viewMode = 'recon'">📡 RECON ENGINE</button>
+            <button class="btn-recon" :class="{ active: viewMode === 'kismet' }" @click="viewMode = 'kismet'">📶 WIRELESS IDS</button>
             <button class="btn-intelligence" :class="{ active: viewMode === 'intelligence' }" @click="viewMode = 'intelligence'">🧠 INTELLIGENCE & TTP</button>
             <button class="btn-attack" :class="{ active: viewMode === 'attack' }" @click="viewMode = 'attack'">☠️ ATTACK MATRIX</button>
             <button :class="{ active: viewMode === 'history' }" @click="viewMode = 'history'">🕗 THREAT TIMELINE</button>
@@ -560,6 +573,10 @@ const allCommands = computed<Cmd[]>(() => {
   if (userRole.value === 'admin') cmds.push({ id: 'vpn', label: 'VPN Manager', icon: '🛡️', run: () => { showVpn.value = true } })
   cmds.push({ id: 'settings', label: 'Settings', icon: '⚙️', run: () => { showSettings.value = true } })
   cmds.push({ id: 'alerts', label: 'Open alerts', icon: '🔔', run: openAlerts })
+  cmds.push({ id: 'pmf', label: 'PMF (802.11w) Config', icon: '🔒', run: () => { if (store.selected?.id) { viewMode.value = 'node' as any; activeTab.value = 'system' as any; nextTick(() => window.dispatchEvent(new CustomEvent('open-config-type', { detail: 'pmf' }))) } else { flash('Select a node first', 'err') } } })
+  cmds.push({ id: 'wpa3', label: 'WPA3-SAE Config', icon: '🔐', run: () => { if (store.selected?.id) { viewMode.value = 'node' as any; activeTab.value = 'system' as any; nextTick(() => window.dispatchEvent(new CustomEvent('open-config-type', { detail: 'wpa3-sae' }))) } else { flash('Select a node first', 'err') } } })
+  cmds.push({ id: 'owe', label: 'OWE (Open Encryption)', icon: '📡', run: () => { if (store.selected?.id) { viewMode.value = 'node' as any; activeTab.value = 'system' as any; nextTick(() => window.dispatchEvent(new CustomEvent('open-config-type', { detail: 'owe' }))) } else { flash('Select a node first', 'err') } } })
+  cmds.push({ id: 'eaptls', label: '802.1X / EAP-TLS', icon: '🏛️', run: () => { if (store.selected?.id) { viewMode.value = 'node' as any; activeTab.value = 'system' as any; nextTick(() => window.dispatchEvent(new CustomEvent('open-config-type', { detail: 'eaptls' }))) } else { flash('Select a node first', 'err') } } })
   cmds.push({ id: 'audio', label: audioEnabled.value ? 'Mute NOC audio' : 'Enable NOC audio', icon: '🔊', run: toggleAudio })
   cmds.push({ id: 'holo', label: holoMode.value ? 'Disable HOLO mode' : 'Enable HOLO mode', icon: '🛸', run: toggleHolo })
   if (userRole.value === 'admin') cmds.push({ id: 'storm', label: 'Simulate incident (demo storm)', icon: '⚡', run: runDemoStorm })
@@ -652,6 +669,22 @@ function reachOf(id: string): { cls: string, text: string } | null {
 function onEditNode(id: string) {
   store.select(id)
   showEdit.value = true
+}
+
+async function nukeAllNodes() {
+  if (!confirm("Er du sikker på, at du vil slette ALLE nodes fra systemet (inkl. nedlægge evt. docker-containere)?")) return
+  try {
+    const res = await api.nukeTestDockers()
+    if (res.ok) {
+      alert("Alle nodes og test-containere er blevet fjernet!")
+      store.refresh() // Refresh UI list
+    } else {
+      alert("Fejl: " + res.error)
+    }
+  } catch (err) {
+    console.error(err)
+    alert("Kunne ikke forbinde til serveren for at slette nodes.")
+  }
 }
 
 function logout() {

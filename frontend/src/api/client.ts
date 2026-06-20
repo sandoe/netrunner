@@ -164,6 +164,7 @@ export const api = {
   systemState: () => req<{ autopilot: boolean, chaos: boolean }>('GET', '/system/state'),
   updateSystemState: (body: { autopilot?: boolean, chaos?: boolean }) => req<{ autopilot: boolean, chaos: boolean }>('POST', '/system/state', body),
   systemLogs: () => req<{ logs: any[] }>('GET', '/system/logs'),
+  nukeTestDockers: () => req<{ ok: boolean, error?: string }>('POST', '/nodes/nuke-all'),
   triggerAttack: (body: {
     node_id: string
     attack_type: string
@@ -228,6 +229,18 @@ export const api = {
   // Intelligence
   getIntelligenceGraph: () => req<any>('GET', '/intelligence/graph'),
   queryIntelligence: (query: string) => req<any>('POST', '/intelligence/query', { query }),
+
+  // Kismet (Wireless IDS)
+  kismetStatus: () => req<{ running: boolean; api_reachable: boolean; pid: number | null; interface: string; host: string; port: number }>('GET', '/kismet/status'),
+  kismetStart: (body: { interface?: string; http_port?: number; log_dir?: string }) => req<{ status: string; pid?: number; interface?: string }>('POST', '/kismet/start', body),
+  kismetStop: () => req<{ status: string }>('POST', '/kismet/stop'),
+  kismetNetworks: () => req<{ networks: any[] }>('GET', '/kismet/networks'),
+  kismetClients: () => req<{ clients: any[] }>('GET', '/kismet/clients'),
+  kismetAlerts: (since = 0) => req<{ alerts: any[] }>('GET', `/kismet/alerts?since=${since}`),
+  kismetChannels: () => req<{ channels: Record<string, any> }>('GET', '/kismet/channels'),
+  kismetDatasources: () => req<{ datasources: any[] }>('GET', '/kismet/datasources'),
+  kismetInterfaces: () => req<{ interfaces: { name: string; driver: string; monitor_mode: boolean }[] }>('GET', '/kismet/interfaces'),
+  kismetSetChannel: (source_uuid: string, channel?: number) => req<{ status: string }>('POST', '/kismet/channel', { source_uuid, channel }),
 }
 
 /** Query-param suffix carrying the JWT for WebSocket handshakes (browsers
