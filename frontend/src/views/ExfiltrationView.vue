@@ -203,7 +203,7 @@
 
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
-import api from '../api/client'
+import { api } from '../api/client'
 
 const tabs = [
   { id: 'methods', label: 'Methods', icon: '📋' },

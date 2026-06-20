@@ -64,7 +64,7 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
-import api from '../api/client'
+import { api } from '../api/client'
 
 const nodes = ref<any[]>([])
 const scans = ref<any[]>([])
