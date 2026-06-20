@@ -113,6 +113,33 @@
             <button class="btn-attack" :class="{ active: viewMode === 'bruteforce' }" @click="viewMode = 'bruteforce'">🎯 BRUTEFORCE OPS</button>
           </div>
         </div>
+
+        <div class="nav-group">
+          <div class="nav-group-head" @click="toggleNavCat('redteam')">
+            <span>🔴 RED TEAM</span>
+            <span class="nav-group-chevron" :class="{ collapsed: collapsedNavCats.has('redteam') }">⌃</span>
+          </div>
+          <div v-if="!collapsedNavCats.has('redteam')" class="nav-group-items">
+            <button class="btn-attack" :class="{ active: viewMode === 'wifi-attack' }" @click="viewMode = 'wifi-attack'">📶 WIFI ATTACKS</button>
+            <button class="btn-attack" :class="{ active: viewMode === 'lateral' }" @click="viewMode = 'lateral'">🔗 LATERAL MOVEMENT</button>
+            <button class="btn-attack" :class="{ active: viewMode === 'privesc' }" @click="viewMode = 'privesc'">⬆️ PRIVESC SCAN</button>
+            <button class="btn-attack" :class="{ active: viewMode === 'exfil' }" @click="viewMode = 'exfil'">📤 EXFILTRATION</button>
+            <button class="btn-attack" :class="{ active: viewMode === 'social-engineering' }" @click="viewMode = 'social-engineering'">🎯 SOCIAL ENGINEERING</button>
+          </div>
+        </div>
+
+        <div class="nav-group">
+          <div class="nav-group-head" @click="toggleNavCat('blueteam')">
+            <span>🔵 BLUE TEAM</span>
+            <span class="nav-group-chevron" :class="{ collapsed: collapsedNavCats.has('blueteam') }">⌃</span>
+          </div>
+          <div v-if="!collapsedNavCats.has('blueteam')" class="nav-group-items">
+            <button class="btn-recon" :class="{ active: viewMode === 'forensics' }" @click="viewMode = 'forensics'">🔬 FORENSICS LAB</button>
+            <button class="btn-recon" :class="{ active: viewMode === 'compliance' }" @click="viewMode = 'compliance'">🛡️ COMPLIANCE</button>
+            <button class="btn-recon" :class="{ active: viewMode === 'ir' }" @click="viewMode = 'ir'">🚨 INCIDENT RESPONSE</button>
+            <button class="btn-recon" :class="{ active: viewMode === 'logs' }" @click="viewMode = 'logs'">📜 LOG AGGREGATION</button>
+          </div>
+        </div>
       </nav>
 
       <div v-if="store.loading" class="sidebar-info">SCANNING NEURAL LINK...</div>
