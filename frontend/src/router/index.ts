@@ -22,6 +22,7 @@ import LogAggregationView from '@/views/LogAggregationView.vue'
 import SocialEngineeringView from '@/views/SocialEngineeringView.vue'
 import PrivescView from '@/views/PrivescView.vue'
 import IncidentResponseView from '@/views/IncidentResponseView.vue'
+import ExfiltrationView from '@/views/ExfiltrationView.vue'
 import { sendUiEvent } from '@/api/client'
 
 const routes = [
@@ -49,6 +50,7 @@ const routes = [
   { path: '/social-engineering', name: 'social-engineering', component: SocialEngineeringView },
   { path: '/privesc', name: 'privesc', component: PrivescView },
   { path: '/ir', name: 'ir', component: IncidentResponseView },
+  { path: '/exfil', name: 'exfil', component: ExfiltrationView },
 ]
 
 const router = createRouter({

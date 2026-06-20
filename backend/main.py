@@ -12,7 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from .routers import ai, scripts, gns3, links, nodes, preview, terminal, settings, threats, defense, system, chaos, auth, redteam, deception, agent, rules, internal, telemetry, wifi, recon, analyze, kubernetes, vpn, bluetooth, agents, bruteforce, intelligence, sdn, database, host, usb, mcu, files, events, mcu_repl, alerts, reports, playbooks, analytics, integrations, hunting, kismet, wifi_attack, forensics, compliance, lateral_movement, log_aggregation, social_engineering, privesc, incident_response
+from .routers import ai, scripts, gns3, links, nodes, preview, terminal, settings, threats, defense, system, chaos, auth, redteam, deception, agent, rules, internal, telemetry, wifi, recon, analyze, kubernetes, vpn, bluetooth, agents, bruteforce, intelligence, sdn, database, host, usb, mcu, files, events, mcu_repl, alerts, reports, playbooks, analytics, integrations, hunting, kismet, wifi_attack, forensics, compliance, lateral_movement, log_aggregation, social_engineering, privesc, incident_response, exfiltration
 from .routers.auth import get_current_user
 
 # Require a valid JWT for protected routers (login + internal m2m stay open).
@@ -220,6 +220,7 @@ app.include_router(log_aggregation.router, prefix="/api", dependencies=AUTH)
 app.include_router(social_engineering.router, prefix="/api", dependencies=AUTH)
 app.include_router(privesc.router, prefix="/api", dependencies=AUTH)
 app.include_router(incident_response.router, prefix="/api", dependencies=AUTH)
+app.include_router(exfiltration.router, prefix="/api", dependencies=AUTH)
 
 # Super Expert Plugins
 from backend.plugins.packet_capture.router import router as packet_capture_router
