@@ -75,7 +75,7 @@ Netrunner er et enterprise-level C2 / SIEM / XDR system med Cyberpunk/Matrix/Neo
 | **WiFi Angreb** | ✅ Fuldt | Deauth, evil twin, WPA handshake capture, aircrack-ng cracking |
 | **Lateral Movement** | ✅ Fuldt | SSH tunnels, SOCKS proxy, pivot chains, local/remote forwarding |
 | **Privilege Escalation** | ✅ Fuldt | SUID exploits, sudo misconfigs, docker escape, capabilities detection |
-| **Exfiltration** | ❌ Mangler | Ingen DNS/ICMP tunneling værktøjer |
+| **Exfiltration** | ✅ Fuldt | DNS, ICMP, HTTP covert channels + detection |
 
 ### Blue Team (Defensiv)
 
@@ -129,6 +129,7 @@ Netrunner er et enterprise-level C2 / SIEM / XDR system med Cyberpunk/Matrix/Neo
 | Social Engineering Toolkit | ✅ Fuldt |
 | Privilege Escalation Scanner | ✅ Fuldt |
 | Incident Response Workflow | ✅ Fuldt |
+| Exfiltration (DNS/ICMP/HTTP) | ✅ Fuldt |
 
 ---
 
@@ -160,12 +161,12 @@ Netrunner er et enterprise-level C2 / SIEM / XDR system med Cyberpunk/Matrix/Neo
 | 10 | **Privilege escalation scanning** | ✅ | `backend/core/privesc.py` + `PrivescView.vue` |
 | 11 | **Incident Response workflow** | ✅ | `backend/core/incident_response.py` + `IncidentResponseView.vue` |
 
-### Fase 4 (Rest)
+### Fase 4 ✅ KOMPLET
 
-| # | Feature | Team | Kompleksitet | Estimat |
-|---|---------|------|:---:|---------|
-| 12 | Exfiltration (DNS/ICMP tunneling) | Red | Medium | 2-3 dage |
-| 13 | UI/UX polish til hackathon | Both | Medium | 3-5 dage |
+| # | Feature | Status | Implementeret |
+|---|---------|--------|---------------|
+| 12 | **Exfiltration** (DNS/ICMP/HTTP covert channels) | ✅ | `backend/core/exfiltration.py` + `ExfiltrationView.vue` |
+| 13 | **UI/UX polish** (Red/Blue Team navigation) | ✅ | `frontend/src/App.vue` |
 
 ---
 
@@ -240,5 +241,6 @@ docker restart netrunner-platform
 | Social engineering | `backend/core/social_engineering.py` |
 | Privilege escalation | `backend/core/privesc.py` |
 | Incident response | `backend/core/incident_response.py` |
+| Exfiltration | `backend/core/exfiltration.py` |
 | App.vue (Ctrl+K) | `frontend/src/App.vue` |
 | Router definitions | `frontend/src/router/index.ts` |
