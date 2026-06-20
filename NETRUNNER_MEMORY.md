@@ -1,7 +1,7 @@
 # Netrunner — Projekt Hukommelse & Roadmap
 
 > Dette dokument fungerer som "hukommelse" for AI-agenter der arbejder på Netrunner.
-> Sidst opdateret: 2026-06-19
+> Sidst opdateret: 2026-06-20
 
 ---
 
@@ -71,10 +71,10 @@ Netrunner er et enterprise-level C2 / SIEM / XDR system med Cyberpunk/Matrix/Neo
 | USB/Serial Exploitation | ✅ Fuldt | Device detection, serial write, port nuke |
 | Reconnaissance | ✅ Fuldt | Nmap + host import til topology |
 | C2 (Command & Control) | ✅ Fuldt | SSH/Telnet sessions, Go agent, real-time exec |
-| **Social Engineering** | ❌ Mangler | Ingen phishing, pretexting, credential harvesting |
-| **WiFi Angreb** | ⚠️ Delvist | CSI findes, men mangler: deauth, evil twin, WPA cracking, packet injection |
-| **Lateral Movement** | ❌ Mangler | Ingen SSH tunnels, SOCKS proxy, pass-the-hash UI |
-| **Privilege Escalation** | ❌ Mangler | Ingen privesc scanning (LinPEAS/WinPEAS) |
+| **Social Engineering** | ✅ Fuldt | Phishing templates, pretexting scenarios, campaign tracking |
+| **WiFi Angreb** | ✅ Fuldt | Deauth, evil twin, WPA handshake capture, aircrack-ng cracking |
+| **Lateral Movement** | ✅ Fuldt | SSH tunnels, SOCKS proxy, pivot chains, local/remote forwarding |
+| **Privilege Escalation** | ✅ Fuldt | SUID exploits, sudo misconfigs, docker escape, capabilities detection |
 | **Exfiltration** | ❌ Mangler | Ingen DNS/ICMP tunneling værktøjer |
 
 ### Blue Team (Defensiv)
@@ -91,13 +91,13 @@ Netrunner er et enterprise-level C2 / SIEM / XDR system med Cyberpunk/Matrix/Neo
 | MITRE ATT&CK Inference | ✅ Fuldt | Regex-baseret technique mapping |
 | Threat Intel Feed | ⚠️ Delvist | AlienVault OTX API + mock data, DB cross-referencing virker |
 | SOAR Playbooks | ⚠️ Delvist | UI + condition evaluation virker, men actions er log-only |
-| **Ægte IDS/IPS** | ⚠️ Stub | `ids_engine.py` genererer tilfældige alerts — ingen rigtig pakkeanalyse |
-| **Node Isolation** | ⚠️ Simuleret | `defense.py` returnerer strings — udfører ikke iptables |
-| **SOAR Actions** | ⚠️ Log-only | block_ip, isolate_node logges men udføres ikke |
-| **Log Aggregation** | ⚠️ Delvist | SSH journalctl tailing, men ikke centraliseret på tværs af nodes |
-| **Forensics UI** | ❌ Mangler | Volatility-script findes men ingen UI |
-| **Compliance Framework** | ❌ Mangler | Ingen CIS/NIST/ISO 27001 scanning |
-| **Incident Response** | ⚠️ Delvist | Isolation + playbooks findes, men ingen struktureret IR-workflow |
+| **Ægte IDS/IPS** | ✅ Fuldt | Scapy packet analysis (ARP spoof, port scan, DNS tunnel, DDoS) |
+| **Node Isolation** | ✅ Fuldt | Real iptables via SSH med verificering og release |
+| **SOAR Actions** | ✅ Fuldt | block_ip, isolate_node udføres rent faktisk mod infrastrukturen |
+| **Log Aggregation** | ✅ Fuldt | Centraliseret log fra alle nodes (journalctl, syslog, auth, dmesg) |
+| **Forensics UI** | ✅ Fuldt | Volatility3 integration, memory dump, disk analysis, timeline |
+| **Compliance Framework** | ✅ Fuldt | CIS Benchmark & NIST 800-53 scanning (32 checks) |
+| **Incident Response** | ✅ Fuldt | Struktureret IR-workflow med phases, evidence, playbooks |
 
 ### Shared / Infrastructure
 
@@ -121,36 +121,51 @@ Netrunner er et enterprise-level C2 / SIEM / XDR system med Cyberpunk/Matrix/Neo
 | MCU/IoT IDE | ✅ Fuldt |
 | USB/Serial Management | ✅ Fuldt |
 | WiFi Security Config (PMF/WPA3/OWE/EAP-TLS) | ✅ Fuldt |
+| WiFi Attacks (Deauth/Evil Twin/WPA Crack) | ✅ Fuldt |
+| Forensics Lab (Volatility3/Disk Analysis) | ✅ Fuldt |
+| Compliance Scanner (CIS/NIST) | ✅ Fuldt |
+| Lateral Movement (SSH Tunnels/SOCKS/Pivots) | ✅ Fuldt |
+| Log Aggregation (Centralized) | ✅ Fuldt |
+| Social Engineering Toolkit | ✅ Fuldt |
+| Privilege Escalation Scanner | ✅ Fuldt |
+| Incident Response Workflow | ✅ Fuldt |
 
 ---
 
-## 🗺️ Roadmap — Manglende Features
+## 🗺️ Roadmap — Status
 
-### Fase 1 (Kritisk — gør systemet brugbart)
+### Fase 1 (Kritisk — gør systemet brugbart) ✅ KOMPLET
+
+| # | Feature | Status | Implementeret |
+|---|---------|--------|---------------|
+| 1 | **Ægte IDS** (scapy packet analysis) | ✅ | `backend/services/ids_engine.py` |
+| 2 | **Node isolation virkelig** (iptables via SSH) | ✅ | `backend/core/defense.py` |
+| 3 | **WiFi angreb** (deauth, evil twin, WPA cracking) | ✅ | `backend/core/wifi_attack.py` |
+| 4 | **SOAR actions udføres** (block_ip, isolate_node) | ✅ | `backend/services/soar_playbooks.py` |
+
+### Fase 2 (Vigtigt — gør systemet enterprise) ✅ KOMPLET
+
+| # | Feature | Status | Implementeret |
+|---|---------|--------|---------------|
+| 5 | **Forensics UI** (Volatility3 + timeline) | ✅ | `backend/core/forensics.py` + `ForensicsView.vue` |
+| 6 | **Compliance scanning** (CIS/NIST 32 checks) | ✅ | `backend/core/compliance.py` + `ComplianceView.vue` |
+| 7 | **Lateral movement UI** (SSH tunnels, SOCKS, pivots) | ✅ | `backend/core/lateral_movement.py` + `LateralMovementView.vue` |
+| 8 | **Log aggregation** (centraliseret fra alle nodes) | ✅ | `backend/core/log_aggregation.py` + `LogAggregationView.vue` |
+
+### Fase 3 (Nice-to-have) ✅ KOMPLET
+
+| # | Feature | Status | Implementeret |
+|---|---------|--------|---------------|
+| 9 | **Social engineering** (phishing, pretexting) | ✅ | `backend/core/social_engineering.py` + `SocialEngineeringView.vue` |
+| 10 | **Privilege escalation scanning** | ✅ | `backend/core/privesc.py` + `PrivescView.vue` |
+| 11 | **Incident Response workflow** | ✅ | `backend/core/incident_response.py` + `IncidentResponseView.vue` |
+
+### Fase 4 (Rest)
 
 | # | Feature | Team | Kompleksitet | Estimat |
 |---|---------|------|:---:|---------|
-| 1 | **Ægte IDS** (Suricata/Snort integration) | Blue | Høj | 3-5 dage |
-| 2 | **Node isolation virkelig** (iptables udføres faktisk) | Blue | Medium | 1-2 dage |
-| 3 | **WiFi angreb** (deauth, evil twin, WPA cracking) | Red | Høj | 3-5 dage |
-| 4 | **SOAR actions udføres** (block_ip, isolate_node virker) | Blue | Medium | 1-2 dage |
-
-### Fase 2 (Vigtigt — gør systemet enterprise)
-
-| # | Feature | Team | Kompleksitet | Estimat |
-|---|---------|------|:---:|---------|
-| 5 | **Forensics UI** (Volatility + timeline analysis) | Blue | Høj | 5-7 dage |
-| 6 | **Compliance scanning** (CIS Benchmarks, NIST) | Blue | Medium | 3-5 dage |
-| 7 | **Lateral movement UI** (SSH tunnels, SOCKS proxy, pivoting) | Red | Medium | 2-3 dage |
-| 8 | **Log aggregation** (Loki/ELK connector, centraliseret søgning) | Blue | Høj | 5-7 dage |
-
-### Fase 3 (Nice-to-have)
-
-| # | Feature | Team | Kompleksitet | Estimat |
-|---|---------|------|:---:|---------|
-| 9 | Social engineering værktøjer (phishing, pretexting) | Red | Medium | 3-5 dage |
-| 10 | Privilege escalation scanning (LinPEAS/WinPEAS) | Red | Medium | 2-3 dage |
-| 11 | Incident Response workflow (evidence chain, containment→eradication) | Blue | Høj | 5-7 dage |
+| 12 | Exfiltration (DNS/ICMP tunneling) | Red | Medium | 2-3 dage |
+| 13 | UI/UX polish til hackathon | Both | Medium | 3-5 dage |
 
 ---
 
@@ -197,11 +212,10 @@ docker restart netrunner-platform
 ---
 
 ## 🐛 Kendte Issues
-- `ids_engine.py` er en stub — genererer tilfældige alerts, ikke rigtig pakkeanalyse
-- `defense.py` node isolation returnerer log-strings, udfører ikke iptables
-- SOAR playbook actions er log-only, udføres ikke mod infrastrukturen
 - Tests fejler pga. log-fil rettighedsfejl (`data/logs/netrunner.log`)
 - Backend kører som root i Docker containeren
+- WiFi angreb kræver monitor mode interface (ikke tilgængeligt i Docker)
+- Volatility3 skal installeres på målknoder for memory forensics
 
 ---
 
@@ -210,13 +224,21 @@ docker restart netrunner-platform
 | Formål | Fil |
 |--------|-----|
 | WiFi sikkerhedsgeneratorer | `backend/generators/wifi_security.py` |
+| WiFi angreb | `backend/core/wifi_attack.py` |
 | PMF generator | `backend/generators/network.py` (gen_pmf) |
 | Network generatorer | `backend/generators/network.py` |
 | Preview router | `backend/routers/preview.py` |
 | ConfigPanel (frontend) | `frontend/src/components/ConfigPanel.vue` |
 | Kismet integration | `backend/routers/kismet.py` + `backend/core/kismet.py` |
-| IDS engine (stub) | `backend/services/ids_engine.py` |
-| Node isolation (simuleret) | `backend/core/defense.py` |
+| IDS engine (scapy) | `backend/services/ids_engine.py` |
+| Node isolation (iptables) | `backend/core/defense.py` |
 | SOAR playbooks | `backend/routers/playbooks.py` + `backend/services/soar_playbooks.py` |
+| Forensics (Volatility3) | `backend/core/forensics.py` |
+| Compliance scanning | `backend/core/compliance.py` |
+| Lateral movement | `backend/core/lateral_movement.py` |
+| Log aggregation | `backend/core/log_aggregation.py` |
+| Social engineering | `backend/core/social_engineering.py` |
+| Privilege escalation | `backend/core/privesc.py` |
+| Incident response | `backend/core/incident_response.py` |
 | App.vue (Ctrl+K) | `frontend/src/App.vue` |
 | Router definitions | `frontend/src/router/index.ts` |
