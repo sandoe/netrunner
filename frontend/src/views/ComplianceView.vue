@@ -197,7 +197,7 @@ const filteredResults = computed(() => {
 onMounted(async () => {
   try {
     const nodesRes = await api.get('/nodes')
-    nodes.value = nodesRes.data?.nodes || []
+    nodes.value = Object.values(nodesRes.data || {})
   } catch (e) {
     console.error('Failed to load nodes', e)
   }

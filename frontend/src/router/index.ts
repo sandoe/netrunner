@@ -23,6 +23,7 @@ import SocialEngineeringView from '@/views/SocialEngineeringView.vue'
 import PrivescView from '@/views/PrivescView.vue'
 import IncidentResponseView from '@/views/IncidentResponseView.vue'
 import ExfiltrationView from '@/views/ExfiltrationView.vue'
+import WifiAttackView from '@/views/WifiAttackView.vue'
 import { sendUiEvent } from '@/api/client'
 
 const routes = [
@@ -51,6 +52,7 @@ const routes = [
   { path: '/privesc', name: 'privesc', component: PrivescView },
   { path: '/ir', name: 'ir', component: IncidentResponseView },
   { path: '/exfil', name: 'exfil', component: ExfiltrationView },
+  { path: '/wifi-attack', name: 'wifi-attack', component: WifiAttackView },
 ]
 
 const router = createRouter({

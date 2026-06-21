@@ -83,7 +83,7 @@ onMounted(async () => {
       api.get('/nodes'),
       api.get('/privesc/scans'),
     ])
-    nodes.value = nodesRes.data?.nodes || []
+    nodes.value = Object.values(nodesRes.data || {})
     scans.value = scansRes.data?.scans || []
   } catch (e) {
     console.error('Failed to load data', e)

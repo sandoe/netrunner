@@ -29,11 +29,29 @@ async function req<T>(method: string, path: string, body?: unknown): Promise<T> 
     throw new Error('Unauthorized')
   }
   const data = await res.json().catch(() => ({}))
-  if (!res.ok) throw new Error(data.detail || data.error || `HTTP ${res.status}`)
+  if (!res.ok) {
+    const detail = data.detail || data.error
+    const msg = typeof detail === 'string' ? detail : typeof detail === 'object' ? JSON.stringify(detail) : `HTTP ${res.status}`
+    throw new Error(msg)
+  }
   return data as T
 }
 
 export const api = {
+  get: async <T = any>(path: string, config?: { params?: Record<string, any> }) => {
+    let url = path
+    if (config?.params) {
+      const qs = new URLSearchParams()
+      for (const [k, v] of Object.entries(config.params)) {
+        if (v !== undefined && v !== null && v !== '') qs.set(k, String(v))
+      }
+      const s = qs.toString()
+      if (s) url += '?' + s
+    }
+    return { data: await req<T>('GET', url) }
+  },
+  post: async <T = any>(path: string, body?: unknown) => ({ data: await req<T>('POST', path, body) }),
+
   // Auth
   login: (creds: any) => req<any>('POST', '/auth/login', creds),
 

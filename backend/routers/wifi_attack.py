@@ -59,10 +59,15 @@ async def api_wifi_attack_interfaces():
     return {"interfaces": interfaces}
 
 
+class ScanRequest(BaseModel):
+    interface: str
+    duration: int = 10
+
+
 @router.post("/wifi-attack/scan", dependencies=[Depends(require_admin)])
-async def api_wifi_attack_scan(interface: str, duration: int = 10):
+async def api_wifi_attack_scan(req: ScanRequest):
     """Scan for nearby WiFi networks."""
-    networks = await scan_networks(interface, duration)
+    networks = await scan_networks(req.interface, req.duration)
     return {"networks": networks, "count": len(networks)}
 
 

@@ -234,7 +234,7 @@ onMounted(async () => {
       api.get('/nodes'),
       api.get('/exfil/methods'),
     ])
-    nodes.value = nodesRes.data?.nodes || []
+    nodes.value = Object.values(nodesRes.data || {})
     methods.value = methodsRes.data?.methods || []
   } catch (e) {
     console.error('Failed to load data', e)
