@@ -115,7 +115,13 @@ async function viewScan(scanId: string) {
 </script>
 
 <style scoped>
-.privesc-view { padding: 20px; color: #e0e0e0; }
+.privesc-view {
+  padding: 20px;
+  color: #e0e0e0;
+  max-height: calc(100vh - 120px);
+  overflow-y: auto;
+  box-sizing: border-box;
+}
 .header h1 { color: #00ff88; margin-bottom: 4px; }
 .subtitle { color: #888; margin-bottom: 20px; }
 .panel { background: #1a1a2e; border: 1px solid #333; border-radius: 8px; padding: 20px; margin-bottom: 16px; }
@@ -146,7 +152,12 @@ async function viewScan(scanId: string) {
 .result-card.has-output { border-left-color: #00ff88; }
 .result-header { display: flex; justify-content: space-between; margin-bottom: 8px; }
 .result-name { font-weight: bold; }
-.result-output { background: #111; padding: 8px; border-radius: 4px; font-size: 0.85em; overflow-x: auto; max-height: 200px; overflow-y: auto; }
+.result-output { background: #111; padding: 8px; border-radius: 4px; font-size: 0.85em; overflow-x: auto; max-height: 300px; overflow-y: auto; }
+.results-section {
+  max-height: 500px;
+  overflow-y: auto;
+  padding-right: 8px;
+}
 .scan-card { display: flex; gap: 16px; align-items: center; background: #0d1117; border: 1px solid #333; border-radius: 6px; padding: 12px; margin-bottom: 8px; cursor: pointer; }
 .scan-card:hover { border-color: #00ff88; }
 </style>

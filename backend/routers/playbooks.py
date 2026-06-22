@@ -54,6 +54,7 @@ async def create_playbook(data: PlaybookCreate):
         "is_active": data.is_active,
         "conditions": data.conditions,
         "actions": data.actions,
+        "created_at": now,
         "updated_at": now
     }
     await save_playbook_db(doc)

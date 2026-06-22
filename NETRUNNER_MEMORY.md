@@ -181,6 +181,9 @@ docker restart netrunner-platform
 6. **WiFi Attack backend ikke i containeren** — Alle nye backend-moduler manglede i containeren. Løsning: Kopieret alle 9 nye router- og core-filer.
 7. **WiFi Scan returnerede intet** — Scan-endpunktet brugte query params, frontend sendte JSON body. Løsning: Oprettet `ScanRequest` Pydantic model til scan-endpointet.
 8. **`[object Object]` i fejlbeskeder** — `new Error(data.detail)` når `detail` er array/object fra FastAPI. Løsning: `JSON.stringify()` i req-funktionen.
+9. **SOAR Playbooks POST 500** — `created_at` manglede i playbook doc ved oprettelse. Rettet i `backend/routers/playbooks.py`.
+10. **Privesc Scanner fejlede altid** — `privesc.py` brugte `get_credential()` som ikke eksisterer. Skal være `load_credentials()`. Rettet i `backend/routers/privesc.py`.
+11. **PrivescView scroll-problemer** — Viewet kunne ikke scrolle. Tilføjet `max-height` og `overflow-y: auto` til main container og results section.
 
 ### Kendte issues (stående)
 - WiFi angreb kræver monitor mode interface (ikke tilgængeligt i Docker)
@@ -188,6 +191,10 @@ docker restart netrunner-platform
 - `data/logs/netrunner.log` ejes af root — slet og genopret med `chmod 666`
 - Frontend build advarsel: chunks > 500 kB (7.7MB) — brug dynamic import/code splitting
 - `iw` ikke tilgængeligt i containeren (kun host)
+- **Topology/Discovery**: Nodes vises IKKE automatisk. Kræver:
+  1. Manuel scanning via **Recon** visning (vælg node → indtast netværk f.eks. `192.168.1.0/24` → scan → import)
+  2. LLDP kun opdager direkte tilsluttede naboer, ikke hele netværket
+  3. Reachability tjekker kun eksisterende nodes' status
 
 ---
 

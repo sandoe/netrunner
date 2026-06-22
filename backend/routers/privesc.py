@@ -48,11 +48,8 @@ async def api_privesc_scan(req: PrivescScanRequest):
     password = node.get("ssh_password", "")
 
     try:
-        from ..core.vault import get_credential
-        cred = await get_credential(req.node_id, "ssh")
-        if cred:
-            username = cred.get("username", username)
-            password = cred.get("password", password)
+        from ..core.vault import load_credentials
+        username, password = await load_credentials(req.node_id)
     except Exception:
         pass
 
