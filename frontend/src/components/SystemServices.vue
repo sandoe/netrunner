@@ -6,6 +6,10 @@
       <span class="svc-count">{{ shown.length }}/{{ services.length }}</span>
     </div>
     <div class="svc-list">
+      <div class="cyber-guide" style="margin: 8px; font-size: 11px; border-left: 2px solid var(--purple); padding-left: 8px; background: rgba(140, 82, 255, 0.05);">
+        <strong style="color: var(--purple);">🎓 Cyber Guide: System Services (Persistence)</strong><br/>
+        <span style="color: #ccc;">Windows Services og Linux Daemons (systemd) bruges til at køre programmer i baggrunden. I et cyberangreb er dette en af de primære metoder hackere bruger til "Persistence" (T1543). Hvis et system bliver genstartet, vil operativsystemet automatisk starte hackerens malware op igen, hvis det ligger som en service.</span>
+      </div>
       <div v-for="s in shown" :key="s.name" class="svc-row">
         <span class="svc-dot" :class="s.sub"></span>
         <div class="svc-meta">

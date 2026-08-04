@@ -7,6 +7,10 @@
           <span class="cat-chevron" :class="{ collapsed: collapsedCats.has(key as string) }">⌃</span>
         </div>
         <div v-if="!collapsedCats.has(key as string)" class="cat-items">
+          <button class="read-btn btn-report-cat" @click="generateReport(key as string)" :disabled="isGeneratingReport === key">
+            <span>📄</span> {{ isGeneratingReport === key ? 'Generating...' : `Quick Export (txt)` }}
+          </button>
+          <div class="cat-divider"></div>
           <button
             v-for="item in cat.types"
             :key="item.type"
@@ -27,10 +31,10 @@
           </span>
           <div class="header-search">
             <span class="search-icon">🔍</span>
-            <input 
-              v-model="searchQuery" 
-              type="text" 
-              placeholder="Search/Filter output..." 
+            <input
+              v-model="searchQuery"
+              type="text"
+              placeholder="Search/Filter output..."
               class="search-input"
             />
           </div>
@@ -46,7 +50,7 @@
             </button>
           </div>
         </div>
-        
+
         <!-- WireGuard Quick Controls -->
         <div v-if="activeType === 'wireguard' && !outputError && !isMissingTool && loadingType !== activeType" class="wg-quick-controls">
           <div class="wg-control-info">
@@ -78,16 +82,16 @@
         <pre v-else class="output-pre" v-html="highlightedOutput"></pre>
       </div>
     </div>
-    
+
     <!-- Sudo Prompt Modal -->
     <div v-if="showSudoPrompt" class="modal-overlay">
       <div class="modal-content">
         <h3>Authentication Required</h3>
         <p>Enter sudo password for this node (leave blank if NOPASSWD):</p>
-        <input 
-          v-model="sudoInput" 
-          type="password" 
-          class="sudo-input" 
+        <input
+          v-model="sudoInput"
+          type="password"
+          class="sudo-input"
           placeholder="Password..."
           @keyup.enter="submitSudo"
         />
@@ -127,8 +131,9 @@ const output        = ref('')
 const outputError   = ref('')
 const copied        = ref(false)
 const installing    = ref(false)
-const collapsedCats = ref<Set<string>>(new Set())
+const collapsedCats = ref<Set<string>>(new Set(Object.keys(READ_CATEGORIES)))
 const searchQuery   = ref('')
+const isGeneratingReport = ref<string | null>(null)
 
 const showSudoPrompt = ref(false)
 const sudoInput = ref('')
@@ -189,38 +194,38 @@ function highlightTerminalOutput(text: string): string {
   const macReg = /\b([0-9a-fA-F]{2}[:-]){5}([0-9a-fA-F]{2})\b/g
   // Interface names/system objects
   const interfaceReg = /\b(eth\d+|br\d+|wlan\d+|wg\d+|lo|bond\d+|vlan\d+)\b/g
-  
+
   let highlighted = text
   highlighted = highlighted.replace(greenReg, '<span class="term-ok">$1</span>')
   highlighted = highlighted.replace(redReg, '<span class="term-err">$1</span>')
   highlighted = highlighted.replace(ipReg, '<span class="term-ip">$1</span>')
   highlighted = highlighted.replace(macReg, '<span class="term-mac">$1</span>')
   highlighted = highlighted.replace(interfaceReg, '<span class="term-int">$1</span>')
-  
+
   return highlighted
 }
 
 const highlightedOutput = computed(() => {
   if (!output.value) return ''
-  
+
   let text = output.value
-  
+
   // Escape HTML to prevent XSS
   text = escapeHtml(text)
-  
+
   // Line-by-line filtering if search query is active
   if (searchQuery.value.trim()) {
     const q = searchQuery.value.trim().toLowerCase()
     const lines = text.split('\n')
     const filteredLines = lines.filter(line => line.toLowerCase().includes(q))
-    text = filteredLines.length > 0 
-      ? filteredLines.join('\n') 
+    text = filteredLines.length > 0
+      ? filteredLines.join('\n')
       : '-- NO MATCHES FOUND --'
   }
-  
+
   // Apply regular terminal formatting highlights
   text = highlightTerminalOutput(text)
-  
+
   // Search query highlight
   if (searchQuery.value.trim()) {
     const q = escapeHtml(searchQuery.value.trim())
@@ -228,7 +233,7 @@ const highlightedOutput = computed(() => {
     const regex = new RegExp(`(${escQ})`, 'gi')
     text = text.replace(regex, '<mark class="search-match">$1</mark>')
   }
-  
+
   return text
 })
 
@@ -264,9 +269,44 @@ async function readType(type: ReadType) {
   }
 }
 
+async function generateReport(catKey: string) {
+  isGeneratingReport.value = catKey
+  const cat = READ_CATEGORIES[catKey]
+
+  let reportText = `DIAGNOSTIC REPORT\n`
+  reportText += `Category: ${cat.label} (${catKey})\n`
+  reportText += `Node ID: ${props.nodeId}\n`
+  reportText += `Timestamp: ${new Date().toISOString()}\n`
+  reportText += `======================================================================\n\n`
+
+  for (const item of cat.types) {
+    reportText += `--- [ ${item.label} ] -----------------------------------------------------\n`
+    try {
+      const data = await api.readNode(props.nodeId, item.type as ReadType)
+      const out = data.results.map(r => (r.output || r.error || '')).join('\n\n').trim()
+      reportText += (out ? out : 'No output or tool not installed.') + '\n'
+    } catch (e) {
+      reportText += `Error fetching data: ${e}\n`
+    }
+    reportText += `\n`
+  }
+
+  const blob = new Blob([reportText], { type: 'text/plain;charset=utf-8' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `report_${props.nodeId}_${catKey}.txt`
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+  URL.revokeObjectURL(url)
+
+  isGeneratingReport.value = null
+}
+
 async function installTool() {
     if (!activeType.value) return
-    
+
     const sudoPass = await promptSudo()
     if (sudoPass === null) return // user cancelled
 
@@ -284,7 +324,7 @@ async function installTool() {
                 if (r.error) installLog.value += r.error + '\n'
             }
         }
-        
+
         // Basic check if it likely succeeded (apt-get returns 0 typically, but we just check if it contains common errors)
         const lowerOut = installLog.value.toLowerCase()
         if (lowerOut.includes('e: unable to locate package') || lowerOut.includes('error:') || lowerOut.includes('command not found')) {
@@ -333,7 +373,7 @@ async function runWgAction(action: 'up' | 'down') {
     }
     const res = await api.executeNode(props.nodeId, [cmd])
     const r = res.results?.[0]
-    
+
     if (r) {
       if (r.error) {
         alert(`Failed to run wg-quick ${action}: ` + r.error)
@@ -348,7 +388,7 @@ async function runWgAction(action: 'up' | 'down') {
         }
       }
     }
-    
+
     // Always refresh the diagnostic view to show current state
     await readType('wireguard')
   } catch (e: any) {
@@ -405,19 +445,38 @@ async function runWgAction(action: 'up' | 'down') {
   font-family: var(--font-ui);
 }
 .read-btn:hover { background: rgba(0, 229, 255, 0.05); color: var(--cyan); }
-.read-btn.active { 
-  background: rgba(0, 229, 255, 0.1); 
-  color: var(--cyan); 
-  border-left: 2px solid var(--cyan); 
+.read-btn.active {
+  background: rgba(0, 229, 255, 0.1);
+  color: var(--cyan);
+  border-left: 2px solid var(--cyan);
   box-shadow: inset 2px 0 8px rgba(0, 229, 255, 0.05);
 }
 .read-btn.loading { opacity: .5; }
+
+.btn-report-cat {
+  background: rgba(0, 255, 157, 0.05);
+  color: var(--green);
+  border: 1px solid rgba(0, 255, 157, 0.2);
+  text-align: center;
+  font-weight: bold;
+}
+.btn-report-cat:hover {
+  background: rgba(0, 255, 157, 0.15);
+  border-color: var(--green);
+  color: var(--green);
+}
+.cat-divider {
+  height: 1px;
+  background: var(--border);
+  margin: 8px 0;
+  opacity: 0.5;
+}
 .diag-output { flex: 1; overflow: hidden; display: flex; flex-direction: column; background: var(--bg); }
 .output-container { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
-.placeholder { 
-  color: var(--text); 
-  font-size: 14px; 
-  padding: 32px; 
+.placeholder {
+  color: var(--text);
+  font-size: 14px;
+  padding: 32px;
   font-family: var(--font-hd);
   letter-spacing: 1px;
 }
@@ -484,16 +543,16 @@ async function runWgAction(action: 'up' | 'down') {
   border-radius: 4px; color: var(--textbr); cursor: pointer; transition: all .15s;
   display: flex; align-items: center; gap: 4px;
 }
-.copy-btn:hover, .refresh-btn:hover { 
-  background: var(--border); 
-  color: var(--cyan); 
+.copy-btn:hover, .refresh-btn:hover {
+  background: var(--border);
+  color: var(--cyan);
   border-color: var(--cyan);
   box-shadow: 0 0 10px rgba(0, 229, 255, 0.1);
 }
-.clear-btn:hover { 
+.clear-btn:hover {
   background: var(--border);
-  color: var(--pink); 
-  border-color: var(--pink); 
+  color: var(--pink);
+  border-color: var(--pink);
   box-shadow: 0 0 10px rgba(255, 45, 110, 0.1);
 }
 .copy-btn.ok { background: rgba(0, 255, 157, 0.1); border-color: var(--green); color: var(--green); }
@@ -514,7 +573,7 @@ async function runWgAction(action: 'up' | 'down') {
   position: absolute;
   top: 0; left: 0; right: 0; bottom: 0;
   background-size: 24px 24px;
-  background-image: 
+  background-image:
     linear-gradient(to right, rgba(0, 229, 255, 0.02) 1px, transparent 1px),
     linear-gradient(to bottom, rgba(0, 229, 255, 0.02) 1px, transparent 1px);
   pointer-events: none;
@@ -558,6 +617,8 @@ async function runWgAction(action: 'up' | 'down') {
     background: var(--bg3); border: 1px solid var(--border);
     border-radius: 8px; text-align: center;
 }
+
+/* Removed unused builder styles */
 .fix-msg { font-size: 13px; color: var(--textwh); margin-bottom: 16px; }
 .btn-install-tool {
     padding: 10px 24px; background: var(--green); color: var(--bg);

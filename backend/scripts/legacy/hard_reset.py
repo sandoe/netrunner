@@ -1,5 +1,6 @@
 import serial, time
-s = serial.Serial('/dev/ttyUSB0', 115200)
+
+s = serial.Serial("/dev/ttyUSB0", 115200)
 s.dtr = True
 s.rts = True
 time.sleep(0.1)

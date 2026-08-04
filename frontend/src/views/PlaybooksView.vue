@@ -2,10 +2,15 @@
   <div class="playbooks-container">
     <div class="header">
       <h2><span class="glitch-text" data-text="AUTOMATION">AUTOMATION</span> PLAYBOOKS</h2>
-      <button class="cyber-button primary" @click="openEditor(null)">+ NEW PLAYBOOK</button>
+      <button class="cyber-button primary" @click="openEditor(null)" v-if="activeTab === 'playbooks'">+ NEW PLAYBOOK</button>
     </div>
 
-    <div class="playbooks-grid">
+    <div class="tabs-nav" style="margin-bottom: 20px;">
+      <button class="tab-btn" :class="{ active: activeTab === 'playbooks' }" @click="activeTab = 'playbooks'">Playbooks</button>
+      <button v-if="nodeStore.simulationMode" class="tab-btn" :class="{ active: activeTab === 'simulator' }" @click="activeTab = 'simulator'">Defensive Drills (Sim)</button>
+    </div>
+
+    <div class="playbooks-grid" v-if="activeTab === 'playbooks'">
       <div v-for="pb in playbooks" :key="pb.id" class="playbook-card" :class="{ 'inactive': !pb.is_active }">
         <div class="card-header">
           <div class="title">
@@ -25,7 +30,7 @@
           </div>
         </div>
         <p class="description">{{ pb.description || 'No description provided.' }}</p>
-        
+
         <div class="logic-summary">
           <div class="logic-block if-block">
             <strong>IF</strong>
@@ -48,11 +53,15 @@
       </div>
     </div>
 
+    <div class="simulator-view" v-else-if="activeTab === 'simulator'">
+      <PentestSimulatorPanel />
+    </div>
+
     <!-- Editor Modal -->
     <div v-if="showEditor" class="modal-overlay" @click.self="closeEditor">
       <div class="cyber-modal playbook-editor">
         <h3>{{ editingPlaybook.id ? 'EDIT' : 'NEW' }} PLAYBOOK</h3>
-        
+
         <div class="form-group">
           <label>Name</label>
           <input type="text" v-model="editingPlaybook.name" class="cyber-input" placeholder="e.g. Block Critical Malware" />
@@ -61,7 +70,7 @@
           <label>Description</label>
           <input type="text" v-model="editingPlaybook.description" class="cyber-input" placeholder="Briefly describe what this does..." />
         </div>
-        
+
         <div class="logic-builder">
           <h4>CONDITIONS (IF)</h4>
           <div class="builder-list">
@@ -109,14 +118,25 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
-import { 
+import { ref, onMounted, computed, watch } from 'vue'
+import PentestSimulatorPanel from '@/components/PentestSimulatorPanel.vue'
+import { useNodesStore } from '@/stores/nodes'
+import {
   listPlaybooksPlaybooksGet,
   updatePlaybookPlaybooksPlaybookIdPatch,
   deletePlaybookPlaybooksPlaybookIdDelete,
   createPlaybookPlaybooksPost
 } from '@/api_client'
 import type { PlaybookResponse } from '@/api_client'
+
+const nodeStore = useNodesStore()
+const activeTab = ref('playbooks')
+
+watch(() => nodeStore.simulationMode, (sim) => {
+  if (!sim && activeTab.value === 'simulator') {
+    activeTab.value = 'playbooks'
+  }
+})
 
 const playbooks = ref<PlaybookResponse[]>([])
 const showEditor = ref(false)
@@ -213,7 +233,7 @@ const savePlaybook = async () => {
     } else {
       await createPlaybookPlaybooksPost({ body })
     }
-    
+
     closeEditor()
     await fetchPlaybooks()
   } catch (err) {
@@ -229,6 +249,26 @@ const savePlaybook = async () => {
   color: var(--text-color);
   max-width: 1200px;
   margin: 0 auto;
+}
+
+.tabs-nav {
+  display: flex;
+  gap: 10px;
+}
+.tab-btn {
+  background: transparent;
+  border: 1px solid var(--accent-blue);
+  color: var(--text-color);
+  padding: 8px 16px;
+  cursor: pointer;
+  transition: all 0.3s;
+}
+.tab-btn.active {
+  background: rgba(0, 240, 255, 0.1);
+  color: var(--accent-blue);
+}
+.tab-btn:hover {
+  background: rgba(0, 240, 255, 0.05);
 }
 
 .header {

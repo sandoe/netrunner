@@ -1,5 +1,5 @@
 <template>
-  <div class="terminal-wrap" ref="wrapEl">
+  <div class="terminal-wrap" ref="wrapEl" @click="focusTerminal">
     <div class="terminal-toolbar">
       <div class="term-info">
         <span class="term-label">NODE:</span>
@@ -12,18 +12,18 @@
         </span>
       </div>
       <div class="term-actions">
-        <button @click="reconnect" :disabled="connecting" class="btn-sm">
+        <button @click="reconnect" :disabled="connecting" class="btn-sm" tabindex="-1">
           {{ connecting ? 'ESTABLISHING...' : connected ? 'RECONNECT' : 'CONNECT' }}
         </button>
-        <button @click="clearTerminal" class="btn-sm">CLEAR</button>
+        <button @click="clearTerminal" class="btn-sm" tabindex="-1">CLEAR</button>
       </div>
     </div>
-    <div ref="termEl" class="xterm-container" />
+    <div ref="termEl" class="xterm-container" @click="focusTerminal" />
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, watch, onMounted, onUnmounted } from 'vue'
+import { ref, watch, onMounted, onUnmounted, nextTick, onActivated } from 'vue'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import { WebLinksAddon } from '@xterm/addon-web-links'
@@ -31,7 +31,7 @@ import '@xterm/xterm/css/xterm.css'
 import { wsTerminalUrl } from '@/api/client'
 import type { NrNode } from '@/types'
 
-const props = defineProps<{ node: NrNode | null }>()
+const props = defineProps<{ node: NrNode | null; active?: boolean }>()
 
 const wrapEl    = ref<HTMLElement>()
 const termEl    = ref<HTMLElement>()
@@ -42,11 +42,26 @@ let term: Terminal | null = null
 let fitAddon: FitAddon | null = null
 let ws: WebSocket | null = null
 let resizeObserver: ResizeObserver | null = null
+let outputBuffer = ''
+let bufferFlushFrame: number | null = null
+let focusTimer: ReturnType<typeof setTimeout> | null = null
+let fitFrame: number | null = null
+let fitSoonTimer: ReturnType<typeof setTimeout> | null = null
+let fitTries = 0
+
+function flushBuffer() {
+  if (outputBuffer && term) {
+    term.write(outputBuffer)
+    outputBuffer = ''
+  }
+  bufferFlushFrame = null
+}
 
 function initTerminal() {
   if (!termEl.value) return
   if (term) {
     term.dispose()
+    term = null
   }
 
   term = new Terminal({
@@ -77,7 +92,7 @@ function initTerminal() {
     lineHeight: 1.2,
     cursorBlink: true,
     cursorStyle: 'block',
-    cursorInactiveStyle: 'outline',
+    cursorInactiveStyle: 'block',
     scrollback: 10000,
     allowProposedApi: true,
   })
@@ -86,13 +101,37 @@ function initTerminal() {
   term.loadAddon(fitAddon)
   term.loadAddon(new WebLinksAddon())
   term.open(termEl.value)
+
+  // Guard against xterm internal Viewport.syncScrollArea throwing after dispose during fake timer advances
+  try {
+    const core = (term as any)._core
+    if (core && core.viewport) {
+      const vp = core.viewport
+      const origSync = vp.syncScrollArea
+      if (typeof origSync === 'function') {
+        vp.syncScrollArea = function (...args: any[]) {
+          if (!this._renderService || core._isDisposed) return
+          try {
+            return origSync.apply(this, args)
+          } catch {
+            /* ignore disposed syncScrollArea */
+          }
+        }
+      }
+    }
+  } catch {
+    /* ignore */
+  }
+
   // Fit only once the container actually has dimensions — fitting synchronously
   // on mount (before flex layout settles) yields 0 rows and hides the cursor.
   fitSoon()
 
   // Clicking anywhere in the padded container should focus the terminal,
   // otherwise the block cursor renders as inactive/invisible.
-  termEl.value.addEventListener('mousedown', () => term?.focus())
+  termEl.value.addEventListener('mousedown', () => {
+    if (term) term.focus()
+  })
 
   term.onData((data) => {
     if (ws && ws.readyState === WebSocket.OPEN) {
@@ -106,24 +145,77 @@ function initTerminal() {
     }
   })
 
+  if (resizeObserver) {
+    resizeObserver.disconnect()
+  }
   resizeObserver = new ResizeObserver(() => fitSoon())
-  resizeObserver.observe(wrapEl.value!)
+  if (wrapEl.value) {
+    resizeObserver.observe(wrapEl.value)
+  }
+}
+
+function focusTerminal() {
+  if (!term || !termEl.value) return
+
+  if (focusTimer) {
+    clearTimeout(focusTimer)
+    focusTimer = null
+  }
+
+  // Use a longer delay to ensure all Vue renders, layout calculations,
+  // and browser mouseup/click focus events have completely finished.
+  focusTimer = setTimeout(() => {
+    focusTimer = null
+    if (!term || !termEl.value) return
+
+    // Fit first
+    try {
+      if (fitAddon && termEl.value.clientWidth >= 10) {
+        fitAddon.fit()
+      }
+    } catch {
+      /* ignore */
+    }
+
+    // Then focus
+    term.focus()
+  }, 250) as unknown as ReturnType<typeof setTimeout>
 }
 
 // Fit + focus on the next frame, but only when the element has a real size.
 // Retries briefly while the layout is still 0×0 (e.g. tab just became visible).
-let fitTries = 0
 function fitSoon() {
-  requestAnimationFrame(() => {
+  if (fitFrame) {
+    cancelAnimationFrame(fitFrame)
+    fitFrame = null
+  }
+  fitFrame = requestAnimationFrame(() => {
+    fitFrame = null
     const el = termEl.value
     if (!term || !fitAddon || !el) return
+
     if (el.clientWidth < 10 || el.clientHeight < 10) {
-      if (fitTries++ < 20) setTimeout(fitSoon, 50)
+      if (fitTries < 20) {
+        fitTries++
+        if (fitSoonTimer) {
+          clearTimeout(fitSoonTimer)
+        }
+        fitSoonTimer = setTimeout(fitSoon, 50) as unknown as ReturnType<typeof setTimeout>
+      }
       return
     }
+
     fitTries = 0
-    try { fitAddon.fit() } catch { /* ignore */ }
-    term.focus()
+    try {
+      if (term && fitAddon) {
+        fitAddon.fit()
+      }
+    } catch {
+      /* ignore */
+    }
+    if (term) {
+      term.focus()
+    }
   })
 }
 
@@ -133,52 +225,68 @@ function connect(nodeId: string) {
     ws.close()
     ws = null
   }
-  // Start each session with a clean screen so output from a previously
-  // selected node never bleeds into this one.
   term?.reset()
   connecting.value = true
   connected.value  = false
 
-  ws = new WebSocket(wsTerminalUrl(nodeId))
+  const tryConnect = () => {
+    if (!termEl.value || termEl.value.clientWidth < 10) {
+      setTimeout(tryConnect, 50)
+      return
+    }
 
-  ws.onmessage = (ev) => {
     try {
-      const msg = JSON.parse(ev.data)
-      if (msg.type === 'output') {
-        term?.write(msg.data)
-      } else if (msg.type === 'status') {
-        connected.value  = msg.connected
-        connecting.value = false
-        if (msg.connected) {
-          term?.write('\r\n\x1b[1;32m[SYSTEM] Neural link established.\x1b[0m\r\n')
-          fitSoon()
+      if (fitAddon) fitAddon.fit()
+    } catch {}
+
+    const cols = term?.cols || 120
+    const rows = term?.rows || 40
+    ws = new WebSocket(`${wsTerminalUrl(nodeId)}&cols=${cols}&rows=${rows}`)
+
+    ws.onmessage = (ev) => {
+      try {
+        const msg = JSON.parse(ev.data)
+        if (msg.type === 'output') {
+          outputBuffer += msg.data
+          if (!bufferFlushFrame) {
+            bufferFlushFrame = requestAnimationFrame(flushBuffer)
+          }
+        } else if (msg.type === 'status') {
+          connected.value  = msg.connected
+          connecting.value = false
+          if (msg.connected) {
+            term?.write('\r\n\x1b[1;32m[SYSTEM] Neural link established.\x1b[0m\r\n')
+            fitSoon()
+          }
+        } else if (msg.type === 'error') {
+          term?.write(`\r\n\x1b[1;31m[ERROR] Connection failed: ${msg.data}\x1b[0m\r\n`)
+          connecting.value = false
         }
-      } else if (msg.type === 'error') {
-        term?.write(`\r\n\x1b[1;31m[ERROR] Connection failed: ${msg.data}\x1b[0m\r\n`)
-        connecting.value = false
+      } catch {
+        term?.write(ev.data)
       }
-    } catch {
-      term?.write(ev.data)
+    }
+
+    ws.onopen = () => {
+      term?.write(`\r\n\x1b[1;36m[SYSTEM] Initiating link to ${nodeId}...\x1b[0m\r\n`)
+    }
+
+    ws.onerror = () => {
+      term?.write('\r\n\x1b[1;31m[SYSTEM] WebSocket protocol error.\x1b[0m\r\n')
+      connected.value  = false
+      connecting.value = false
+    }
+
+    ws.onclose = () => {
+      if (connected.value) {
+        term?.write('\r\n\x1b[1;31m[SYSTEM] Neural link terminated.\x1b[0m\r\n')
+      }
+      connected.value  = false
+      connecting.value = false
     }
   }
 
-  ws.onopen = () => {
-    term?.write(`\r\n\x1b[1;36m[SYSTEM] Initiating link to ${nodeId}...\x1b[0m\r\n`)
-  }
-
-  ws.onerror = () => {
-    term?.write('\r\n\x1b[1;31m[SYSTEM] WebSocket protocol error.\x1b[0m\r\n')
-    connected.value  = false
-    connecting.value = false
-  }
-
-  ws.onclose = () => {
-    if (connected.value) {
-      term?.write('\r\n\x1b[1;31m[SYSTEM] Neural link terminated.\x1b[0m\r\n')
-    }
-    connected.value  = false
-    connecting.value = false
-  }
+  tryConnect()
 }
 
 function reconnect() {
@@ -192,18 +300,69 @@ function clearTerminal() {
 watch(() => props.node?.id, (newId) => {
   if (newId) {
     connect(newId)
+  } else {
+    if (ws) {
+      ws.onclose = null
+      ws.close()
+      ws = null
+    }
+    connected.value = false
+    connecting.value = false
   }
+})
+
+watch(() => props.active, (val) => {
+  if (val) {
+    focusTerminal()
+  }
+})
+
+onActivated(() => {
+  focusTerminal()
 })
 
 onMounted(() => {
   initTerminal()
   if (props.node) connect(props.node.id)
+  focusTerminal()
 })
 
 onUnmounted(() => {
-  resizeObserver?.disconnect()
-  ws?.close()
-  term?.dispose()
+  if (resizeObserver) {
+    resizeObserver.disconnect()
+    resizeObserver = null
+  }
+  if (focusTimer) {
+    clearTimeout(focusTimer)
+    focusTimer = null
+  }
+  if (fitSoonTimer) {
+    clearTimeout(fitSoonTimer)
+    fitSoonTimer = null
+  }
+  if (fitFrame) {
+    cancelAnimationFrame(fitFrame)
+    fitFrame = null
+  }
+  if (bufferFlushFrame) {
+    cancelAnimationFrame(bufferFlushFrame)
+    bufferFlushFrame = null
+  }
+  if (ws) {
+    ws.onclose = null
+    ws.close()
+    ws = null
+  }
+  if (term) {
+    term.dispose()
+    term = null
+  }
+  fitAddon = null
+})
+
+defineExpose({
+  focus: focusTerminal,
+  fit: fitSoon
 })
 </script>
 

@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   netrunner:
     build:
@@ -10,72 +8,130 @@ services:
     # (127.0.0.1:3080) and the GNS3 VM consoles directly. Publishes 8000/tcp +
     # 8001/udp on the host directly (the `ports:` mapping is implicit here).
     network_mode: host
-    privileged: true
+    env_file:
+      - .env
     cap_add:
       - NET_ADMIN
       - SYS_MODULE
     volumes:
       - ./data:/app/data
-      - /etc/wireguard:/etc/wireguard
+      - ./backend:/app/backend
+      - ./data/wireguard:/etc/wireguard
+      # Mount GNS3 projects so Netrunner can read them
+      - ${GNS3_PROJECTS_PATH:-./data/gns3_projects}:/gns3/projects:ro
       # GNS3 server has auth enabled; mount its config dir (read-only) so the
-      # backend can read the API user/password. Container runs as root -> /root.
-      - /home/aso/.config/GNS3/2.2:/root/.config/GNS3/2.2:ro
+      # backend can read the API user/password. Put your config in ./data/gns3_config
+      - ./data/gns3_config:/root/.config/GNS3/2.2:ro
+      # Allow backend to manage docker containers (for protocol tester)
+      - /var/run/docker.sock:/var/run/docker.sock
       # Allow Bleak to access the host's bluetooth daemon
       - /var/run/dbus/system_bus_socket:/var/run/dbus/system_bus_socket
-      # Allow AoA Serial mapping
-      - /dev:/dev
+      # Allow AoA Serial mapping (Restricted)
+      - /dev/bus/usb:/dev/bus/usb
       # Host Control Room mounts
-      - /:/host:ro
       - /run/udev:/run/udev:ro
-      - /home/aso/.ssh:/root/.ssh:ro
-      # Allow Docker-in-Docker for compiling Firmware
-      - /var/run/docker.sock:/var/run/docker.sock
+      # Put your ssh keys in ./data/ssh to allow Netrunner to connect to your devices
+      - ./data/ssh:/root/.ssh:ro
     environment:
-      - DATABASE_URL=postgresql+asyncpg://netrunner:REDACTED_POSTGRES_PASSWORD@127.0.0.1:5432/netrunner
-      - INFLUXDB_URL=http://127.0.0.1:8086
-      - INFLUXDB_TOKEN=REDACTED_INFLUX_TOKEN
-      - INFLUXDB_ORG=netrunner
-      - INFLUXDB_BUCKET=traffic
+      DATABASE_URL: postgresql+asyncpg://netrunner:${NETRUNNER_DB_PASSWORD:?Set NETRUNNER_DB_PASSWORD in .env}@127.0.0.1:5432/netrunner
+      INFLUXDB_URL: http://127.0.0.1:8086
+      INFLUXDB_TOKEN: ${INFLUXDB_TOKEN:?Set INFLUXDB_TOKEN in .env}
+      INFLUXDB_ORG: ${INFLUXDB_ORG:-netrunner}
+      INFLUXDB_BUCKET: ${INFLUXDB_BUCKET:-traffic}
+      NETRUNNER_SYNC_DEFAULT_PASSWORDS: "1"
+      GNS3_LOCAL_PROJECTS_PATH: /gns3/projects
     restart: unless-stopped
     depends_on:
-      - postgres
-      - influxdb
-      - redis
+      postgres:
+        condition: service_healthy
+      influxdb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      redpanda:
+        condition: service_started
+      memgraph:
+        condition: service_started
 
   redis:
-    image: redis:alpine
+    image: redis:7.4-alpine
     container_name: netrunner-redis
     ports:
-      - "6379:6379"
+      - "127.0.0.1:6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
     restart: unless-stopped
 
   postgres:
     image: postgres:15-alpine
     container_name: netrunner-postgres
     environment:
-      - POSTGRES_USER=netrunner
-      - POSTGRES_PASSWORD=REDACTED_POSTGRES_PASSWORD
-      - POSTGRES_DB=netrunner
+      POSTGRES_USER: netrunner
+      POSTGRES_PASSWORD: ${NETRUNNER_DB_PASSWORD:?Set NETRUNNER_DB_PASSWORD in .env}
+      POSTGRES_DB: netrunner
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     volumes:
       - ./data/postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U netrunner -d netrunner"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
     restart: unless-stopped
 
   influxdb:
     image: influxdb:2.7-alpine
     container_name: netrunner-influxdb
     environment:
-      - DOCKER_INFLUXDB_INIT_MODE=setup
-      - DOCKER_INFLUXDB_INIT_USERNAME=admin
-      - DOCKER_INFLUXDB_INIT_PASSWORD=REDACTED_INFLUX_PASSWORD
-      - DOCKER_INFLUXDB_INIT_ORG=netrunner
-      - DOCKER_INFLUXDB_INIT_BUCKET=traffic
-      - DOCKER_INFLUXDB_INIT_ADMIN_TOKEN=REDACTED_INFLUX_TOKEN
+      DOCKER_INFLUXDB_INIT_MODE: setup
+      DOCKER_INFLUXDB_INIT_USERNAME: ${INFLUXDB_ADMIN_USERNAME:-netrunner-admin}
+      DOCKER_INFLUXDB_INIT_PASSWORD: ${INFLUXDB_ADMIN_PASSWORD:?Set INFLUXDB_ADMIN_PASSWORD in .env}
+      DOCKER_INFLUXDB_INIT_ORG: ${INFLUXDB_ORG:-netrunner}
+      DOCKER_INFLUXDB_INIT_BUCKET: ${INFLUXDB_BUCKET:-traffic}
+      DOCKER_INFLUXDB_INIT_ADMIN_TOKEN: ${INFLUXDB_TOKEN:?Set INFLUXDB_TOKEN in .env}
     ports:
-      - "8086:8086"
+      - "127.0.0.1:8086:8086"
     volumes:
       - ./data/influxdb2:/var/lib/influxdb2
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --spider http://localhost:8086/ping || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  redpanda:
+    image: redpandadata/redpanda@sha256:3e72ea35731a893bdd3b6d283eb554416377e23766434fc85dd7941540673639
+    container_name: netrunner-redpanda
+    command:
+      - redpanda
+      - start
+      - --smp 1
+      - --memory 1G
+      - --reserve-memory 0M
+      - --overprovisioned
+      - --node-id 0
+      - --kafka-addr PLAINTEXT://0.0.0.0:29092,OUTSIDE://0.0.0.0:9092
+      - --advertise-kafka-addr PLAINTEXT://redpanda:29092,OUTSIDE://127.0.0.1:9092
+      - --pandaproxy-addr 0.0.0.0:8082
+      - --advertise-pandaproxy-addr 127.0.0.1:8082
+    ports:
+      - "127.0.0.1:9092:9092"
+      - "127.0.0.1:29092:29092"
+      - "127.0.0.1:8082:8082"
+    restart: unless-stopped
+
+  memgraph:
+    image: memgraph/memgraph-platform@sha256:f3a6a6c9d0bcf55fb294640d3e20f0f1647b58a5dbcdd8c08b2561860421e54f
+    container_name: netrunner-memgraph
+    ports:
+      - "127.0.0.1:7687:7687"
+      - "127.0.0.1:3000:3000"
+      - "127.0.0.1:7444:7444"
     restart: unless-stopped
 
   terminal-mux:
@@ -87,11 +143,13 @@ services:
       - "8081:8081"
     environment:
       # netrunner runs on the host network, so reach it via the host gateway
-      - BACKEND_HOST=http://host.docker.internal:8000
+      BACKEND_HOST: http://host.docker.internal:8000
+      NETRUNNER_INTERNAL_TOKEN: ${NETRUNNER_INTERNAL_TOKEN:?Set NETRUNNER_INTERNAL_TOKEN in .env}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:
-      - netrunner
+      netrunner:
+        condition: service_healthy
     restart: unless-stopped
 
   test-sw1:
@@ -104,6 +162,7 @@ services:
       - NET_RAW
     networks:
       - lldp-net
+    profiles: ["lab-tests"]
 
   test-sw2:
     build:
@@ -115,6 +174,7 @@ services:
       - NET_RAW
     networks:
       - lldp-net
+    profiles: ["lab-tests"]
 
 
 networks:

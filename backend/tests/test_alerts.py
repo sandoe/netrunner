@@ -1,6 +1,7 @@
 import pytest
 from httpx import AsyncClient
 
+
 @pytest.mark.asyncio
 async def test_alerts_lifecycle(client: AsyncClient):
     # 1. Get empty alerts
@@ -12,7 +13,7 @@ async def test_alerts_lifecycle(client: AsyncClient):
     payload = {
         "title": "SQL Injection Attempt",
         "description": "Detected payload in user-agent",
-        "severity": "critical"
+        "severity": "critical",
     }
     resp = await client.post("/alerts", json=payload)
     assert resp.status_code == 200
@@ -41,10 +42,12 @@ async def test_alerts_lifecycle(client: AsyncClient):
     assert resp.status_code == 200
     assert len(resp.json()) == 0
 
+
 @pytest.mark.asyncio
 async def test_update_missing_alert(client: AsyncClient):
     resp = await client.patch("/alerts/alrt_fake123", json={"status": "open"})
     assert resp.status_code == 404
+
 
 @pytest.mark.asyncio
 async def test_delete_missing_alert(client: AsyncClient):

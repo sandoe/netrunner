@@ -180,7 +180,8 @@ const connectRepl = () => {
     wsRepl.close();
   }
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-  const wsUrl = `${protocol}//${window.location.host}/ws/mcu_repl?port=${encodeURIComponent(activePort.value)}&node_id=${encodeURIComponent(activeNodeId.value)}`;
+  const token = localStorage.getItem('nr_token') || '';
+  const wsUrl = `${protocol}//${window.location.host}/ws/mcu_repl?port=${encodeURIComponent(activePort.value)}&node_id=${encodeURIComponent(activeNodeId.value)}&token=${encodeURIComponent(token)}`;
   wsRepl = new WebSocket(wsUrl);
 
   wsRepl.onopen = () => {
@@ -413,7 +414,8 @@ const runScript = async () => {
       }
       // WebSocket builder
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      const wsUrl = `${protocol}//${window.location.host}/api/v1/workspace/build?node_id=${encodeURIComponent(activeNodeId.value)}&template=${encodeURIComponent(workspaceTemplate.value)}`;
+      const token = localStorage.getItem('nr_token') || '';
+      const wsUrl = `${protocol}//${window.location.host}/api/v1/workspace/build?node_id=${encodeURIComponent(activeNodeId.value)}&template=${encodeURIComponent(workspaceTemplate.value)}&token=${encodeURIComponent(token)}`;
       const ws = new WebSocket(wsUrl);
       ws.onmessage = (e) => { term.write(e.data); };
       ws.onerror = (e) => { error.value = "Builder WebSocket error. The connection was lost, but the build might still be running on the server."; };

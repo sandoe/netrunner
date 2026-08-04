@@ -4,12 +4,14 @@ from pydantic import BaseModel
 
 router = APIRouter()
 
+
 class Rule(BaseModel):
     id: int
     name: str
     port: int
     signature: str
     severity: str
+
 
 @router.get("/active")
 async def get_active_rules():
@@ -21,35 +23,35 @@ async def get_active_rules():
                 "name": "HTTP GET Request",
                 "port": 80,
                 "signature": "GET ",
-                "severity": "low"
+                "severity": "low",
             },
             {
                 "id": 2,
                 "name": "HTTP POST Request",
                 "port": 80,
                 "signature": "POST",
-                "severity": "medium"
+                "severity": "medium",
             },
             {
                 "id": 3,
                 "name": "SQL Injection Attempt (SELECT)",
                 "port": 80,
                 "signature": "SELECT ",
-                "severity": "critical"
+                "severity": "critical",
             },
             {
                 "id": 4,
                 "name": "SQL Injection Attempt (UNION)",
                 "port": 80,
                 "signature": "UNION ",
-                "severity": "critical"
+                "severity": "critical",
             },
             {
                 "id": 5,
                 "name": "SSH Potential Brute Force Header",
                 "port": 22,
                 "signature": "SSH-2.0-",
-                "severity": "low"
-            }
+                "severity": "low",
+            },
         ]
     }

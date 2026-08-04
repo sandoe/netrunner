@@ -1,13 +1,18 @@
 """
 Netrunner Exfiltration Router — API endpoints for data exfiltration testing.
 """
+
 from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 from typing import Optional
 from .auth import require_admin
 from ..core.exfiltration import (
-    dns_exfiltrate, icmp_exfiltrate, http_exfiltrate,
-    exfil_file, detect_exfiltration, get_exfil_methods,
+    dns_exfiltrate,
+    icmp_exfiltrate,
+    http_exfiltrate,
+    exfil_file,
+    detect_exfiltration,
+    get_exfil_methods,
 )
 from ..core.db import load_nodes_db
 
@@ -74,8 +79,13 @@ async def api_exfil_dns(req: DNSExfilRequest):
         raise HTTPException(400, "No SSH credentials")
 
     result = await dns_exfiltrate(
-        req.node_id, host, username, password,
-        req.data, req.domain, req.encoding,
+        req.node_id,
+        host,
+        username,
+        password,
+        req.data,
+        req.domain,
+        req.encoding,
     )
     if not result["success"]:
         raise HTTPException(400, result.get("error", result.get("output", "Failed")))
@@ -101,8 +111,13 @@ async def api_exfil_icmp(req: ICMPExfilRequest):
         raise HTTPException(400, "No SSH credentials")
 
     result = await icmp_exfiltrate(
-        req.node_id, host, username, password,
-        req.data, req.target_ip, req.encoding,
+        req.node_id,
+        host,
+        username,
+        password,
+        req.data,
+        req.target_ip,
+        req.encoding,
     )
     if not result["success"]:
         raise HTTPException(400, result.get("error", result.get("output", "Failed")))
@@ -128,8 +143,13 @@ async def api_exfil_http(req: HTTPExfilRequest):
         raise HTTPException(400, "No SSH credentials")
 
     result = await http_exfiltrate(
-        req.node_id, host, username, password,
-        req.data, req.webhook_url, req.encoding,
+        req.node_id,
+        host,
+        username,
+        password,
+        req.data,
+        req.webhook_url,
+        req.encoding,
     )
     if not result["success"]:
         raise HTTPException(400, result.get("error", result.get("output", "Failed")))
@@ -161,8 +181,13 @@ async def api_exfil_file(req: FileExfilRequest):
     }
 
     result = await exfil_file(
-        req.node_id, host, username, password,
-        req.file_path, req.method, **kwargs,
+        req.node_id,
+        host,
+        username,
+        password,
+        req.file_path,
+        req.method,
+        **kwargs,
     )
     if not result["success"]:
         raise HTTPException(400, result.get("error", "Failed"))
@@ -198,6 +223,7 @@ async def _get_creds(node_id: str, node: dict) -> tuple[str, str]:
 
     try:
         from ..core.vault import get_credential
+
         cred = await get_credential(node_id, "ssh")
         if cred:
             username = cred.get("username", username)

@@ -2,7 +2,7 @@ import { ref, computed } from 'vue'
 import { api } from '@/api/client'
 
 // Global state variables for unified database panel state
-export const dbConfig = ref({
+const dbConfig = ref({
   type: 'sqlite',
   sqlitePath: 'data/netrunner.db',
   host: '127.0.0.1',
@@ -13,26 +13,26 @@ export const dbConfig = ref({
   mssqlAuthType: 'sql' // 'sql' or 'windows'
 })
 
-export const connected = ref(false)
-export const tables = ref<string[]>([])
-export const activeTable = ref('')
-export const activeTableColumns = ref<{ name: string; type: string; pk: boolean; defaultValue: any }[]>([])
-export const availableDatabases = ref<string[]>([])
-export const hasRunQuery = ref(false)
+const connected = ref(false)
+const tables = ref<string[]>([])
+const activeTable = ref('')
+const activeTableColumns = ref<{ name: string; type: string; pk: boolean; defaultValue: any }[]>([])
+const availableDatabases = ref<string[]>([])
+const hasRunQuery = ref(false)
 
-export const loading = ref(false)
-export const error = ref('')
-export const successMsg = ref('')
+const loading = ref(false)
+const error = ref('')
+const successMsg = ref('')
 
-export const isRelational = computed(() => {
+const isRelational = computed(() => {
   return ['sqlite', 'mysql', 'mssql', 'postgresql'].includes(dbConfig.value.type)
 })
 
-export const isReadOnly = computed(() => {
+const isReadOnly = computed(() => {
   return ['redis', 'mongodb', 'influxdb'].includes(dbConfig.value.type)
 })
 
-export function showFlashMsg(text: string, isErr = false) {
+function showFlashMsg(text: string, isErr = false) {
   if (isErr) {
     error.value = text
     successMsg.value = ''
@@ -119,7 +119,7 @@ export function parseTSV(text: string): string[][] {
 }
 
 // Build remote shell terminal command based on selected DB engine
-export function buildDbCommand(sql: string, includeHeaders = true): string {
+function buildDbCommand(sql: string, includeHeaders = true): string {
   const cfg = dbConfig.value
   const cleanSql = sql.trim().replace(/"/g, '\\"').replace(/`/g, '\\`').replace(/\$/g, '\\$')
   
@@ -173,12 +173,12 @@ export function buildDbCommand(sql: string, includeHeaders = true): string {
   }
 }
 
-export function saveConfig(nodeId: string) {
+function saveConfig(nodeId: string) {
   const key = `nr_db_config_${nodeId}`
   localStorage.setItem(key, JSON.stringify(dbConfig.value))
 }
 
-export function loadConfig(nodeId: string) {
+function loadConfig(nodeId: string) {
   connected.value = false
   tables.value = []
   activeTable.value = ''
@@ -208,7 +208,7 @@ export function loadConfig(nodeId: string) {
   }
 }
 
-export function onTypeChange(nodeId: string) {
+function onTypeChange(nodeId: string) {
   connected.value = false
   tables.value = []
   activeTable.value = ''
@@ -234,7 +234,7 @@ export function onTypeChange(nodeId: string) {
   saveConfig(nodeId)
 }
 
-export async function testConnection(nodeId: string) {
+async function testConnection(nodeId: string) {
   loading.value = true
   error.value = ''
   connected.value = false
@@ -308,7 +308,7 @@ export async function testConnection(nodeId: string) {
   }
 }
 
-export async function loadSchema(nodeId: string) {
+async function loadSchema(nodeId: string) {
   if (!connected.value) return
   error.value = ''
   
@@ -369,7 +369,7 @@ export async function loadSchema(nodeId: string) {
   }
 }
 
-export async function fetchTableColumns(nodeId: string, tableName: string) {
+async function fetchTableColumns(nodeId: string, tableName: string) {
   activeTableColumns.value = []
   try {
     let colCmd = ''
@@ -446,7 +446,7 @@ export async function fetchTableColumns(nodeId: string, tableName: string) {
   }
 }
 
-export async function installSqlite(nodeId: string) {
+async function installSqlite(nodeId: string) {
   loading.value = true
   error.value = ''
   showFlashMsg('Installerer sqlite3 på noden...')
@@ -467,7 +467,7 @@ export async function installSqlite(nodeId: string) {
   }
 }
 
-export async function installMysqlClient(nodeId: string) {
+async function installMysqlClient(nodeId: string) {
   loading.value = true
   error.value = ''
   showFlashMsg('Installerer mysql-client på noden...')
@@ -488,7 +488,7 @@ export async function installMysqlClient(nodeId: string) {
   }
 }
 
-export async function installMssqlClient(nodeId: string) {
+async function installMssqlClient(nodeId: string) {
   loading.value = true
   error.value = ''
   showFlashMsg('Installerer MS SQL-klient (sqsh) på noden...')
@@ -509,7 +509,7 @@ export async function installMssqlClient(nodeId: string) {
   }
 }
 
-export async function installPostgresClient(nodeId: string) {
+async function installPostgresClient(nodeId: string) {
   loading.value = true
   error.value = ''
   showFlashMsg('Installerer PostgreSQL-klient på noden...')
@@ -530,7 +530,7 @@ export async function installPostgresClient(nodeId: string) {
   }
 }
 
-export async function installRedisTools(nodeId: string) {
+async function installRedisTools(nodeId: string) {
   loading.value = true
   error.value = ''
   showFlashMsg('Installerer Redis-cli på noden...')
@@ -551,7 +551,7 @@ export async function installRedisTools(nodeId: string) {
   }
 }
 
-export async function installMongosh(nodeId: string) {
+async function installMongosh(nodeId: string) {
   loading.value = true
   error.value = ''
   showFlashMsg('Installerer MongoDB-klient (mongosh) på noden...')
@@ -572,7 +572,7 @@ export async function installMongosh(nodeId: string) {
   }
 }
 
-export async function installInfluxClient(nodeId: string) {
+async function installInfluxClient(nodeId: string) {
   loading.value = true
   error.value = ''
   showFlashMsg('Installerer InfluxDB-klient på noden...')
@@ -593,7 +593,7 @@ export async function installInfluxClient(nodeId: string) {
   }
 }
 
-export async function fetchDatabases(nodeId: string) {
+async function fetchDatabases(nodeId: string) {
   availableDatabases.value = []
   error.value = ''
   
@@ -679,7 +679,7 @@ export async function fetchDatabases(nodeId: string) {
   }
 }
 
-export function disconnect() {
+function disconnect() {
   connected.value = false
   tables.value = []
   activeTable.value = ''

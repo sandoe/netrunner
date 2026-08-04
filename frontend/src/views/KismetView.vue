@@ -309,8 +309,25 @@ function connectWs() {
     try {
       const data = JSON.parse(event.data)
       if (data.type === 'kismet_update') {
-        if (data.networks) networks.value = data.networks
-        if (data.alerts) alerts.value = data.alerts
+        if (data.networks) {
+          // Full array override (fallback)
+          networks.value = data.networks
+        } else {
+          // Delta updates
+          if (data.networks_delta) {
+            for (const net of data.networks_delta) {
+              const idx = networks.value.findIndex(n => n.mac === net.mac)
+              if (idx >= 0) networks.value[idx] = net
+              else networks.value.push(net)
+            }
+          }
+          if (data.alerts_delta) {
+            for (const alt of data.alerts_delta) {
+              alerts.value.unshift(alt) // add to top
+            }
+            if (alerts.value.length > 500) alerts.value.length = 500
+          }
+        }
         if (data.channels) channels.value = data.channels
       }
     } catch { /* non-fatal */ }
@@ -340,22 +357,29 @@ function disconnectWs() {
 
 const filteredNetworks = computed(() => {
   const q = networkFilter.value.toLowerCase()
-  if (!q) return networks.value
-  return networks.value.filter(n =>
-    n.ssid.toLowerCase().includes(q) ||
-    n.mac.toLowerCase().includes(q) ||
-    n.manufacturer.toLowerCase().includes(q)
-  )
+  let result = networks.value
+  if (q) {
+    result = networks.value.filter(n =>
+      n.ssid.toLowerCase().includes(q) ||
+      n.mac.toLowerCase().includes(q) ||
+      n.manufacturer.toLowerCase().includes(q)
+    )
+  }
+  // Soft virtual scrolling / pagination: only render top 100 to prevent DOM lag
+  return result.slice(0, 100)
 })
 
 const filteredClients = computed(() => {
   const q = clientFilter.value.toLowerCase()
-  if (!q) return clients.value
-  return clients.value.filter(c =>
-    c.mac.toLowerCase().includes(q) ||
-    (c.name || '').toLowerCase().includes(q) ||
-    c.manufacturer.toLowerCase().includes(q)
-  )
+  let result = clients.value
+  if (q) {
+    result = clients.value.filter(c =>
+      c.mac.toLowerCase().includes(q) ||
+      (c.name || '').toLowerCase().includes(q) ||
+      c.manufacturer.toLowerCase().includes(q)
+    )
+  }
+  return result.slice(0, 100)
 })
 
 // ---------------------------------------------------------------------------

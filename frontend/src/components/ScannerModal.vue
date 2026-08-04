@@ -6,6 +6,10 @@
         <button class="btn-close-modal" @click="$emit('close')">×</button>
       </div>
       <div class="cyber-modal-body">
+        <div class="cyber-guide" style="margin-bottom: 12px; font-size: 12px; border-left: 2px solid var(--cyan); padding-left: 8px;">
+          <strong style="color: var(--cyan);">🎓 Cyber Guide: ARP Scanning (Reconnaissance)</strong><br/>
+          <span style="color: #ccc;">Når vi vil finde ud af, hvem der er på vores lokale netværk (LAN), kan vi sende "Hvem har denne IP?" anmodninger ud via protokollen ARP. Alle enheder svarer med deres MAC-adresse. Dette kaldes Reconnaissance (Rekognoscering).</span>
+        </div>
         
         <div class="topology-grid">
           <div v-for="dev in devices" :key="dev.ip" class="topo-node">

@@ -3,10 +3,10 @@
 Covers: /boot/config.txt, GPIO, I2C/SPI, camera, overclocking,
 temperature, watchdog, WiFi, Bluetooth, and more.
 """
+
 from __future__ import annotations
 
 import shlex
-
 
 # /boot/config.txt lives here on Bookworm+, older distros use /boot/config.txt
 CONFIG_TXT = "/boot/firmware/config.txt"
@@ -14,9 +14,7 @@ CONFIG_TXT_LEGACY = "/boot/config.txt"
 
 
 def _config_path_cmd() -> str:
-    return (
-        f"[ -f {CONFIG_TXT} ] && CONFIG={CONFIG_TXT} || CONFIG={CONFIG_TXT_LEGACY}"
-    )
+    return f"[ -f {CONFIG_TXT} ] && CONFIG={CONFIG_TXT} || CONFIG={CONFIG_TXT_LEGACY}"
 
 
 def gen_rpi_config_set(key: str, value: str, comment: str = "") -> list[str]:
@@ -47,10 +45,12 @@ def gen_rpi_config_section(entries: list[dict], section: str = "") -> list[str]:
 
     if section:
         cmds.append(f"# Section: [{section}]")
-        cmds.append(f"grep -q '^\\[{section}\\]' $CONFIG || echo '[{section}]' >> $CONFIG")
+        cmds.append(
+            f"grep -q '^\\[{section}\\]' $CONFIG || echo '[{section}]' >> $CONFIG"
+        )
 
     for e in entries:
-        key   = str(e.get("key",   "")).strip()
+        key = str(e.get("key", "")).strip()
         value = str(e.get("value", "")).strip()
         if not (key and value):
             continue
@@ -69,7 +69,11 @@ def gen_rpi_config_section(entries: list[dict], section: str = "") -> list[str]:
 
 def gen_rpi_gpio(pin: int, mode: str, value: str | None = None) -> list[str]:
     """Set GPIO pin mode (in/out/up/down/alt0..5) and optional value."""
-    cmds = [f"# ── GPIO pin {pin}: mode={mode}" + (f" value={value}" if value is not None else "") + " ─"]
+    cmds = [
+        f"# ── GPIO pin {pin}: mode={mode}"
+        + (f" value={value}" if value is not None else "")
+        + " ─"
+    ]
     if mode in ("in", "out"):
         cmds += [
             f"raspi-gpio set {pin} {mode.upper()} 2>/dev/null || "
@@ -86,11 +90,17 @@ def gen_rpi_gpio(pin: int, mode: str, value: str | None = None) -> list[str]:
             ]
     elif mode in ("up", "down", "tri"):
         pud = {"up": "PU", "down": "PD", "tri": "NP"}[mode]
-        cmds.append(f"raspi-gpio set {pin} {pud} 2>/dev/null || gpio mode {pin} {mode} 2>/dev/null || true")
+        cmds.append(
+            f"raspi-gpio set {pin} {pud} 2>/dev/null || gpio mode {pin} {mode} 2>/dev/null || true"
+        )
     elif mode.startswith("alt"):
-        cmds.append(f"raspi-gpio set {pin} {mode.upper()} 2>/dev/null || gpio mode {pin} {mode} 2>/dev/null || true")
+        cmds.append(
+            f"raspi-gpio set {pin} {mode.upper()} 2>/dev/null || gpio mode {pin} {mode} 2>/dev/null || true"
+        )
 
-    cmds.append(f"raspi-gpio get {pin} 2>/dev/null || gpio read {pin} 2>/dev/null || cat /sys/class/gpio/gpio{pin}/value 2>/dev/null || true")
+    cmds.append(
+        f"raspi-gpio get {pin} 2>/dev/null || gpio read {pin} 2>/dev/null || cat /sys/class/gpio/gpio{pin}/value 2>/dev/null || true"
+    )
     return cmds
 
 
@@ -102,7 +112,9 @@ def gen_rpi_gpio_read_all() -> list[str]:
     ]
 
 
-def gen_rpi_i2c(action: str = "scan", bus: int = 1, addr: str = "", reg: str = "", value: str = "") -> list[str]:
+def gen_rpi_i2c(
+    action: str = "scan", bus: int = 1, addr: str = "", reg: str = "", value: str = ""
+) -> list[str]:
     """I2C operations: scan, read, write."""
     cmds = [f"# ── I2C bus {bus}: {action} ─────────────────────────────"]
 
@@ -112,9 +124,13 @@ def gen_rpi_i2c(action: str = "scan", bus: int = 1, addr: str = "", reg: str = "
             f"i2cdetect -y {bus} 2>/dev/null || echo '(i2cdetect not available — install i2c-tools)'",
         ]
     elif action == "read" and addr and reg:
-        cmds.append(f"i2cget -y {bus} {addr} {reg} 2>/dev/null || echo '(i2cget failed)'")
+        cmds.append(
+            f"i2cget -y {bus} {addr} {reg} 2>/dev/null || echo '(i2cget failed)'"
+        )
     elif action == "write" and addr and reg and value:
-        cmds.append(f"i2cset -y {bus} {addr} {reg} {value} 2>/dev/null || echo '(i2cset failed)'")
+        cmds.append(
+            f"i2cset -y {bus} {addr} {reg} {value} 2>/dev/null || echo '(i2cset failed)'"
+        )
     elif action == "dump" and addr:
         cmds.append(f"i2cdump -y {bus} {addr} 2>/dev/null || echo '(i2cdump failed)'")
 
@@ -189,10 +205,10 @@ def gen_rpi_camera(enable: bool = True, legacy: bool = False) -> list[str]:
 
 def gen_rpi_overclock(cfg: dict) -> list[str]:
     """Apply overclocking settings to config.txt."""
-    arm_freq  = str(cfg.get("arm_freq",  "")).strip()
-    gpu_freq  = str(cfg.get("gpu_freq",  "")).strip()
+    arm_freq = str(cfg.get("arm_freq", "")).strip()
+    gpu_freq = str(cfg.get("gpu_freq", "")).strip()
     over_volt = str(cfg.get("over_voltage", "")).strip()
-    governor  = str(cfg.get("governor",  "performance")).strip()
+    governor = str(cfg.get("governor", "performance")).strip()
     force_turbo = bool(cfg.get("force_turbo", False))
 
     cmds = [
@@ -201,14 +217,20 @@ def gen_rpi_overclock(cfg: dict) -> list[str]:
         "cp $CONFIG ${CONFIG}.netrunner_bak 2>/dev/null || true",
     ]
 
-    for key, val in [("arm_freq", arm_freq), ("gpu_freq", gpu_freq), ("over_voltage", over_volt)]:
+    for key, val in [
+        ("arm_freq", arm_freq),
+        ("gpu_freq", gpu_freq),
+        ("over_voltage", over_volt),
+    ]:
         if val:
             cmds.append(
                 f"grep -q '^{key}=' $CONFIG && sed -i 's|^{key}=.*|{key}={val}|' $CONFIG || echo '{key}={val}' >> $CONFIG"
             )
 
     if force_turbo:
-        cmds.append("grep -q '^force_turbo=' $CONFIG && sed -i 's|^force_turbo=.*|force_turbo=1|' $CONFIG || echo 'force_turbo=1' >> $CONFIG")
+        cmds.append(
+            "grep -q '^force_turbo=' $CONFIG && sed -i 's|^force_turbo=.*|force_turbo=1|' $CONFIG || echo 'force_turbo=1' >> $CONFIG"
+        )
 
     if governor:
         cmds += [
@@ -232,10 +254,10 @@ def gen_rpi_temperature() -> list[str]:
 
 def gen_rpi_wifi(cfg: dict) -> list[str]:
     """Configure WiFi using wpa_supplicant or nmcli."""
-    ssid     = str(cfg.get("ssid",    "")).strip()
-    password = str(cfg.get("password","")).strip()
-    country  = str(cfg.get("country", "DK")).strip().upper()
-    hidden   = bool(cfg.get("hidden", False))
+    ssid = str(cfg.get("ssid", "")).strip()
+    password = str(cfg.get("password", "")).strip()
+    country = str(cfg.get("country", "DK")).strip().upper()
+    hidden = bool(cfg.get("hidden", False))
 
     if not ssid:
         raise ValueError("ssid is required")
@@ -243,36 +265,38 @@ def gen_rpi_wifi(cfg: dict) -> list[str]:
     # wpa_supplicant approach (works on most RPi distros)
     scan_ssid = "scan_ssid=1\n" if hidden else ""
     wpa_conf = (
-        f'country={country}\n'
-        f'ctrl_interface=DIR=/var/run/wpa_supplicant GROUP=netdev\n'
-        f'update_config=1\n\n'
-        f'network={{\n'
+        f"country={country}\n"
+        f"ctrl_interface=DIR=/var/run/wpa_supplicant GROUP=netdev\n"
+        f"update_config=1\n\n"
+        f"network={{\n"
         f'    ssid="{ssid}"\n'
-        f'{scan_ssid}'
-        + (f'    psk="{password}"\n' if password else '    key_mgmt=NONE\n')
-        + f'}}'
+        f"{scan_ssid}"
+        + (f'    psk="{password}"\n' if password else "    key_mgmt=NONE\n")
+        + f"}}"
     )
 
     marker = "__NETRUNNER_WPA_EOF__"
     cmds = [
         f"# ── WiFi: connect to {ssid} ─────────────────────────────────",
         "# Try nmcli first (NetworkManager), fall back to wpa_supplicant",
-        f"nmcli dev wifi connect {shlex.quote(ssid)}" +
-        (f" password {shlex.quote(password)}" if password else "") +
-        f" 2>/dev/null && echo 'Connected via nmcli' || (\n"
+        f"nmcli dev wifi connect {shlex.quote(ssid)}"
+        + (f" password {shlex.quote(password)}" if password else "")
+        + f" 2>/dev/null && echo 'Connected via nmcli' || (\n"
         f"cat > /etc/wpa_supplicant/wpa_supplicant.conf << '{marker}'\n"
         f"{wpa_conf}\n"
         f"{marker}\n"
         f"wpa_cli -i wlan0 reconfigure 2>/dev/null || wpa_supplicant -B -i wlan0 -c /etc/wpa_supplicant/wpa_supplicant.conf 2>/dev/null || true\n"
         f"sleep 3\n"
         f"ip addr show wlan0 | grep 'inet '\n"
-        f")"
+        f")",
     ]
     return cmds
 
 
 def gen_rpi_bluetooth(enable: bool = True) -> list[str]:
-    cmds = [f"# ── {'Enable' if enable else 'Disable'} Bluetooth ─────────────────────────────"]
+    cmds = [
+        f"# ── {'Enable' if enable else 'Disable'} Bluetooth ─────────────────────────────"
+    ]
     if enable:
         cmds += [
             "systemctl enable bluetooth 2>/dev/null && systemctl start bluetooth 2>/dev/null || "

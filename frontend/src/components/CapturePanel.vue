@@ -67,15 +67,27 @@
           PACKET FORGER (RAW INJECTOR)
           <button v-if="forgeOutput" @click="forgeOutput = ''" class="btn-clear-tg">CLEAR</button>
         </div>
+        <div class="cyber-guide" style="margin-top: 5px; margin-bottom: 10px; font-size: 11px; border-left: 2px solid var(--pink); padding-left: 8px; background: rgba(255, 45, 110, 0.05);">
+          <strong style="color: var(--pink);">🎓 Cyber Guide: Packet Forging & Replay</strong><br/>
+          <span style="color: #ccc;">Hackere bruger Packet Forging til at skabe skræddersyede netværkspakker for at teste firewalls, udføre DoS-angreb eller udnytte sårbarheder (f.eks. Buffer Overflow via NOP Sled). PCAP Replay er en teknik, hvor man gemmer en netværkssession og afspiller den igen senere (f.eks. for at genskabe et login, hvis krypteringen er svag eller mangler).</span>
+        </div>
         <div class="tg-controls" style="gap: 6px;">
           <input v-model="forgeForm.target_ip" placeholder="TARGET IP..." class="cyber-input-sm" />
-          <input v-model.number="forgeForm.port" type="number" placeholder="PORT" class="cyber-input-xs" style="width: 70px;" />
+          <input v-model.number="forgeForm.port" type="number" placeholder="PORT" class="cyber-input-xs" :disabled="forgeForm.protocol === 'ICMP'" style="width: 70px;" />
           <select v-model="forgeForm.protocol" class="cyber-input-xs" style="width: 65px; height: 26px; border: 1px solid var(--pink); color: var(--pink);">
             <option>UDP</option>
             <option>TCP</option>
+            <option>ICMP</option>
           </select>
           <input v-model="forgeForm.payload" placeholder="HEX OR STRING PAYLOAD..." class="cyber-input-sm" style="flex: 1;" @keyup.enter="runForge" />
+          <input v-model.number="forgeForm.count" type="number" placeholder="COUNT" class="cyber-input-xs" style="width: 60px;" title="Send Count" />
           <button @click="runForge" :disabled="forgeBusy" class="btn-tiny-neon" style="color: var(--pink); border-color: var(--pink);">INJECT PACKET</button>
+        </div>
+        <div class="tg-controls presets" style="margin-top: 8px;">
+          <span style="font-size: 8px; color: var(--pink); margin-right: 8px;">PRESETS:</span>
+          <button @click="forgeForm.payload = '4141414141414141'" class="btn-tiny" style="color: var(--pink); border-color: var(--pink);">FUZZ (A)</button>
+          <button @click="forgeForm.payload = '9090909090909090'" class="btn-tiny" style="color: var(--pink); border-color: var(--pink);">NOP SLED</button>
+          <button @click="forgeForm.payload = 'GET / HTTP/1.1\\r\\nHost: target\\r\\n\\r\\n'; forgeForm.protocol='TCP'; forgeForm.port=80" class="btn-tiny" style="color: var(--pink); border-color: var(--pink);">HTTP GET</button>
         </div>
         <div v-if="forgeOutput" class="tg-output" style="color: var(--pink);">{{ forgeOutput }}</div>
       </div>
@@ -110,7 +122,10 @@
             <button v-if="cap.state === 'stopped' && cap.size" @click="analyze(cap.id)" class="btn-row btn-analyze" :disabled="busy[cap.id]">
               {{ dpiLoading[cap.id] ? 'ANALYZING...' : 'ANALYZE (DPI)' }}
             </button>
-            <a v-if="cap.size" :href="downloadUrl(cap.id)" :download="cap.id + '.pcap'" class="btn-row btn-dl">DOWNLOAD</a>
+            <button v-if="cap.state === 'stopped' && cap.size" @click="replay(cap.id)" class="btn-row btn-analyze" :disabled="busy[cap.id]" style="border-color: var(--pink); color: var(--pink);">
+              REPLAY PCAP
+            </button>
+            <button v-if="cap.size" @click="download(cap.id)" class="btn-row btn-dl" :disabled="busy[cap.id]">DOWNLOAD</button>
             <button @click="del(cap.id)" class="btn-row btn-del" :disabled="busy[cap.id]">✕</button>
           </div>
         </div>
@@ -159,7 +174,7 @@ async function runPing() {
   }
 }
 
-const forgeForm = reactive({ target_ip: '', port: 80, protocol: 'UDP', payload: '' })
+const forgeForm = reactive({ target_ip: '', port: 80, protocol: 'UDP', payload: '', count: 1 })
 const forgeBusy = ref(false)
 const forgeOutput = ref('')
 
@@ -177,10 +192,53 @@ async function runForge() {
   }
 }
 
+async function replay(capId: string) {
+  busy[capId] = true
+  try {
+    const res = await api.captureReplay(props.nodeId, capId, { interface: form.interface })
+    alert(`Replay output:\n${res.output}`)
+  } catch (e) {
+    alert(`Error replaying pcap: ${e}`)
+  } finally {
+    busy[capId] = false
+  }
+}
+
 let pollTimer: ReturnType<typeof setInterval> | null = null
 
 function downloadUrl(capId: string): string {
   return api.captureDownloadUrl(props.nodeId, capId)
+}
+
+async function download(capId: string) {
+  try {
+    busy[capId] = true
+    error.value = ''
+    const url = api.captureDownloadUrl(props.nodeId, capId)
+    const token = localStorage.getItem('nr_token')
+    const headers: Record<string, string> = {}
+    if (token) headers['Authorization'] = `Bearer ${token}`
+
+    const res = await fetch(url, { headers })
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}))
+      throw new Error(data.detail || `HTTP ${res.status}`)
+    }
+
+    const blob = await res.blob()
+    const objUrl = window.URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = objUrl
+    a.download = `${capId}.pcap`
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    window.URL.revokeObjectURL(objUrl)
+  } catch (e: any) {
+    error.value = `Download Error: ${e.message || e}`
+  } finally {
+    busy[capId] = false
+  }
 }
 
 function formatBytes(n: number): string {

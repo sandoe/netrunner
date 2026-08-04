@@ -13,7 +13,7 @@
     </div>
     <div class="shell-body">
       <!-- v-show keeps the live shell connection + script text alive across toggles -->
-      <Terminal v-show="mode === 'interactive'" :node="node" />
+      <Terminal ref="terminalRef" v-show="mode === 'interactive'" :node="node" :active="active" />
       <ExecPanel v-show="mode === 'script'" v-if="node" :node-id="node.id" />
     </div>
   </div>
@@ -25,11 +25,18 @@ import Terminal from './Terminal.vue'
 import ExecPanel from './ExecPanel.vue'
 import type { NrNode } from '@/types'
 
-defineProps<{ node: NrNode | null }>()
+defineProps<{ node: NrNode | null; active?: boolean }>()
+
+const terminalRef = ref<InstanceType<typeof Terminal> | null>(null)
 
 const mode = ref<'interactive' | 'script'>(
   (localStorage.getItem('netrunner_shell_mode') as any) || 'interactive')
-watch(mode, m => localStorage.setItem('netrunner_shell_mode', m))
+watch(mode, m => {
+  localStorage.setItem('netrunner_shell_mode', m)
+  if (m === 'interactive') {
+    terminalRef.value?.focus()
+  }
+})
 </script>
 
 <style scoped>

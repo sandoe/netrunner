@@ -1,4 +1,5 @@
 import random
+import shutil
 import time
 import asyncio
 import json
@@ -23,7 +24,7 @@ CITIES = [
     {"name": "San Francisco", "lat": 37.7749, "lng": -122.4194},
     {"name": "Frankfurt", "lat": 50.1109, "lng": 8.6821},
     {"name": "Amsterdam", "lat": 52.3676, "lng": 4.9041},
-    {"name": "São Paulo", "lat": -23.5505, "lng": -46.6333}
+    {"name": "São Paulo", "lat": -23.5505, "lng": -46.6333},
 ]
 
 THREAT_TYPES = [
@@ -33,16 +34,17 @@ THREAT_TYPES = [
     "Ransomware Beacon",
     "Zero-Day Exploit",
     "Port Scan (Nmap)",
-    "IoT Botnet Activity"
+    "IoT Botnet Activity",
 ]
 
 GEOLOC_CACHE = {}
+
 
 def is_private_ip(ip: str) -> bool:
     if ip in ("localhost", "127.0.0.1", "::1"):
         return True
     try:
-        parts = [int(x) for x in ip.split('.')]
+        parts = [int(x) for x in ip.split(".")]
         if len(parts) != 4:
             return False
         if parts[0] == 10:
@@ -55,17 +57,18 @@ def is_private_ip(ip: str) -> bool:
     except:
         return False
 
+
 async def get_ip_geolocation(ip: str, default_name: str = "Unknown") -> dict:
     if not ip:
         return {"name": default_name, "lat": 55.6761, "lng": 12.5683}
-        
+
     if is_private_ip(ip):
         # Local/private nodes (like RPI 192.168.1.29) are located in Denmark
         return {"name": "Denmark (Local)", "lat": 55.6761, "lng": 12.5683}
-        
+
     if ip in GEOLOC_CACHE:
         return GEOLOC_CACHE[ip]
-        
+
     # Known droplet IPs to avoid API latency
     if ip == "68.183.72.134":
         loc = {"name": "Frankfurt (Cloud)", "lat": 50.1169, "lng": 8.6837}
@@ -81,7 +84,7 @@ async def get_ip_geolocation(ip: str, default_name: str = "Unknown") -> dict:
                     return {
                         "name": f"{res.get('city')}, {res.get('country')}",
                         "lat": float(res.get("lat", 0.0)),
-                        "lng": float(res.get("lon", 0.0))
+                        "lng": float(res.get("lon", 0.0)),
                     }
         except:
             pass
@@ -91,12 +94,14 @@ async def get_ip_geolocation(ip: str, default_name: str = "Unknown") -> dict:
     if loc:
         GEOLOC_CACHE[ip] = loc
         return loc
-        
+
     # Default fallback
     return {"name": "Denmark (Local)", "lat": 55.6761, "lng": 12.5683}
 
+
 def generate_random_ip():
     return f"{random.randint(1, 255)}.{random.randint(0, 255)}.{random.randint(0, 255)}.{random.randint(0, 255)}"
+
 
 class CTIEngine:
     def __init__(self):
@@ -107,8 +112,11 @@ class CTIEngine:
 
     async def fetch_otx_pulses(self, api_key: str):
         """Fetches the latest subscribed pulses from AlienVault OTX."""
+
         def _do_fetch():
-            req = urllib.request.Request("https://otx.alienvault.com/api/v1/pulses/subscribed?limit=20")
+            req = urllib.request.Request(
+                "https://otx.alienvault.com/api/v1/pulses/subscribed?limit=20"
+            )
             req.add_header("X-OTX-API-KEY", api_key)
             try:
                 with urllib.request.urlopen(req, timeout=10) as response:
@@ -128,30 +136,32 @@ class CTIEngine:
             for ind in pulse.get("indicators", []):
                 if ind.get("type") == "IPv4":
                     iocs.append(ind.get("indicator"))
-                    
+
         if iocs:
             self.otx_iocs = list(set(iocs))
         if names:
             self.otx_threat_names = list(set(names))
-            
+
         logger.info(f"[CTI] Loaded {len(self.otx_iocs)} IOCs from AlienVault OTX.")
 
     async def stream_threats(self, queue: asyncio.Queue):
         """Generates a continuous stream of simulated threat intelligence events."""
         # Wait 5 seconds so the frontend map has time to render
         await asyncio.sleep(5)
-        
+
         # Determine if we should run in fully REAL mode (no simulation)
         # We will turn off the random noise loop so you only see REAL data
         settings = await load_settings_db()
-        use_simulation = settings.get("enable_threat_simulation", False) # default off
-        
+        use_simulation = settings.get("enable_threat_simulation", False)  # default off
+
         if not use_simulation:
-            logger.info("[CTI] Threat simulation disabled. Only streaming REAL live data from agents and local logs.")
+            logger.info(
+                "[CTI] Threat simulation disabled. Only streaming REAL live data from agents and local logs."
+            )
             # We just hang here forever so the task doesn't die, real events come from tail_monitored_nodes_logs
             while True:
                 await asyncio.sleep(3600)
-                
+
         while True:
             # Check settings periodically to see if API key was added
             if time.time() - self.last_fetch > 60:
@@ -164,8 +174,12 @@ class CTIEngine:
 
             # We need an IP and a Threat Name. If we have OTX data, we use it, otherwise fallback to demo.
             is_otx = bool(self.api_key and self.otx_iocs)
-            
-            source_ip = random.choice(self.otx_iocs) if is_otx and self.otx_iocs else generate_random_ip()
+
+            source_ip = (
+                random.choice(self.otx_iocs)
+                if is_otx and self.otx_iocs
+                else generate_random_ip()
+            )
             target_ip = generate_random_ip()
 
             # Target our actual nodes:
@@ -181,30 +195,39 @@ class CTIEngine:
                         chosen_node = nodes[chosen_nid]
                         if chosen_node.get("host"):
                             target_ip = chosen_node.get("host")
-                            targeted_node_name = chosen_node.get("name", "Managed Server")
+                            targeted_node_name = chosen_node.get(
+                                "name", "Managed Server"
+                            )
                             is_targeted = True
             except Exception as e:
                 logger.warning(f"[CTI] Error targeting real node: {e}")
-            
-            threat_name = random.choice(self.otx_threat_names) if is_otx and self.otx_threat_names else random.choice(THREAT_TYPES)
+
+            threat_name = (
+                random.choice(self.otx_threat_names)
+                if is_otx and self.otx_threat_names
+                else random.choice(THREAT_TYPES)
+            )
             if is_otx:
                 threat_name = f"[OTX] {threat_name}"
-                
+
             source_city = random.choice(CITIES)
             source = {
                 "ip": source_ip,
                 "city": source_city["name"],
-                "lat": source_city["lat"] + (random.random() - 0.5) * 2, # add slight jitter
-                "lng": source_city["lng"] + (random.random() - 0.5) * 2
+                "lat": source_city["lat"]
+                + (random.random() - 0.5) * 2,  # add slight jitter
+                "lng": source_city["lng"] + (random.random() - 0.5) * 2,
             }
-            
+
             if is_targeted:
-                geo = await get_ip_geolocation(target_ip, default_name=targeted_node_name)
+                geo = await get_ip_geolocation(
+                    target_ip, default_name=targeted_node_name
+                )
                 target = {
                     "ip": target_ip,
                     "city": f"{targeted_node_name} ({geo['name']})",
-                    "lat": geo["lat"] + (random.random() - 0.5) * 0.5, # narrow jitter
-                    "lng": geo["lng"] + (random.random() - 0.5) * 0.5
+                    "lat": geo["lat"] + (random.random() - 0.5) * 0.5,  # narrow jitter
+                    "lng": geo["lng"] + (random.random() - 0.5) * 0.5,
                 }
             else:
                 target_city = random.choice(CITIES)
@@ -214,45 +237,58 @@ class CTIEngine:
                     "ip": target_ip,
                     "city": target_city["name"],
                     "lat": target_city["lat"] + (random.random() - 0.5) * 2,
-                    "lng": target_city["lng"] + (random.random() - 0.5) * 2
+                    "lng": target_city["lng"] + (random.random() - 0.5) * 2,
                 }
-                
+
             event = {
                 "id": f"evt_{int(time.time()*1000)}_{random.randint(1000, 9999)}",
                 "timestamp": time.time(),
                 "source": source,
                 "target": target,
                 "type": threat_name,
-                "severity": random.choices(["low", "medium", "high", "critical"], weights=[0.4, 0.3, 0.2, 0.1])[0],
-                "targeted": is_targeted
+                "severity": random.choices(
+                    ["low", "medium", "high", "critical"], weights=[0.4, 0.3, 0.2, 0.1]
+                )[0],
+                "targeted": is_targeted,
             }
-            
+
             await queue.put(event)
-            
+
             # Wait a bit before generating the next threat
             await asyncio.sleep(random.uniform(0.5, 2.5))
 
-    async def inject_agent_event(self, queue: asyncio.Queue, target_host: str, alert_type: str, severity: str, attacker_ip: str, target_name: str = "Target Node", node_id: str = "unknown"):
+    async def inject_agent_event(
+        self,
+        queue: asyncio.Queue,
+        target_host: str,
+        alert_type: str,
+        severity: str,
+        attacker_ip: str,
+        target_name: str = "Target Node",
+        node_id: str = "unknown",
+    ):
         """Injects a targeted event from the Go agent directly into the CTI queue."""
         # Geolocate the source IP
-        attacker_geo = await get_ip_geolocation(attacker_ip, default_name="Global Attack Source")
+        attacker_geo = await get_ip_geolocation(
+            attacker_ip, default_name="Global Attack Source"
+        )
         # Geolocate the destination target node
         target_geo = await get_ip_geolocation(target_host, default_name=target_name)
-        
+
         source = {
             "ip": attacker_ip,
             "city": f"{attacker_geo['name']} (IP: {attacker_ip})",
             "lat": attacker_geo["lat"] + (random.random() - 0.5) * 1.5,
-            "lng": attacker_geo["lng"] + (random.random() - 0.5) * 1.5
+            "lng": attacker_geo["lng"] + (random.random() - 0.5) * 1.5,
         }
-        
+
         target = {
             "ip": target_host,
             "city": f"{target_name} ({target_geo['name']})",
             "lat": target_geo["lat"] + (random.random() - 0.5) * 0.3,
-            "lng": target_geo["lng"] + (random.random() - 0.5) * 0.3
+            "lng": target_geo["lng"] + (random.random() - 0.5) * 0.3,
         }
-        
+
         event = {
             "id": f"evt_{int(time.time()*1000)}_{random.randint(1000, 9999)}",
             "timestamp": time.time(),
@@ -261,43 +297,54 @@ class CTIEngine:
             "type": alert_type,
             "severity": severity,
             "targeted": True,
-            "node_id": node_id
+            "node_id": node_id,
         }
-        
+
         await queue.put(event)
 
     async def tail_monitored_nodes_logs(self, queue: asyncio.Queue):
         """Tails the local system journal for real SSH activity and streams it to the map."""
         import re
         import asyncio.subprocess
-        
+
+        if shutil.which("journalctl") is None:
+            logger.info(
+                "[CTI] journalctl is unavailable in this container; local SSH journal monitoring is disabled."
+            )
+            return
+
         # Regex to find IPv4 addresses
-        ip_regex = re.compile(r'\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b')
-        
+        ip_regex = re.compile(r"\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b")
+
         try:
             # Tail the ssh journal, wait for new lines only
             process = await asyncio.create_subprocess_exec(
-                'journalctl', '-u', 'ssh', '-f', '-n', '0',
+                "journalctl",
+                "-u",
+                "ssh",
+                "-f",
+                "-n",
+                "0",
                 stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.DEVNULL
+                stderr=asyncio.subprocess.DEVNULL,
             )
-            
+
             logger.info("[CTI] Started tailing real SSH logs from journalctl.")
-            
+
             while True:
                 line = await process.stdout.readline()
                 if not line:
                     break
-                    
-                text = line.decode('utf-8', errors='ignore').strip()
-                
+
+                text = line.decode("utf-8", errors="ignore").strip()
+
                 # Check for failed logins, disconnects, or general SSH activity
                 if "ssh" in text.lower():
                     # Extract IP
                     match = ip_regex.search(text)
                     if match:
                         attacker_ip = match.group(0)
-                        
+
                         # Determine severity
                         severity = "low"
                         alert_type = "SSH Activity"
@@ -310,26 +357,30 @@ class CTIEngine:
                         elif "Accepted" in text:
                             severity = "critical"
                             alert_type = "SSH Successful Login!"
-                        
+
                         # Geolocate attacker
-                        attacker_geo = await get_ip_geolocation(attacker_ip, default_name="Unknown Attacker")
-                        
+                        attacker_geo = await get_ip_geolocation(
+                            attacker_ip, default_name="Unknown Attacker"
+                        )
+
                         source = {
                             "ip": attacker_ip,
                             "city": f"{attacker_geo['name']} (IP: {attacker_ip})",
                             "lat": attacker_geo["lat"] + (random.random() - 0.5) * 0.5,
-                            "lng": attacker_geo["lng"] + (random.random() - 0.5) * 0.5
+                            "lng": attacker_geo["lng"] + (random.random() - 0.5) * 0.5,
                         }
-                        
+
                         # Target is this Netrunner server itself
-                        target_geo = await get_ip_geolocation("127.0.0.1", default_name="Netrunner Core")
+                        target_geo = await get_ip_geolocation(
+                            "127.0.0.1", default_name="Netrunner Core"
+                        )
                         target = {
                             "ip": "127.0.0.1",
                             "city": "Netrunner HQ",
                             "lat": target_geo["lat"],
-                            "lng": target_geo["lng"]
+                            "lng": target_geo["lng"],
                         }
-                        
+
                         event = {
                             "id": f"real_evt_{int(time.time()*1000)}",
                             "timestamp": time.time(),
@@ -338,14 +389,16 @@ class CTIEngine:
                             "type": alert_type,
                             "severity": severity,
                             "targeted": True,
-                            "node_id": "netrunner-core"
+                            "node_id": "netrunner-core",
                         }
-                        
-                        logger.info(f"[CTI] Real Threat Detected: {alert_type} from {attacker_ip}")
+
+                        logger.info(
+                            f"[CTI] Real Threat Detected: {alert_type} from {attacker_ip}"
+                        )
                         await queue.put(event)
         except Exception as e:
             logger.error(f"[CTI] Failed to tail real logs: {e}")
 
+
 cti_engine = CTIEngine()
 cti_queue = asyncio.Queue()
-

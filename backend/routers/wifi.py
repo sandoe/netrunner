@@ -8,18 +8,28 @@ import asyncio
 import os
 import glob
 import time
-from backend.core.db import load_beacon_nodes_db, save_beacon_node_db, delete_beacon_node_db
+from backend.core.db import (
+    load_beacon_nodes_db,
+    save_beacon_node_db,
+    delete_beacon_node_db,
+)
 from backend.core.vault import store_credentials, load_credentials, delete_credentials
 from backend.routers.auth import get_current_user, authenticate_ws
 
 router = APIRouter()
+from typing import Optional
+import asyncio
+_broadcast_csi_task: Optional[asyncio.Task] = None
+_broadcast_mesh_task: Optional[asyncio.Task] = None
 
 
 def _vault_key(node_id: str) -> str:
     """Namespace beacon credentials in the vault, separate from node creds."""
     return f"beacon:{node_id}"
 
+
 connected_clients = set()
+
 
 @router.websocket("/ws/csi")
 async def websocket_csi(websocket: WebSocket):
@@ -40,25 +50,32 @@ async def websocket_csi(websocket: WebSocket):
         except KeyError:
             pass
 
+
 class WifiModePayload(BaseModel):
     simulation: bool
     nodes: List[str]
 
+
 @router.post("/api/wifi/mode")
-async def set_wifi_mode(payload: WifiModePayload, user: dict = Depends(get_current_user)):
+async def set_wifi_mode(
+    payload: WifiModePayload, user: dict = Depends(get_current_user)
+):
     wifi_core.is_simulation = payload.simulation
     wifi_core.real_nodes = payload.nodes
     return {"status": "ok", "simulation": payload.simulation, "nodes": payload.nodes}
+
 
 @router.post("/api/wifi/record/start")
 async def start_recording(user: dict = Depends(get_current_user)):
     filename = wifi_core.recorder.start_recording()
     return {"status": "recording_started", "filename": filename}
 
+
 @router.post("/api/wifi/record/stop")
 async def stop_recording(user: dict = Depends(get_current_user)):
     filename = wifi_core.recorder.stop_recording()
     return {"status": "recording_stopped", "filename": filename}
+
 
 @router.get("/api/wifi/esp32/version")
 async def esp32_get_version():
@@ -66,12 +83,14 @@ async def esp32_get_version():
     # For now, we bump this manually when we want the ESP32 to update.
     return {"version": "1.0.1"}
 
+
 @router.get("/api/wifi/esp32/download")
 async def esp32_download_main():
     path = os.path.join("agent", "esp32", "main.py")
     if os.path.exists(path):
-        return FileResponse(path, media_type='text/plain', filename="main.py")
+        return FileResponse(path, media_type="text/plain", filename="main.py")
     return {"error": "Update file not found"}
+
 
 @router.get("/api/wifi/record/list")
 async def list_recordings(user: dict = Depends(get_current_user)):
@@ -79,19 +98,23 @@ async def list_recordings(user: dict = Depends(get_current_user)):
     results = []
     for f in sorted(files, reverse=True):
         stat = os.stat(f)
-        results.append({
-            "filename": os.path.basename(f),
-            "size": stat.st_size,
-            "created": stat.st_mtime
-        })
+        results.append(
+            {
+                "filename": os.path.basename(f),
+                "size": stat.st_size,
+                "created": stat.st_mtime,
+            }
+        )
     return {"captures": results}
+
 
 @router.get("/api/wifi/record/download/{filename}")
 async def download_recording(filename: str):
     path = os.path.join("data", "captures", filename)
     if os.path.exists(path):
-        return FileResponse(path, media_type='application/jsonl', filename=filename)
+        return FileResponse(path, media_type="application/jsonl", filename=filename)
     return {"error": "File not found"}
+
 
 class BeaconNodePayload(BaseModel):
     id: str
@@ -103,6 +126,7 @@ class BeaconNodePayload(BaseModel):
     sample_rate: int = 30
     udp_port: int = 8001
 
+
 @router.get("/api/wifi/beacons")
 async def get_beacons(user: dict = Depends(get_current_user)):
     nodes = await load_beacon_nodes_db()
@@ -110,6 +134,7 @@ async def get_beacons(user: dict = Depends(get_current_user)):
     for n in nodes:
         n.pop("password", None)
     return {"beacons": nodes}
+
 
 @router.get("/api/wifi/telemetry")
 async def get_telemetry(user: dict = Depends(get_current_user)):
@@ -123,14 +148,22 @@ async def get_telemetry(user: dict = Depends(get_current_user)):
         nodes.append({**t, "online": (now - t.get("last_seen", 0)) < 5.0})
     return {"nodes": nodes}
 
+
 @router.post("/api/wifi/beacons")
-async def save_beacon(payload: BeaconNodePayload, user: dict = Depends(get_current_user)):
+async def save_beacon(
+    payload: BeaconNodePayload, user: dict = Depends(get_current_user)
+):
     data = payload.model_dump()
     # Store the SSH password in the encrypted vault, not in the beacon row.
-    await store_credentials(_vault_key(data["id"]), data.get("username") or "root", data.get("password") or "")
+    await store_credentials(
+        _vault_key(data["id"]),
+        data.get("username") or "root",
+        data.get("password") or "",
+    )
     data["password"] = ""
     await save_beacon_node_db(data)
     return {"status": "ok"}
+
 
 @router.delete("/api/wifi/beacons/{node_id}")
 async def delete_beacon(node_id: str, user: dict = Depends(get_current_user)):
@@ -138,8 +171,10 @@ async def delete_beacon(node_id: str, user: dict = Depends(get_current_user)):
     await delete_credentials(_vault_key(node_id))
     return {"status": "ok"}
 
+
 class DeployPayload(BaseModel):
     node_id: str
+
 
 from backend.core.deployment import deploy_beacon_to_node, stop_beacon_on_node
 
@@ -151,6 +186,7 @@ async def _beacon_creds(node: dict) -> tuple[str, str]:
     username = node.get("username") or vault_user or "root"
     password = vault_pw or node.get("password") or ""
     return username, password
+
 
 @router.post("/api/wifi/deploy")
 async def deploy_beacon(payload: DeployPayload, user: dict = Depends(get_current_user)):
@@ -170,11 +206,12 @@ async def deploy_beacon(payload: DeployPayload, user: dict = Depends(get_current
             csi_mode=node.get("csi_mode", "AUTO"),
             sample_rate=node.get("sample_rate", 30),
             udp_port=node.get("udp_port", 8001),
-            node_id=node["id"]
+            node_id=node["id"],
         )
         return {"status": "deployed", "message": msg}
     except Exception as e:
         return {"error": str(e)}
+
 
 @router.post("/api/wifi/beacons/{node_id}/stop")
 async def stop_beacon(node_id: str, user: dict = Depends(get_current_user)):
@@ -186,13 +223,12 @@ async def stop_beacon(node_id: str, user: dict = Depends(get_current_user)):
     username, password = await _beacon_creds(node)
     try:
         msg = await stop_beacon_on_node(
-            ip=node["ip"],
-            username=username,
-            password=password
+            ip=node["ip"], username=username, password=password
         )
         return {"status": "stopped", "message": msg}
     except Exception as e:
         return {"error": str(e)}
+
 
 async def broadcast_csi():
     """Background task to broadcast CSI updates to all connected WS clients."""
@@ -206,12 +242,13 @@ async def broadcast_csi():
                         await client.send_json(payload)
                     except Exception:
                         dead_clients.add(client)
-                
+
                 for dead in dead_clients:
                     connected_clients.remove(dead)
         except Exception as e:
             print(f"Error in broadcast_csi: {e}")
             await asyncio.sleep(1)
+
 
 async def broadcast_mesh():
     """Background task to broadcast Mesh updates to all connected WS clients."""
@@ -226,7 +263,7 @@ async def broadcast_mesh():
                         await client.send_json(payload)
                     except Exception:
                         dead_clients.add(client)
-                
+
                 for dead in dead_clients:
                     connected_clients.remove(dead)
         except Exception as e:

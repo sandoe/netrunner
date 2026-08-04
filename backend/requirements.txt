@@ -1,44 +1,54 @@
-fastapi>=0.110.0
-uvicorn[standard]>=0.29.0
-websockets>=12.0
-paramiko>=3.4.0
-cryptography>=42.0.0
-mcp>=1.2
-pydantic>=2.6.0
-python-multipart>=0.0.9
-openai>=1.0.0
-httpx>=0.27.0
-aiosqlite>=0.20.0
-SQLAlchemy>=2.0.0
-asyncpg>=0.29.0
-aiomysql>=0.2.0
-python-dotenv>=1.0.0
-PyJWT>=2.0.0
-influxdb-client[async]>=1.36.0
-psutil>=5.9.0
+fastapi==0.136.1
+uvicorn[standard]==0.46.0
+websockets==15.0.1
+paramiko==4.0.0
+cryptography==47.0.0
+mcp==1.27.0
+pydantic==2.13.3
+python-multipart==0.0.27
+openai==2.34.0
+httpx==0.28.1
+aiosqlite==0.22.1
+SQLAlchemy==2.0.49
+asyncpg==0.31.0
+aiomysql==0.3.2
+python-dotenv==1.2.2
+PyJWT==2.12.1
+influxdb-client[async]==1.50.0
+psutil==6.1.1
 
-# --- RED TEAM & CYBER FORENSICS ---
-scapy>=2.5.0
-impacket>=0.11.0
-volatility3>=2.5.0
-pwntools>=4.12.0
-mitmproxy>=10.2.2
-yara-python>=4.5.0
-shodan>=1.31.0
-rapidfuzz>=3.8.0
-pycryptodome>=3.20.0
-dnspython>=2.6.0
+# NEXUS ENGINE. Python 3.14 deliberately avoids GQLAlchemy's optional
+# TensorFlow dependency for older Python runtimes.
+gqlalchemy==1.9.0
+aiokafka==0.14.0
 
-# --- TESTING ---
-pytest>=8.0.0
-pytest-asyncio>=0.23.0
-httpx>=0.27.0
-bleak>=0.20.0
-pyserial>=3.5
-pyserial-asyncio>=0.6
-aiofiles>=23.2.1
-networkx>=3.1
-redis
-loguru>=0.7.0
-alembic>=1.13.0
-slowapi>=0.1.9
+# RED TEAM & CYBER FORENSICS
+scapy==2.7.0
+impacket==0.13.1
+volatility3==2.28.0
+pwntools==4.15.0
+mitmproxy==12.2.3
+yara-python==4.5.4
+shodan==1.31.0
+rapidfuzz==3.14.5
+pycryptodome==3.23.0
+dnspython==2.8.0
+
+# HARDWARE & ASYNC I/O
+bleak==3.0.2
+pyserial==3.5
+pyserial-asyncio==0.6
+aiofiles==25.1.0
+networkx==3.6.1
+redis==8.0.0
+loguru==0.7.3
+alembic==1.18.4
+slowapi==0.1.10
+
+# DATA LAKE
+duckdb==1.5.4
+pandas==3.0.3
+pyarrow==24.0.0
+
+# EXPORT
+python-docx==1.2.0

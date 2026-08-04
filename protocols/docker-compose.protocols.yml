@@ -1,0 +1,122 @@
+version: '3.8'
+
+services:
+  # -------------------------
+  # MQTT (Mosquitto)
+  # -------------------------
+  mqtt-broker:
+    image: eclipse-mosquitto:latest
+    container_name: test-mqtt-broker
+    ports:
+      - "1883:1883"
+    command: mosquitto -c /mosquitto-no-auth.conf
+    volumes:
+      - ./mqtt/mosquitto-no-auth.conf:/mosquitto-no-auth.conf
+    restart: unless-stopped
+
+  mqtt-pub:
+    build: ./mqtt
+    container_name: test-mqtt-pub
+    command: ["python", "test-pub.py"]
+    environment:
+      - TARGET_IP=${TARGET_IP:-mqtt-broker}
+    depends_on:
+      - mqtt-broker
+
+  mqtt-sub:
+    build: ./mqtt
+    container_name: test-mqtt-sub
+    command: ["python", "test-sub.py"]
+    environment:
+      - TARGET_IP=${TARGET_IP:-mqtt-broker}
+    depends_on:
+      - mqtt-broker
+
+  # -------------------------
+  # AMQP (RabbitMQ)
+  # -------------------------
+  amqp-broker:
+    image: rabbitmq:3-management
+    container_name: test-amqp-broker
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    restart: unless-stopped
+
+  amqp-pub:
+    build: ./amqp
+    container_name: test-amqp-pub
+    command: ["python", "test-pub.py"]
+    environment:
+      - TARGET_IP=${TARGET_IP:-amqp-broker}
+    depends_on:
+      - amqp-broker
+
+  amqp-sub:
+    build: ./amqp
+    container_name: test-amqp-sub
+    command: ["python", "test-sub.py"]
+    environment:
+      - TARGET_IP=${TARGET_IP:-amqp-broker}
+    depends_on:
+      - amqp-broker
+
+  # -------------------------
+  # Modbus TCP/RTU
+  # -------------------------
+  modbus-server:
+    build: ./modbus
+    container_name: test-modbus-server
+    command: ["python", "test-server.py"]
+    environment:
+      - MODBUS_FRAMER=${MODBUS_FRAMER:-tcp}
+    ports:
+      - "502:502"
+    restart: unless-stopped
+
+  modbus-client:
+    build: ./modbus
+    container_name: test-modbus-client
+    command: ["python", "test-client.py"]
+    environment:
+      - TARGET_IP=${TARGET_IP:-modbus-server}
+      - MODBUS_FRAMER=${MODBUS_FRAMER:-tcp}
+
+  # -------------------------
+  # OPC UA
+  # -------------------------
+  opcua-server:
+    build: ./opcua
+    container_name: test-opcua-server
+    command: ["python", "test-server.py"]
+    environment:
+      - OPC_TAGS=${OPC_TAGS:-}
+    ports:
+      - "4840:4840"
+    restart: unless-stopped
+
+  opcua-client:
+    build: ./opcua
+    container_name: test-opcua-client
+    command: ["python", "test-client.py"]
+    environment:
+      - TARGET_IP=${TARGET_IP:-opcua-server}
+      - OPC_TAGS=${OPC_TAGS:-}
+
+  # -------------------------
+  # CoAP
+  # -------------------------
+  coap-server:
+    build: ./coap
+    container_name: test-coap-server
+    command: ["python", "test-server.py"]
+    ports:
+      - "5683:5683/udp"
+    restart: unless-stopped
+
+  coap-client:
+    build: ./coap
+    container_name: test-coap-client
+    command: ["python", "test-client.py"]
+    environment:
+      - TARGET_IP=${TARGET_IP:-coap-server}

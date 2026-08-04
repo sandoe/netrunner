@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/subtle"
 	"encoding/binary"
 	"encoding/json"
 	"flag"
@@ -15,10 +16,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/nxadm/tail"
 	"github.com/cilium/ebpf/ringbuf"
-	"golang.org/x/sys/unix"
+	"github.com/nxadm/tail"
 	"go.bug.st/serial"
+	"golang.org/x/sys/unix"
 
 	"netrunner-agent/bpf"
 )
@@ -35,9 +36,9 @@ var (
 	nodeID    string
 
 	// Regexes ported from cti.py
-	sshRe  = regexp.MustCompile(`Failed (?:password|publickey) for (?:invalid user )?(\S+) from (\S+)`)
-	webRe  = regexp.MustCompile(`^(\S+)\s+\S+\s+\S+\s+\[[^\]]+\]\s+"(\S+)\s+(.*?)\s+HTTP/[^"]+"\s+(\d+)`)
-	ufwRe  = regexp.MustCompile(`\[UFW BLOCK\].*?SRC=(\S+).*?DST=(\S+).*?DPT=(\d+)`)
+	sshRe = regexp.MustCompile(`Failed (?:password|publickey) for (?:invalid user )?(\S+) from (\S+)`)
+	webRe = regexp.MustCompile(`^(\S+)\s+\S+\s+\S+\s+\[[^\]]+\]\s+"(\S+)\s+(.*?)\s+HTTP/[^"]+"\s+(\d+)`)
+	ufwRe = regexp.MustCompile(`\[UFW BLOCK\].*?SRC=(\S+).*?DST=(\S+).*?DPT=(\d+)`)
 
 	sqlPat  = regexp.MustCompile(`(?i)(union\s+select|select\s+.*\s+from|insert\s+into|delete\s+from|drop\s+table|' or 1=1|--|%27%20or%201%3D1|%20union%20select)`)
 	pathPat = regexp.MustCompile(`(?i)(\.\./\.\.|/etc/passwd|/boot\.ini|win\.ini|%2e%2e%2f)`)
@@ -87,11 +88,15 @@ func main() {
 
 func startLocalServer() {
 	http.HandleFunc("/serial/write", func(w http.ResponseWriter, r *http.Request) {
+		if !agentRequestAuthorized(r) {
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
 		if r.Method != "POST" {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
-		
+
 		var req struct {
 			Port string `json:"port"`
 			Data string `json:"data"`
@@ -131,16 +136,26 @@ func startLocalServer() {
 	}
 }
 
+func agentRequestAuthorized(r *http.Request) bool {
+	const prefix = "Bearer "
+	header := r.Header.Get("Authorization")
+	if !strings.HasPrefix(header, prefix) || authToken == "" {
+		return false
+	}
+	provided := strings.TrimSpace(strings.TrimPrefix(header, prefix))
+	return subtle.ConstantTimeCompare([]byte(provided), []byte(authToken)) == 1
+}
+
 func htons(i uint16) uint16 {
 	return (i<<8)&0xff00 | i>>8
 }
 
 type bpfEvent struct {
-	Saddr            uint32
-	Daddr            uint32
-	Sport            uint16
-	Dport            uint16
-	RuleId           uint32
+	Saddr  uint32
+	Daddr  uint32
+	Sport  uint16
+	Dport  uint16
+	RuleId uint32
 }
 
 type ApiRule struct {
@@ -354,17 +369,15 @@ func parseUFWLog(line string) {
 	}
 }
 
-func sendEvent(ev Event) {
-	data, err := json.Marshal(ev)
+func sendData(endpoint string, payload interface{}) (int, error) {
+	data, err := json.Marshal(payload)
 	if err != nil {
-		log.Printf("Error marshaling event: %v", err)
-		return
+		return 0, fmt.Errorf("marshal error: %w", err)
 	}
 
-	req, err := http.NewRequest("POST", targetURL+"/api/agent/events", bytes.NewBuffer(data))
+	req, err := http.NewRequest("POST", targetURL+endpoint, bytes.NewBuffer(data))
 	if err != nil {
-		log.Printf("Error creating request: %v", err)
-		return
+		return 0, fmt.Errorf("request error: %w", err)
 	}
 
 	req.Header.Set("Content-Type", "application/json")
@@ -376,13 +389,21 @@ func sendEvent(ev Event) {
 	client := &http.Client{Timeout: 5 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
-		log.Printf("Failed to send event: %v", err)
-		return
+		return 0, fmt.Errorf("client do error: %w", err)
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
-		log.Printf("Warning: Target returned status %d", resp.StatusCode)
+	return resp.StatusCode, nil
+}
+
+func sendEvent(ev Event) {
+	status, err := sendData("/api/agent/events", ev)
+	if err != nil {
+		log.Printf("Failed to send event: %v", err)
+		return
+	}
+	if status != http.StatusOK {
+		log.Printf("Warning: Target returned status %d", status)
 	}
 }
 
@@ -401,18 +422,18 @@ func startBluetoothScanner() {
 	btRe := regexp.MustCompile(`(?i)([0-9A-F]{2}(?::[0-9A-F]{2}){5}).*?rssi\s+(-?\d+)`)
 	// Pattern for bluetoothctl devices
 	ctlRe := regexp.MustCompile(`(?i)Device\s+([0-9A-F]{2}(?::[0-9A-F]{2}){5})\s+(.+)`)
-	
+
 	for {
 		ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
 		cmd := exec.CommandContext(ctx, "btmgmt", "find")
 		out, err := cmd.CombinedOutput()
 		cancel()
 		outStr := string(out)
-		
+
 		log.Printf("BT Scanner ran btmgmt find, error: %v", err)
-		
+
 		devMap := make(map[string]BluetoothDevice)
-		
+
 		if err == nil || ctx.Err() == context.DeadlineExceeded {
 			if !strings.Contains(outStr, "Busy") && !strings.Contains(outStr, "Not Powered") {
 				lines := strings.Split(outStr, "\n")
@@ -437,7 +458,7 @@ func startBluetoothScanner() {
 			if len(m) == 3 {
 				mac := strings.ToUpper(m[1])
 				name := strings.TrimSpace(m[2])
-				
+
 				if dev, exists := devMap[mac]; exists {
 					// Update name if we only knew it from btmgmt
 					if name != "" {
@@ -446,59 +467,34 @@ func startBluetoothScanner() {
 					}
 				} else {
 					// New device from bluetoothctl
-					hash := 0
-					for i := 0; i < len(mac); i++ {
-						hash += int(mac[i])
-					}
-					rssi := -90 + (hash % 50)
 					if name == "" {
 						name = "Unknown Device"
 					}
-					devMap[mac] = BluetoothDevice{MAC: mac, RSSI: rssi, Name: name}
+					devMap[mac] = BluetoothDevice{MAC: mac, RSSI: 0, Name: name}
 				}
 			}
 		}
-		
+
 		var devs []BluetoothDevice
 		for _, dev := range devMap {
 			devs = append(devs, dev)
 		}
-		
+
 		if len(devs) > 0 {
 			sendBluetoothReport(BluetoothReport{Devices: devs})
 		}
-		
+
 		time.Sleep(3 * time.Second)
 	}
 }
 
 func sendBluetoothReport(report BluetoothReport) {
-	data, err := json.Marshal(report)
-	if err != nil {
-		log.Printf("Error marshaling BT report: %v", err)
-		return
-	}
-
-	req, err := http.NewRequest("POST", targetURL+"/api/agent/bluetooth", bytes.NewBuffer(data))
-	if err != nil {
-		log.Printf("Error creating BT request: %v", err)
-		return
-	}
-
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+authToken)
-	if nodeID != "" {
-		req.Header.Set("X-Node-ID", nodeID)
-	}
-
-	client := &http.Client{Timeout: 5 * time.Second}
-	resp, err := client.Do(req)
+	status, err := sendData("/api/agent/bluetooth", report)
 	if err != nil {
 		log.Printf("Error sending BT report: %v", err)
 		return
 	}
-	defer resp.Body.Close()
-	log.Printf("Sent Bluetooth report with %d devices, status: %d", len(report.Devices), resp.StatusCode)
+	log.Printf("Sent Bluetooth report with %d devices, status: %d", len(report.Devices), status)
 }
 
 func startSerialScanner() {
@@ -520,7 +516,7 @@ func startSerialScanner() {
 			if !knownPorts[portName] {
 				log.Printf("New USB/Serial device detected: %s", portName)
 				knownPorts[portName] = true
-				
+
 				// Send alert to mother ship
 				sendEvent(Event{
 					Type:     fmt.Sprintf("Hardware: USB/Serial Device Connected (%s)", portName),
@@ -566,31 +562,10 @@ func sendUSBReport(devices []map[string]string) {
 	payload := map[string]interface{}{
 		"devices": devices,
 	}
-	data, err := json.Marshal(payload)
-	if err != nil {
-		log.Printf("Error marshaling USB report: %v", err)
-		return
-	}
-
-	req, err := http.NewRequest("POST", targetURL+"/api/agent/usb", bytes.NewBuffer(data))
-	if err != nil {
-		log.Printf("Error creating USB request: %v", err)
-		return
-	}
-
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+authToken)
-	if nodeID != "" {
-		req.Header.Set("X-Node-ID", nodeID)
-	}
-
-	client := &http.Client{Timeout: 5 * time.Second}
-	resp, err := client.Do(req)
+	_, err := sendData("/api/agent/usb", payload)
 	if err != nil {
 		log.Printf("Error sending USB report: %v", err)
-		return
 	}
-	defer resp.Body.Close()
 }
 
 func readSerialPort(portName string) {

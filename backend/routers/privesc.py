@@ -1,6 +1,7 @@
 """
 Netrunner Privilege Escalation Scanner Router — API endpoints for privesc detection.
 """
+
 from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 from .auth import require_admin
@@ -49,6 +50,7 @@ async def api_privesc_scan(req: PrivescScanRequest):
 
     try:
         from ..core.vault import load_credentials
+
         username, password = await load_credentials(req.node_id)
     except Exception:
         pass

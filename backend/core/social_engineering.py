@@ -10,6 +10,7 @@ Provides:
 ⚠️  LEGAL NOTICE: These tools are for AUTHORIZED security awareness training
     and penetration testing only. Unauthorized social engineering is illegal.
 """
+
 import asyncio
 import json
 import os
@@ -191,16 +192,18 @@ async def create_campaign(
             sender_name=sender_name,
         )
 
-        emails.append({
-            "id": email_id,
-            "to": target.get("email", ""),
-            "to_name": target.get("name", ""),
-            "subject": personalized_subject,
-            "body": personalized_body,
-            "sender": template["sender_email"],
-            "sender_display": sender_name,
-            "status": "draft",
-        })
+        emails.append(
+            {
+                "id": email_id,
+                "to": target.get("email", ""),
+                "to_name": target.get("name", ""),
+                "subject": personalized_subject,
+                "body": personalized_body,
+                "sender": template["sender_email"],
+                "sender_display": sender_name,
+                "status": "draft",
+            }
+        )
 
     campaign = {
         "id": campaign_id,
@@ -256,14 +259,16 @@ def list_campaigns() -> list[dict]:
             try:
                 with open(os.path.join(SE_DIR, "campaigns", f)) as fh:
                     data = json.load(fh)
-                    campaigns.append({
-                        "id": data["id"],
-                        "name": data["name"],
-                        "template_name": data.get("template_name", ""),
-                        "status": data["status"],
-                        "created_at": data["created_at"],
-                        "stats": data.get("stats", {}),
-                    })
+                    campaigns.append(
+                        {
+                            "id": data["id"],
+                            "name": data["name"],
+                            "template_name": data.get("template_name", ""),
+                            "status": data["status"],
+                            "created_at": data["created_at"],
+                            "stats": data.get("stats", {}),
+                        }
+                    )
             except Exception:
                 pass
     return campaigns
@@ -392,6 +397,8 @@ def get_phishing_stats() -> dict:
                 pass
 
     if stats["total_emails"] > 0:
-        stats["click_rate"] = round(stats["total_clicked"] / stats["total_emails"] * 100, 1)
+        stats["click_rate"] = round(
+            stats["total_clicked"] / stats["total_emails"] * 100, 1
+        )
 
     return stats

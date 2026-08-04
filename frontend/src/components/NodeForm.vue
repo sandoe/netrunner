@@ -2,6 +2,7 @@
   <div class="modal-overlay" @click.self="$emit('close')">
     <div class="modal cyber-glass" role="dialog" aria-modal="true" aria-labelledby="node-form-title">
       <h3 id="node-form-title">{{ isEdit ? 'Edit Node' : 'Add Node' }}</h3>
+
       <form @submit.prevent="submit">
         <label>Name
           <input v-model="form.name" required placeholder="Router-1" />
@@ -44,6 +45,9 @@
             <span v-if="connecting" class="spinner"></span>
             <span v-else>Connect</span>
           </button>
+          <button type="button" v-if="isEdit" class="btn-danger" @click="deleteNode" :disabled="saving || connecting">
+            Delete
+          </button>
           <button type="button" class="btn-secondary" @click="$emit('close')">Cancel</button>
           <button type="submit" :disabled="saving">
             <span v-if="saving" class="spinner"></span>
@@ -51,6 +55,21 @@
           </button>
         </div>
       </form>
+    </div>
+
+    <!-- Custom Confirm Dialog -->
+    <div v-if="showDeleteConfirm" class="modal-overlay confirm-overlay" @click.self="showDeleteConfirm = false">
+      <div class="modal cyber-glass confirm-modal" role="dialog" aria-modal="true">
+        <h3>Confirm Deletion</h3>
+        <p>Are you sure you want to delete <strong>{{ form.name }}</strong>?</p>
+        <div class="actions">
+          <button type="button" class="btn-secondary" @click="showDeleteConfirm = false">Cancel</button>
+          <button type="button" class="btn-danger" @click="confirmDeleteNode">
+            <span v-if="saving" class="spinner"></span>
+            <span v-else>Delete Node</span>
+          </button>
+        </div>
+      </div>
     </div>
   </div>
 </template>
@@ -74,12 +93,21 @@ const store  = useNodesStore()
 const saving = ref(false)
 const connecting = ref(false)
 const error  = ref('')
+const showDeleteConfirm = ref(false)
 const isEdit = computed(() => !!props.node)
 
 async function connectNode() {
   if (!props.node) return
   connecting.value = true
   error.value = ''
+
+  // Save form changes first, so we connect using the updated IP/Port
+  await submit(true)
+  if (error.value) {
+    connecting.value = false
+    return
+  }
+
   try {
     await api.connectNode(props.node.id)
     store.manuallyDisconnected.delete(props.node.id)
@@ -94,6 +122,25 @@ async function connectNode() {
   }
 }
 
+function deleteNode() {
+  if (!props.node) return
+  showDeleteConfirm.value = true
+}
+
+async function confirmDeleteNode() {
+  if (!props.node) return
+  saving.value = true
+  try {
+    await store.remove(props.node.id)
+    emit('close')
+  } catch (e) {
+    error.value = String(e)
+    showDeleteConfirm.value = false
+  } finally {
+    saving.value = false
+  }
+}
+
 const form = ref({
   name: props.node?.name ?? '',
   host: props.node?.host ?? '',
@@ -105,7 +152,7 @@ const form = ref({
 })
 const tagsInput = ref(props.node?.tags?.join(', ') ?? '')
 
-async function submit() {
+async function submit(preventClose = false) {
   saving.value = true
   error.value  = ''
   try {
@@ -123,7 +170,9 @@ async function submit() {
     } else {
       await store.create(payload)
     }
-    emit('close')
+    if (!preventClose) {
+      emit('close')
+    }
   } catch (e) {
     error.value = String(e)
   } finally {
@@ -164,4 +213,14 @@ button:disabled { opacity: .5; cursor: not-allowed; border-color: rgba(0, 229, 2
 .btn-secondary:hover { background: rgba(255, 255, 255, 0.05); color: var(--textwh); box-shadow: none; }
 .btn-connect { background: rgba(0, 255, 157, 0.15); color: var(--green); border: 1px solid var(--green); margin-right: auto; }
 .btn-connect:hover:not(:disabled) { background: var(--green); color: #000; box-shadow: 0 0 20px rgba(0, 255, 157, 0.4); }
+.btn-danger { background: rgba(255, 45, 110, 0.15); color: var(--pink); border: 1px solid var(--pink); margin-right: auto; }
+.btn-danger:hover:not(:disabled) { background: var(--pink); color: #000; box-shadow: 0 0 20px rgba(255, 45, 110, 0.4); }
+
+.confirm-overlay { z-index: 3010; }
+.confirm-modal { width: 340px; text-align: center; }
+.confirm-modal h3 { color: var(--pink); margin-bottom: 12px; }
+.confirm-modal p { font-size: 14px; margin-bottom: 24px; color: var(--textwh); font-family: var(--font-co); }
+.confirm-modal .actions { justify-content: center; margin-top: 10px; }
+.confirm-modal .btn-danger { margin: 0; }
+
 </style>

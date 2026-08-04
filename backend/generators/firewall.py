@@ -1,4 +1,5 @@
 """Firewall configuration generators: iptables, nftables, ufw."""
+
 from __future__ import annotations
 
 
@@ -9,7 +10,9 @@ def _rule_value(rule: dict, *keys: str) -> str:
         value = rule.get(key)
         if value is not None and str(value).strip():
             return str(value).strip()
-    normalized = {str(k).lower().replace("_", "").replace("-", ""): v for k, v in rule.items()}
+    normalized = {
+        str(k).lower().replace("_", "").replace("-", ""): v for k, v in rule.items()
+    }
     for key in keys:
         value = normalized.get(key.lower().replace("_", "").replace("-", ""))
         if value is not None and str(value).strip():
@@ -28,7 +31,7 @@ def gen_iptables(cfg: dict) -> list[str]:
 
     defaults = cfg.get("defaults", {})
     for chain, policy in defaults.items():
-        chain  = str(chain).upper()
+        chain = str(chain).upper()
         policy = str(policy).upper()
         if chain in ("INPUT", "FORWARD", "OUTPUT") and policy in ("ACCEPT", "DROP"):
             cmds.append(f"iptables -P {chain} {policy}")
@@ -48,14 +51,22 @@ def gen_iptables(cfg: dict) -> list[str]:
         ct_state = _rule_value(rule, "ct_state", "ctstate", "state")
         sport = _rule_value(rule, "sport", "source_port", "src_port")
         dport = _rule_value(rule, "dport", "destination_port", "dest_port", "port")
-        if proto:    parts += ["-p", proto]
-        if iif:      parts += ["-i", iif]
-        if oif:      parts += ["-o", oif]
-        if saddr:    parts += ["-s", saddr]
-        if daddr:    parts += ["-d", daddr]
-        if ct_state: parts += ["-m", "conntrack", "--ctstate", ct_state.upper()]
-        if sport:    parts += ["--sport", sport]
-        if dport:    parts += ["--dport", dport]
+        if proto:
+            parts += ["-p", proto]
+        if iif:
+            parts += ["-i", iif]
+        if oif:
+            parts += ["-o", oif]
+        if saddr:
+            parts += ["-s", saddr]
+        if daddr:
+            parts += ["-d", daddr]
+        if ct_state:
+            parts += ["-m", "conntrack", "--ctstate", ct_state.upper()]
+        if sport:
+            parts += ["--sport", sport]
+        if dport:
+            parts += ["--dport", dport]
 
         action = str(rule.get("action", "ACCEPT")).upper()
         if action in ("DNAT", "SNAT", "MASQUERADE"):
@@ -84,7 +95,7 @@ def gen_ufw(cfg: dict) -> list[str]:
     defaults = cfg.get("defaults", {})
     incoming = str(defaults.get("incoming", "deny")).lower()
     outgoing = str(defaults.get("outgoing", "allow")).lower()
-    routed   = str(defaults.get("routed",   "deny")).lower()
+    routed = str(defaults.get("routed", "deny")).lower()
     if incoming in ("allow", "deny", "reject"):
         cmds.append(f"ufw default {incoming} incoming")
     if outgoing in ("allow", "deny", "reject"):
@@ -150,11 +161,15 @@ def _nft_rule_expr(rule: dict) -> str:
     p = []
     iifname = _nft_value(rule, "iifname", "iif", "in_iface", "iface")
     oifname = _nft_value(rule, "oifname", "oif", "out_iface")
-    if iifname: p.append(f'iifname "{_nft_quote(iifname)}"')
-    if oifname: p.append(f'oifname "{_nft_quote(oifname)}"')
-    if rule.get("saddr"): p.append(f"ip saddr {rule['saddr']}")
-    if rule.get("daddr"): p.append(f"ip daddr {rule['daddr']}")
-    proto    = rule.get("protocol", "")
+    if iifname:
+        p.append(f'iifname "{_nft_quote(iifname)}"')
+    if oifname:
+        p.append(f'oifname "{_nft_quote(oifname)}"')
+    if rule.get("saddr"):
+        p.append(f"ip saddr {rule['saddr']}")
+    if rule.get("daddr"):
+        p.append(f"ip daddr {rule['daddr']}")
+    proto = rule.get("protocol", "")
     has_port = rule.get("sport") or rule.get("dport")
     if proto and proto != "any":
         if not (has_port and proto in ("tcp", "udp")):
@@ -166,18 +181,43 @@ def _nft_rule_expr(rule: dict) -> str:
     if rule.get("ct_state"):
         p.append(f"ct state {rule['ct_state']}")
     action = rule.get("action", "accept")
-    if   action == "dnat":        p.append(f"dnat to {rule.get('nat_addr','')}")
-    elif action == "snat":        p.append(f"snat to {rule.get('nat_addr','')}")
-    elif action == "masquerade":  p.append("masquerade")
-    elif action == "log":         p.append(f'log prefix "{rule.get("log_prefix","nft: ")}"')
-    else:                         p.append(action)
+    if action == "dnat":
+        p.append(f"dnat to {rule.get('nat_addr','')}")
+    elif action == "snat":
+        p.append(f"snat to {rule.get('nat_addr','')}")
+    elif action == "masquerade":
+        p.append("masquerade")
+    elif action == "log":
+        p.append(f'log prefix "{rule.get("log_prefix","nft: ")}"')
+    else:
+        p.append(action)
     if rule.get("comment"):
         p.append(f'comment "{rule["comment"]}"')
     return " ".join(p)
 
 
 def _build_nft_script(cfg: dict) -> list[str]:
-    lines: list[str] = ["flush ruleset", ""]
+    op = cfg.get("operation", "overwrite")
+    lines: list[str] = []
+
+    if op in ["flush", "overwrite"]:
+        lines.append("flush ruleset")
+        lines.append("")
+
+    if op == "flush":
+        return lines
+
+    if op == "delete":
+        for tbl in cfg.get("tables", []):
+            f, n = tbl.get("family", "ip"), tbl["name"]
+            for ch in tbl.get("chains", []):
+                cn = ch["name"]
+                for rule in ch.get("rules", []):
+                    expr = _nft_rule_expr(rule)
+                    if expr:
+                        lines.append(f"delete rule {f} {n} {cn} {expr}")
+        return lines
+
     for tbl in cfg.get("tables", []):
         f, n = tbl.get("family", "ip"), tbl["name"]
         lines.append(f"table {f} {n} {{")
@@ -214,11 +254,16 @@ def gen_nftables(cfg: dict) -> list[str]:
 
     for i, line in enumerate(script):
         esc = line.replace("'", "'\\''")
-        op  = ">"  if i == 0 else ">>"
+        op = ">" if i == 0 else ">>"
         out.append(f"echo '{esc}' {op} /tmp/nr_nft_rules.nft")
 
     out += [
-        "nft -f /tmp/nr_nft_rules.nft && echo 'nftables: applied OK' || echo 'nftables: FAILED'",
+        "if command -v sudo >/dev/null 2>&1; then",
+        "  sudo nft -f /tmp/nr_nft_rules.nft",
+        "else",
+        "  nft -f /tmp/nr_nft_rules.nft",
+        "fi",
+        "if [ $? -eq 0 ]; then echo 'nftables: applied to RAM successfully'; else echo 'nftables: FAILED'; fi",
         "rm -f /tmp/nr_nft_rules.nft",
     ]
     return out

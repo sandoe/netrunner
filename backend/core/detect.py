@@ -2,6 +2,7 @@
 
 Returns one of: "gns3", "linux", "rpi", "unknown"
 """
+
 from __future__ import annotations
 
 import socket
@@ -9,7 +10,9 @@ import socket
 from .session import SshClient, TelnetClient
 
 
-def detect_device_type(host: str, port: int, username: str = "root", password: str = "") -> str:
+async def detect_device_type(
+    host: str, port: int, username: str = "root", password: str = ""
+) -> str:
     """Probe the device and return its type.
 
     Strategy:
@@ -23,18 +26,30 @@ def detect_device_type(host: str, port: int, username: str = "root", password: s
     """
     # Try SSH
     try:
-        cl = SshClient(host, port, username, password, timeout=5)
-        cl.connect()
+        from .session import session_manager
+
+        node = {"host": host, "port": port, "username": username, "password": password}
+        nid = f"detect_{host}_{port}"
         try:
-            uname = cl.run_command("uname -a", timeout=5)
-            rpi_check = cl.run_command("cat /proc/cpuinfo 2>/dev/null | grep -i 'raspberry\\|bcm2'", timeout=5)
-            if rpi_check.strip():
-                return "rpi"
-            if "linux" in uname.lower():
-                return "linux"
-            return "unknown"
+            results, err = await session_manager.run(
+                nid,
+                node,
+                [
+                    "uname -a",
+                    "cat /proc/cpuinfo 2>/dev/null | grep -i 'raspberry\\|bcm2'",
+                ],
+                timeout=5,
+            )
+            if not err and len(results) >= 2:
+                uname = results[0]
+                rpi_check = results[1]
+                if rpi_check.strip():
+                    return "rpi"
+                if "linux" in uname.lower():
+                    return "linux"
+                return "unknown"
         finally:
-            cl.close()
+            session_manager.close(nid)
     except Exception:
         pass
 

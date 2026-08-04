@@ -1,7 +1,7 @@
 <template>
   <BootSequence v-if="showBoot" @done="showBoot = false" />
   <LoginView v-if="!loggedIn" @authenticated="onAuthenticated" />
-  <div v-else class="app" :class="{ holo: holoMode }">
+  <div v-else class="app" :class="[{ holo: holoMode, 'glitch-effect': isGlitching }, `defcon-${store.defconLevel}`]">
     <div class="scanline"></div>
 
     <!-- HOLO MODE overlay -->
@@ -13,140 +13,30 @@
       <div class="holo-hud">▣ NETRUNNER HOLO-DECK · NEURAL LINK ACTIVE · {{ online }}/{{ monitoredCount }} NODES ONLINE</div>
     </div>
 
-    <!-- Sidebar -->
-    <aside class="sidebar">
-      <div class="sidebar-header">
-        <div class="logo">
-          <span class="logo-title">NETRUNNER</span>
-          <span class="logo-sub" style="display: flex; flex-direction: column; gap: 4px; margin-top: 6px;">
-            <div>OS v1.0.0</div>
-            <div style="display: flex; gap: 12px; font-size: 0.7rem; color: var(--text-muted); flex-wrap: wrap; margin-top: 2px;">
-              <span title="Frontend UI" style="display: flex; align-items: center; gap: 4px;">
-                FRONTEND <span class="api-led up"></span>
-              </span>
-              <span :title="'Backend API: ' + backendApiStatus.toUpperCase()" style="display: flex; align-items: center; gap: 4px;">
-                BACKEND <span class="api-led" :class="backendApiStatus"></span>
-              </span>
-              <span title="Terminal MUX Service" style="display: flex; align-items: center; gap: 4px;">
-                MUX <span class="api-led" :class="serviceStatus.mux ? 'up' : 'down'"></span>
-              </span>
-              <span title="Redis Task Queue" style="display: flex; align-items: center; gap: 4px;">
-                REDIS <span class="api-led" :class="serviceStatus.redis ? 'up' : 'down'"></span>
-              </span>
-            </div>
-          </span>
-        </div>
-        <div class="header-tools" style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; width: 100%; margin-top: 10px; place-items: center;">
-          <button class="btn-icon" :class="{ 'holo-on': holoMode }" @click="toggleHolo" title="HOLO mode (holographic overlay + ambient)">🛸</button>
-          <button class="btn-icon btn-mic" :class="{ listening }" @click="startVoice" title="Voice command">🎙️</button>
-          <button class="btn-icon" @click="toggleAudio" :title="audioEnabled ? 'Mute NOC audio' : 'Enable NOC voice + alarms'">{{ audioEnabled ? '🔊' : '🔇' }}</button>
-          <button class="btn-icon btn-bell" @click="openAlerts" title="Alerts">🔔<span v-if="unreadCount" class="bell-badge">{{ unreadCount > 9 ? '9+' : unreadCount }}</span></button>
-          <button class="btn-icon" @click="toggleGlobalFullscreen" :title="isGlobalFullscreen ? 'Exit Fullscreen' : 'Fullscreen'">{{ isGlobalFullscreen ? '📺' : '🖥️' }}</button>
-          <button class="btn-icon" @click="showVpn = true" title="VPN Manager" v-if="userRole === 'admin'">🛡️</button>
-          <button class="btn-icon" @click="showSettings = true" title="Settings">⚙️</button>
-          <button class="btn-add" @click="showAddForm = true" title="Add node">+</button>
-        </div>
-      </div>
 
-      <div class="user-bar">
-        <span class="user-id" :title="currentUsername || 'operator'">{{ currentUsername || 'operator' }}</span>
-        <span class="user-role" :class="userRole">{{ userRole }}</span>
-        <div class="user-actions">
-          <button v-if="userRole === 'admin'" class="btn-user-action" style="color: var(--pink)" @click="nukeAllNodes" title="Nuke all nodes & dockers">🧨</button>
-          <button v-if="userRole === 'admin'" class="btn-user-action" @click="showUsers = true" title="User management">👤</button>
-          <button class="btn-user-action btn-logout" @click="logout" title="Log out">⏻</button>
-        </div>
-      </div>
 
-      <div class="sidebar-stats">
+    <div class="app-body">
+      <!-- Sidebar -->
+      <aside class="sidebar">
+        <div class="sidebar-stats">
         <div class="sidebar-stat">
           <div class="stat-label">NODES</div>
           <div class="stat-value">{{ store.nodeList.length }}</div>
         </div>
-        <div class="sidebar-stat">
+        <div class="sidebar-stat" @click="showSessionManager = true" style="cursor: pointer;" title="Manage Active Sessions">
           <div class="stat-label">LIVE</div>
           <div class="stat-value" :class="{ 'text-green': store.connectedCount > 0 }">{{ store.connectedCount }}</div>
         </div>
       </div>
 
-      <nav class="nav-menu">
-        <div class="nav-group">
-          <div class="nav-group-head" @click="toggleNavCat('dashboard')">
-            <span>📊 COMMAND CENTER</span>
-            <span class="nav-group-chevron" :class="{ collapsed: collapsedNavCats.has('dashboard') }">⌃</span>
-          </div>
-          <div v-if="!collapsedNavCats.has('dashboard')" class="nav-group-items">
-            <button :class="{ active: viewMode === 'dashboard' }" @click="viewMode = 'dashboard'">⎈ DASHBOARD</button>
-            <button class="btn-bell" :class="{ active: viewMode === 'alerts' }" @click="viewMode = 'alerts'">🚨 ALERT INBOX</button>
-            <button :class="{ active: viewMode === 'reports' }" @click="viewMode = 'reports'">📑 REPORTS</button>
-          </div>
-        </div>
 
-        <div class="nav-group">
-          <div class="nav-group-head" @click="toggleNavCat('network')">
-            <span>🌐 NETWORK & INFRASTRUCTURE</span>
-            <span class="nav-group-chevron" :class="{ collapsed: collapsedNavCats.has('network') }">⌃</span>
-          </div>
-          <div v-if="!collapsedNavCats.has('network')" class="nav-group-items">
-            <button :class="{ active: viewMode === 'topology' }" @click="viewMode = 'topology'">🕸️ TOPOLOGY & MAPS</button>
-            <button class="btn-sdn" :class="{ active: viewMode === 'network' }" @click="viewMode = 'network'">🔌 NETWORK CONTROLLER</button>
-            <button class="btn-sdn" :class="{ active: viewMode === 'host' }" @click="viewMode = 'host'">💻 LOCAL HOST</button>
-            <button class="btn-attack" :class="{ active: viewMode === 'database' }" @click="viewMode = 'database'">
-              🗄️ DATABASE CONTROL
-              <span class="api-led" :class="serviceStatus.postgres ? 'up' : 'down'" title="PostgreSQL Service"></span>
-            </button>
-          </div>
-        </div>
-
-        <div class="nav-group">
-          <div class="nav-group-head" @click="toggleNavCat('intel')">
-            <span>🕵️ OPERATIONS & INTEL</span>
-            <span class="nav-group-chevron" :class="{ collapsed: collapsedNavCats.has('intel') }">⌃</span>
-          </div>
-          <div v-if="!collapsedNavCats.has('intel')" class="nav-group-items">
-            <button class="btn-recon" :class="{ active: viewMode === 'hunting' }" @click="viewMode = 'hunting'">🔍 THREAT HUNTING</button>
-            <button class="btn-recon" :class="{ active: viewMode === 'recon' }" @click="viewMode = 'recon'">📡 RECON ENGINE</button>
-            <button class="btn-recon" :class="{ active: viewMode === 'kismet' }" @click="viewMode = 'kismet'">📶 WIRELESS IDS</button>
-            <button class="btn-intelligence" :class="{ active: viewMode === 'intelligence' }" @click="viewMode = 'intelligence'">🧠 INTELLIGENCE & TTP</button>
-            <button class="btn-attack" :class="{ active: viewMode === 'attack' }" @click="viewMode = 'attack'">☠️ ATTACK MATRIX</button>
-            <button :class="{ active: viewMode === 'history' }" @click="viewMode = 'history'">🕗 THREAT TIMELINE</button>
-            <button class="btn-attack" :class="{ active: viewMode === 'bruteforce' }" @click="viewMode = 'bruteforce'">🎯 BRUTEFORCE OPS</button>
-          </div>
-        </div>
-
-        <div class="nav-group">
-          <div class="nav-group-head" @click="toggleNavCat('redteam')">
-            <span>🔴 RED TEAM</span>
-            <span class="nav-group-chevron" :class="{ collapsed: collapsedNavCats.has('redteam') }">⌃</span>
-          </div>
-          <div v-if="!collapsedNavCats.has('redteam')" class="nav-group-items">
-            <button class="btn-attack" :class="{ active: viewMode === 'wifi-attack' }" @click="viewMode = 'wifi-attack'">📶 WIFI ATTACKS</button>
-            <button class="btn-attack" :class="{ active: viewMode === 'lateral' }" @click="viewMode = 'lateral'">🔗 LATERAL MOVEMENT</button>
-            <button class="btn-attack" :class="{ active: viewMode === 'privesc' }" @click="viewMode = 'privesc'">⬆️ PRIVESC SCAN</button>
-            <button class="btn-attack" :class="{ active: viewMode === 'exfil' }" @click="viewMode = 'exfil'">📤 EXFILTRATION</button>
-            <button class="btn-attack" :class="{ active: viewMode === 'social-engineering' }" @click="viewMode = 'social-engineering'">🎯 SOCIAL ENGINEERING</button>
-          </div>
-        </div>
-
-        <div class="nav-group">
-          <div class="nav-group-head" @click="toggleNavCat('blueteam')">
-            <span>🔵 BLUE TEAM</span>
-            <span class="nav-group-chevron" :class="{ collapsed: collapsedNavCats.has('blueteam') }">⌃</span>
-          </div>
-          <div v-if="!collapsedNavCats.has('blueteam')" class="nav-group-items">
-            <button class="btn-recon" :class="{ active: viewMode === 'forensics' }" @click="viewMode = 'forensics'">🔬 FORENSICS LAB</button>
-            <button class="btn-recon" :class="{ active: viewMode === 'compliance' }" @click="viewMode = 'compliance'">🛡️ COMPLIANCE</button>
-            <button class="btn-recon" :class="{ active: viewMode === 'ir' }" @click="viewMode = 'ir'">🚨 INCIDENT RESPONSE</button>
-            <button class="btn-recon" :class="{ active: viewMode === 'logs' }" @click="viewMode = 'logs'">📜 LOG AGGREGATION</button>
-          </div>
-        </div>
-      </nav>
 
       <div v-if="store.loading" class="sidebar-info">SCANNING NEURAL LINK...</div>
       <div v-if="store.error" class="sidebar-error">{{ store.error }}</div>
 
-      <div class="sidebar-search">
-        <input v-model="searchQuery" placeholder="FILTER NODES..." class="search-input" />
+      <div class="sidebar-search" style="display: flex; gap: 8px;">
+        <input v-model="searchQuery" placeholder="FILTER NODES..." class="search-input" style="flex: 1;" />
+        <button v-if="userRole !== 'student'" class="btn-action" @click="showAddForm = true" title="Add New Node" style="height: 28px; padding: 0 10px; font-weight: bold;">[+] ADD</button>
       </div>
 
       <div class="node-list">
@@ -193,25 +83,13 @@
 
     <!-- Main content -->
     <main class="main">
-      <!-- Background Layer -->
-      <div class="main-bg" :class="{ 'is-topology': viewMode === 'topology', 'is-threat': viewMode === 'threat' }">
-        <router-view v-slot="{ Component }">
-          <transition name="fade-slide" mode="out-in">
-            <component 
-              :is="Component" 
-              :autopilotActive="systemState.autopilot"
-              :chaosActive="systemState.chaos"
-              :systemState="systemState"
-              @toggle-autopilot="toggleAutopilot"
-              @toggle-chaos="toggleChaos"
-            />
-          </transition>
-        </router-view>
+      <!-- Desktop Area -->
+      <div class="desktop-area main-bg">
+        <AmbientBackground :alert-level="alertLevel" />
       </div>
-
       <!-- Foreground Layer: Glass Panel -->
       <transition name="slide-panel">
-        <div v-if="store.selected && viewMode === 'node'" class="glass-panel" :class="{ 'is-overlay': viewMode === 'topology' }">
+        <div v-if="store.selected" class="glass-panel">
           <!-- Node header bar -->
           <div class="node-header">
             <div class="node-title">
@@ -237,7 +115,8 @@
               <button @click="detectType" class="btn-action">DETECT</button>
               <button @click="doBackup"   class="btn-action">BACKUP</button>
               <button @click="doRollback" class="btn-action">ROLLBACK</button>
-              <button v-if="userRole === 'admin'" @click="deleteNode" class="btn-action btn-danger">NUKE CONFIG</button>
+              <button v-if="canDeleteNode" @click="deleteNode" class="btn-action btn-danger">NUKE CONFIG</button>
+              <button @click="store.selectedId = null" class="btn-action" title="Close Node Dashboard">✕ CLOSE</button>
             </div>
           </div>
 
@@ -263,16 +142,35 @@
             <SecurityPanel v-if="activeTab === 'security'" :node-id="store.selected.id" />
             <CapturePanel v-if="activeTab === 'network'"  :node-id="store.selected.id" />
             <UsbPanel     v-if="activeTab === 'usb'"      :node-id="store.selected.id" />
-            <ShellPanel   v-if="activeTab === 'terminal'" :node="store.selected" />
+            <ShellPanel   v-if="activeTab === 'terminal'" :node="store.selected" :active="activeTab === 'terminal'" />
             <FileExplorerPanel v-if="activeTab === 'files'" :node-id="store.selected.id" />
           </div>
         </div>
       </transition>
+
+      <!-- Desktop OS Apps via WindowManager -->
+      <WindowFrame
+        v-for="win in windowStore.windows"
+        :key="win.id"
+        :winId="win.id"
+      >
+        <component
+          :is="getComponentMap(win.component)"
+          v-bind="win.props"
+          :autopilotActive="systemState.autopilot"
+          :chaosActive="systemState.chaos"
+          :systemState="systemState"
+          @toggle-autopilot="toggleAutopilot"
+          @toggle-chaos="toggleChaos"
+        />
+      </WindowFrame>
     </main>
+    </div>
 
     <!-- Modals -->
     <NodeForm v-if="showAddForm" @close="showAddForm = false" />
     <NodeForm v-if="showEdit"    :node="store.selected" @close="showEdit = false" />
+    <SessionManagerModal v-if="showSessionManager" @close="showSessionManager = false" />
     <SettingsModal v-if="showSettings" @close="showSettings = false" />
     <UserManagementModal v-if="showUsers" @close="showUsers = false" />
     <VpnManagerModal v-if="showVpn" @close="showVpn = false" />
@@ -321,6 +219,29 @@
           <div v-if="filteredAlerts.length === 0" class="alerts-empty">
             {{ events.length === 0 ? 'No events yet — all clear. ✅' : 'No important alerts. ✅' }}
           </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Nuke Node Modal -->
+    <div v-if="showConfirmDelete" class="modal-overlay nuke-overlay" @click.self="showConfirmDelete = false">
+      <div class="cyber-modal-card nuke-card glitch-box">
+        <div class="cyber-modal-header critical">
+          <div class="modal-title">⚠️ CRITICAL WARNING</div>
+          <button class="btn-close-modal" @click="showConfirmDelete = false">×</button>
+        </div>
+        <div class="cyber-modal-body" style="text-align: center;">
+          <p class="nuke-warning-text">
+            You are about to <span class="neon-pink">NUKE</span> the node:<br/>
+            <strong class="target-node">[{{ store.selected?.name }}]</strong>
+          </p>
+          <p class="nuke-subtext">
+            This action is irreversible. All configurations and connections will be lost.
+          </p>
+        </div>
+        <div class="cyber-modal-footer center-actions">
+          <button class="btn-action" @click="showConfirmDelete = false">ABORT</button>
+          <button class="btn-action btn-nuke-confirm" @click="executeNuke">CONFIRM NUKE</button>
         </div>
       </div>
     </div>
@@ -423,39 +344,68 @@
         </div>
       </div>
     </div>
+
+    <StartMenu
+      :isOpen="startMenuOpen"
+      :holoMode="holoMode"
+      :audioEnabled="audioEnabled"
+      :currentUsername="store.username || 'unknown'"
+      :userRole="userRole"
+      @launch-app="launchApp"
+      @toggle-holo="toggleHolo"
+      @toggle-audio="toggleAudio"
+      @open-settings="showSettings = true"
+      @logout="logout"
+      @close="startMenuOpen = false"
+    />
+
+    <Taskbar
+      :startMenuOpen="startMenuOpen"
+      :backendApiStatus="backendApiStatus"
+      :serviceStatus="serviceStatus"
+      @toggle-start="startMenuOpen = !startMenuOpen"
+      @show-desktop="handleShowDesktop"
+    />
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, watch, nextTick, provide } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch, nextTick, provide, defineAsyncComponent } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useNodesStore } from '@/stores/nodes'
+import { useWindowStore } from '@/stores/windows'
+import Taskbar from './components/Taskbar.vue'
+import StartMenu from './components/StartMenu.vue'
+import WindowFrame from './components/WindowFrame.vue'
+import AmbientBackground from './components/AmbientBackground.vue'
+import { AppRegistry } from './registry'
 import { api, sendUiEvent } from '@/api/client'
-import SystemPanel from './components/SystemPanel.vue'
-import WorkloadsPanel from './components/WorkloadsPanel.vue'
-import SecurityPanel from './components/SecurityPanel.vue'
-import CapturePanel from './components/CapturePanel.vue'
-import OverviewPanel    from './components/OverviewPanel.vue'
-import ShellPanel       from './components/ShellPanel.vue'
-import UsbPanel         from './components/UsbPanel.vue'
-import FileExplorerPanel from './components/FileExplorerPanel.vue'
-import VpnManagerModal  from './components/VpnManagerModal.vue'
-import AttackMatrix from './components/AttackMatrix.vue'
+const SystemPanel = defineAsyncComponent(() => import('./components/SystemPanel.vue'))
+const WorkloadsPanel = defineAsyncComponent(() => import('./components/WorkloadsPanel.vue'))
+const SecurityPanel = defineAsyncComponent(() => import('./components/SecurityPanel.vue'))
+const CapturePanel = defineAsyncComponent(() => import('./components/CapturePanel.vue'))
+const OverviewPanel    = defineAsyncComponent(() => import('./components/OverviewPanel.vue'))
+const ShellPanel       = defineAsyncComponent(() => import('./components/ShellPanel.vue'))
+const UsbPanel         = defineAsyncComponent(() => import('./components/UsbPanel.vue'))
+const FileExplorerPanel = defineAsyncComponent(() => import('./components/FileExplorerPanel.vue'))
+const VpnManagerModal  = defineAsyncComponent(() => import('./components/VpnManagerModal.vue'))
+const AttackMatrix = defineAsyncComponent(() => import('./components/AttackMatrix.vue'))
 import { useNocAudio } from '@/composables/useNocAudio'
 import { useAmbient } from '@/composables/useAmbient'
-import BootSequence from './components/BootSequence.vue'
-import NodeForm  from './components/NodeForm.vue'
-import TopologyView from './components/TopologyView.vue'
-import ReconView from './components/ReconView.vue'
-import BruteforceControlRoom from '@/components/BruteforceControlRoom.vue'
-import DatabaseControlView from '@/views/DatabaseControlView.vue'
-import KnowledgeGraph from '@/components/KnowledgeGraph.vue'
-import ThreatTimeline from './components/ThreatTimeline.vue'
-import AiChatSidebar from './components/AiChatSidebar.vue'
-import SettingsModal from './components/SettingsModal.vue'
-import UserManagementModal from './components/UserManagementModal.vue'
-import LoginView from './components/LoginView.vue'
-import HostControlView from '@/views/HostControlView.vue'
+const BootSequence = defineAsyncComponent(() => import('./components/BootSequence.vue'))
+const NodeForm  = defineAsyncComponent(() => import('./components/NodeForm.vue'))
+const SessionManagerModal = defineAsyncComponent(() => import('./components/SessionManagerModal.vue'))
+const TopologyView = defineAsyncComponent(() => import('./components/TopologyView.vue'))
+const ReconView = defineAsyncComponent(() => import('./components/ReconView.vue'))
+const BruteforceControlRoom = defineAsyncComponent(() => import('@/components/BruteforceControlRoom.vue'))
+const DatabaseControlView = defineAsyncComponent(() => import('@/views/DatabaseControlView.vue'))
+const KnowledgeGraph = defineAsyncComponent(() => import('./components/KnowledgeGraph.vue'))
+const ThreatTimeline = defineAsyncComponent(() => import('./components/ThreatTimeline.vue'))
+const AiChatSidebar = defineAsyncComponent(() => import('./components/AiChatSidebar.vue'))
+const SettingsModal = defineAsyncComponent(() => import('./components/SettingsModal.vue'))
+const UserManagementModal = defineAsyncComponent(() => import('./components/UserManagementModal.vue'))
+const LoginView = defineAsyncComponent(() => import('./components/LoginView.vue'))
+const HostControlView = defineAsyncComponent(() => import('@/views/HostControlView.vue'))
 import type { NrNode } from '@/types'
 
 const route = useRoute()
@@ -463,8 +413,21 @@ const router = useRouter()
 
 const loggedIn = ref(!!localStorage.getItem('nr_token'))
 const userRole = ref(localStorage.getItem('nr_role') || 'analyst')
+const canDeleteNode = computed(() => {
+  if (userRole.value === 'admin') return true;
+  if (!store.selected) return false;
+  const deviceType = store.selected.device_type?.toLowerCase() || '';
+  if (['gns3', 'rpi', 'raspberry pi', 'raspberry_pi'].includes(deviceType)) {
+    return true;
+  }
+  return false;
+})
 const currentUsername = ref(localStorage.getItem('nr_username') || '')
+
+const showSessionManager = ref(false)
+const showConfirmDelete = ref(false)
 const showBoot = ref(false)
+const showAddForm = ref(false)
 provide('userRole', userRole)
 
 const CONSOLELESS_TYPES = ['ethernet_switch', 'ethernet_hub', 'frame_relay_switch', 'atm_switch', 'cloud', 'nat']
@@ -507,12 +470,23 @@ const seenEventId = ref(0)
 let eventsBaselineSet = false
 const unreadCount = computed(() => events.value.filter(e => e.id > seenEventId.value).length)
 
+const isGlitching = ref(false)
+function triggerGlitch() {
+  isGlitching.value = true
+  setTimeout(() => isGlitching.value = false, 400)
+}
+
 const alertFilter = ref<'all' | 'important'>('all')
 const alertCounts = computed(() => ({
   critical: events.value.filter(e => e.severity === 'critical').length,
   warning: events.value.filter(e => e.severity === 'warning').length,
   info: events.value.filter(e => e.severity === 'info').length,
 }))
+const alertLevel = computed(() => {
+  if (alertCounts.value.critical > 0) return 'critical'
+  if (alertCounts.value.warning > 0) return 'elevated'
+  return 'normal'
+})
 const filteredAlerts = computed(() => alertFilter.value === 'important'
   ? events.value.filter(e => e.severity !== 'info')
   : events.value)
@@ -542,6 +516,7 @@ async function fetchEvents() {
         if (e.severity === 'critical' || e.severity === 'warning') {
           flash(`${sevIcon(e.severity)} ${e.message}`, 'err')
           announceEvent(e)
+          if (e.severity === 'critical') triggerGlitch()
         }
       }
     }
@@ -596,6 +571,7 @@ const allCommands = computed<Cmd[]>(() => {
     else cmds.push({ id: 'conn-' + n.id, label: `Connect ${n.name}`, icon: '▶', run: () => connectById(n.id) })
   }
   cmds.push({ id: 'add', label: 'Add node', icon: '➕', run: () => { showAddForm.value = true } })
+  cmds.push({ id: 'codex', label: 'Open Cyberdeck Codex', icon: '📖', run: () => launchApp({ id: 'app_codex', component: 'codex', title: 'Cyberdeck Codex', icon: '📖' }) })
   if (userRole.value === 'admin') cmds.push({ id: 'users', label: 'User management', icon: '👤', run: () => { showUsers.value = true } })
   if (userRole.value === 'admin') cmds.push({ id: 'vpn', label: 'VPN Manager', icon: '🛡️', run: () => { showVpn.value = true } })
   cmds.push({ id: 'settings', label: 'Settings', icon: '⚙️', run: () => { showSettings.value = true } })
@@ -606,8 +582,17 @@ const allCommands = computed<Cmd[]>(() => {
   cmds.push({ id: 'eaptls', label: '802.1X / EAP-TLS', icon: '🏛️', run: () => { if (store.selected?.id) { viewMode.value = 'node' as any; activeTab.value = 'system' as any; nextTick(() => window.dispatchEvent(new CustomEvent('open-config-type', { detail: 'eaptls' }))) } else { flash('Select a node first', 'err') } } })
   cmds.push({ id: 'audio', label: audioEnabled.value ? 'Mute NOC audio' : 'Enable NOC audio', icon: '🔊', run: toggleAudio })
   cmds.push({ id: 'holo', label: holoMode.value ? 'Disable HOLO mode' : 'Enable HOLO mode', icon: '🛸', run: toggleHolo })
-  if (userRole.value === 'admin') cmds.push({ id: 'storm', label: 'Simulate incident (demo storm)', icon: '⚡', run: runDemoStorm })
+  if (userRole.value === 'admin' && store.simulationMode) cmds.push({ id: 'storm', label: 'Simulate incident (demo storm)', icon: '⚡', run: runDemoStorm })
   cmds.push({ id: 'logout', label: 'Log out', icon: '⏻', run: logout })
+
+  if (userRole.value === 'student') {
+    return cmds.filter(c => {
+      if (c.id.startsWith('conn-') || c.id.startsWith('disc-') || c.id === 'add') return false
+      if (c.id === 'view-attack' || c.id === 'view-database' || c.id === 'view-bruteforce') return false
+      if (['pmf', 'wpa3', 'owe', 'eaptls'].includes(c.id)) return false
+      return true
+    })
+  }
   return cmds
 })
 const paletteResults = computed<Cmd[]>(() => {
@@ -721,6 +706,8 @@ function logout() {
   loggedIn.value = false
   userRole.value = 'analyst'
   currentUsername.value = ''
+  windowStore.$reset()
+  disconnectLiveAlerts()
 }
 
 const isGlobalFullscreen = ref(false)
@@ -742,34 +729,50 @@ function handleGlobalNativeFullscreenChange() {
   isGlobalFullscreen.value = !!document.fullscreenElement
 }
 
-function onAuthenticated(role: string) {
+async function onAuthenticated(role: string) {
   userRole.value = role
   currentUsername.value = localStorage.getItem('nr_username') || ''
   loggedIn.value = true
   showBoot.value = true
+
+  if (role === 'student' && !isStudentRouteAllowed(route.name)) {
+    await router.replace({ name: 'dashboard' })
+  }
+
   store.refresh()
   pollSystem()
   fetchReachability()
   fetchEvents()
   connectLiveAlerts()
+  await nextTick()
+  launchRouteApp(route.name)
 }
 
 // Automatically logout when token expires
 window.addEventListener('auth-expired', () => {
   loggedIn.value = false
   userRole.value = 'analyst'
+  currentUsername.value = ''
+  windowStore.$reset()
+  disconnectLiveAlerts()
 })
 
 let liveAlertsWs: WebSocket | null = null
+
+function disconnectLiveAlerts() {
+  const socket = liveAlertsWs
+  liveAlertsWs = null
+  socket?.close()
+}
 
 function connectLiveAlerts() {
   if (liveAlertsWs) return
   
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
   const wsUrl = import.meta.env.VITE_API_URL 
-    ? import.meta.env.VITE_API_URL.replace(/^http/, 'ws') + '/ws/alerts'
-    : `${protocol}//${window.location.host}/ws/alerts`
-    
+    ? import.meta.env.VITE_API_URL.replace(/^http/, 'ws') + `/ws/alerts${wsTokenParam()}`
+    : `${protocol}//${window.location.host}/ws/alerts${wsTokenParam()}`
+
   liveAlertsWs = new WebSocket(wsUrl)
   
   liveAlertsWs.onmessage = (event) => {
@@ -796,6 +799,101 @@ function connectLiveAlerts() {
 }
 
 const store       = useNodesStore()
+const windowStore = useWindowStore()
+
+const selectNode = (n: NrNode) => {
+  console.log("Left click detected on:", n.name)
+  store.select(n.id)
+  windowStore.windows.forEach(w => w.isMinimized = true)
+  flash('Skiftede til ' + n.name, 'ok')
+}
+
+watch(() => store.selectedId, (newId) => {
+  if (newId) {
+    windowStore.windows.forEach(w => w.isMinimized = true)
+  }
+})
+
+const startMenuOpen = ref(false)
+
+const launchApp = (appDef: { id: string, component: string, title: string, icon: string, width?: number, height?: number }) => {
+  windowStore.openWindow({
+    id: appDef.id,
+    title: appDef.title,
+    component: appDef.component,
+    icon: appDef.icon,
+    width: appDef.width || 900,
+    height: appDef.height || 600,
+    x: 150 + (windowStore.windows.length * 40),
+    y: 100 + (windowStore.windows.length * 40)
+  })
+}
+
+const STUDENT_ROUTE_NAMES = new Set(['dashboard', 'reports', 'topology', 'alerts', 'home', 'network', 'node'])
+
+const ROUTE_WINDOW_META: Record<string, { title: string, icon: string, width?: number, height?: number }> = {
+  alerts: { title: 'Alert Inbox', icon: '🚨' },
+  attack: { title: 'Attack Matrix', icon: '☠️' },
+  bruteforce: { title: 'Bruteforce Ops', icon: '🎯' },
+  compliance: { title: 'Compliance', icon: '📋' },
+  dashboard: { title: 'Dashboard', icon: '⎈' },
+  database: { title: 'Database Control', icon: '🗄️', width: 1000, height: 800 },
+  exfil: { title: 'Exfiltration', icon: '📤' },
+  forensics: { title: 'Forensics', icon: '🔬' },
+  history: { title: 'Threat Timeline', icon: '🕓' },
+  host: { title: 'Local Host', icon: '💻' },
+  hunting: { title: 'Threat Hunting', icon: '🔍' },
+  intelligence: { title: 'Intelligence', icon: '🧠' },
+  integrations: { title: 'Integrations', icon: '🔗' },
+  ir: { title: 'Incident Response', icon: '🚑' },
+  kismet: { title: 'Wireless IDS', icon: '📶' },
+  lateral: { title: 'Lateral Movement', icon: '↔️' },
+  layer2: { title: 'L2 Tactical', icon: '🔌' },
+  layer3: { title: 'L3 Tactical', icon: '🌐' },
+  layer4: { title: 'L4 Tactical', icon: '⚡' },
+  layer5: { title: 'L5 Tactical', icon: '🎭' },
+  layer6: { title: 'L6 Tactical', icon: '📦' },
+  layer7: { title: 'L7 Tactical', icon: '🕸️' },
+  logs: { title: 'Log Aggregation', icon: '📜' },
+  network: { title: 'Network Controller', icon: '🔌' },
+  playbooks: { title: 'Playbooks', icon: '🧠' },
+  privesc: { title: 'Privilege Escalation', icon: '⬆️' },
+  recon: { title: 'Subnet Scan', icon: '📡' },
+  reports: { title: 'Reports', icon: '📑', width: 1000, height: 800 },
+  'social-engineering': { title: 'Social Engineering', icon: '🎭' },
+  topology: { title: 'Topology', icon: '🕸️' },
+  'wifi-attack': { title: 'WiFi Attacks', icon: '📶' },
+}
+
+function isStudentRouteAllowed(routeName: unknown) {
+  return typeof routeName === 'string' && STUDENT_ROUTE_NAMES.has(routeName)
+}
+
+function launchRouteApp(routeName: unknown) {
+  let component = typeof routeName === 'string' && AppRegistry[routeName]
+    ? routeName
+    : 'dashboard'
+
+  if (userRole.value === 'student' && !isStudentRouteAllowed(component)) {
+    component = 'dashboard'
+  }
+
+  const meta = ROUTE_WINDOW_META[component] || {
+    title: component.replace(/(^|-)(\w)/g, (_match, _separator, letter) => ` ${letter.toUpperCase()}`).trim(),
+    icon: '▣',
+  }
+  launchApp({ id: `app_${component}`, component, ...meta })
+}
+
+watch(() => route.name, (routeName) => {
+  if (loggedIn.value) {
+    nextTick(() => launchRouteApp(routeName))
+  }
+})
+
+const getComponentMap = (name: string) => {
+  return AppRegistry[name] || 'div'
+}
 const viewMode = computed({
   get: () => (route.name as string) || 'node',
   set: (v) => router.push({ name: v })
@@ -803,8 +901,20 @@ const viewMode = computed({
 const activeTab   = ref<'overview' | 'gns3-api' | 'diag' | 'config' | 'defense' | 'agents' | 'shaper' | 'capture' | 'terminal' | 'usb' | 'files'>(
   (localStorage.getItem('netrunner_active_tab') as any) || 'overview'
 )
-watch(activeTab, t => localStorage.setItem('netrunner_active_tab', t))
-const showAddForm = ref(false)
+watch(activeTab, t => {
+  localStorage.setItem('netrunner_active_tab', t)
+  if (t === 'terminal') {
+    nextTick(() => {
+      // Focus will be handled by ShellPanel/Terminal active prop watcher & mount
+    })
+  }
+})
+
+function handleShowDesktop() {
+  store.selectedId = null
+  windowStore.windows.forEach(w => w.isMinimized = true)
+}
+
 const showEdit    = ref(false)
 const showSettings = ref(false)
 const showUsers   = ref(false)
@@ -855,6 +965,12 @@ const filteredNodes = computed(() => {
 })
 
 const collapsedSidebarCats = ref<Set<string>>(new Set())
+function toggleSidebarCat(type: string) {
+  const newSet = new Set(collapsedSidebarCats.value)
+  if (newSet.has(type)) newSet.delete(type)
+  else newSet.add(type)
+  collapsedSidebarCats.value = newSet
+}
 
 const groupedNodes = computed(() => {
   const groups: Record<string, NrNode[]> = {}
@@ -874,11 +990,6 @@ function getDeviceTypeLabel(type: string) {
     unknown: 'UNKNOWN'
   }
   return labels[type] || type.toUpperCase()
-}
-
-function toggleSidebarCat(type: string) {
-  if (collapsedSidebarCats.value.has(type)) collapsedSidebarCats.value.delete(type)
-  else collapsedSidebarCats.value.add(type)
 }
 
 const collapsedNavCats = ref(new Set(['infrastructure', 'recon', 'offensive']))
@@ -1021,9 +1132,14 @@ async function doRollback() {
   }
 }
 
-async function deleteNode() {
+function deleteNode() {
   if (!store.selected) return
-  if (!confirm(`Delete node "${store.selected.name}"?`)) return
+  showConfirmDelete.value = true
+}
+
+async function executeNuke() {
+  if (!store.selected) return
+  showConfirmDelete.value = false
   try {
     await store.remove(store.selected.id)
     flash('Node deleted')
@@ -1104,6 +1220,11 @@ onMounted(() => {
     fetchReachability()
     fetchEvents()
     if (holoMode.value) ambient.start()
+
+    // Open the window that matches the current deep link.
+    if (windowStore.windows.length === 0) {
+      launchRouteApp(route.name)
+    }
   }
   connTimer = setInterval(() => { if (loggedIn.value) store.refreshConnections() }, 4000)
   sysTimer  = setInterval(() => { if (loggedIn.value) pollSystem() }, 2000)
@@ -1122,11 +1243,19 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
-.app { display: flex; height: 100vh; overflow: hidden; position: relative; z-index: 1; }
+.app { display: flex; flex-direction: column; height: 100vh; overflow: hidden; position: relative; z-index: 1; background: var(--bg); }
+.app-body { display: flex; flex: 1; overflow: hidden; position: relative; }
 
-/* Sidebar */
-.sidebar { width: 270px; min-width: 270px; background: var(--bg2); border-right: 1px solid var(--border); display: flex; flex-direction: column; position: relative; }
-.sidebar::after { content: ''; position: absolute; top: 0; right: 0; width: 1px; height: 100%; background: linear-gradient(to bottom, transparent, var(--cyan), transparent); opacity: .4; }
+/* Topbar */
+.topbar { display: flex; align-items: center; justify-content: space-between; height: 55px; padding: 0 20px; background: rgba(8, 13, 24, 0.65); backdrop-filter: blur(16px); border-bottom: 1px solid rgba(0, 229, 255, 0.15); z-index: 10; flex-shrink: 0; box-shadow: 0 4px 30px rgba(0, 0, 0, 0.5); }
+.topbar-right { display: flex; align-items: center; gap: 24px; }
+.topbar-status { display: flex; align-items: center; gap: 20px; font-family: var(--font-hd); font-size: 10px; color: var(--textbr); letter-spacing: 1px; }
+.status-indicator { display: flex; align-items: center; gap: 6px; }
+
+/* Sidebar (Floating Widget) */
+.sidebar { position: absolute; right: 20px; top: 20px; bottom: 64px; width: 280px; background: rgba(12, 18, 32, 0.65); backdrop-filter: blur(16px); display: flex; flex-direction: column; z-index: 100; border-radius: var(--r2); border: 1px solid rgba(0,229,255,0.15); box-shadow: 0 15px 40px rgba(0,0,0,0.6); overflow: hidden; transition: all 0.3s ease; }
+.sidebar::before { content: 'DEVICE MANAGER'; display: block; text-align: center; font-family: var(--font-hd); font-size: 10px; letter-spacing: 2px; color: var(--cyan); padding: 8px 0; background: rgba(0, 229, 255, 0.05); border-bottom: 1px solid rgba(0, 229, 255, 0.1); }
+.sidebar::after { display: none; }
 
 .header-tools { display: flex; align-items: center; justify-content: space-between; width: 100%; gap: 10px; margin-top: 5px; }
 .tool-group { display: flex; align-items: center; gap: 6px; }
@@ -1145,12 +1274,12 @@ onUnmounted(() => {
 .btn-add { width: 28px; height: 28px; border-radius: 50%; background: none; border: 1px solid var(--cyan); color: var(--cyan); font-size: 18px; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all .2s; margin-left: 5px;}
 .btn-add:hover { background: var(--cyan); color: var(--bg); box-shadow: var(--shadow-c); transform: translateY(-1px); }
 
-.user-bar { display: flex; align-items: center; gap: 8px; padding: 12px 20px; border-bottom: 1px solid var(--border); font-family: var(--font-co); }
+.user-bar { display: flex; align-items: center; gap: 12px; font-family: var(--font-co); }
 .user-bar .user-id { color: var(--textwh); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 110px; }
-.user-bar .user-role { flex-shrink: 0; font-size: 9px; letter-spacing: 1px; padding: 1px 6px; border-radius: 3px; text-transform: uppercase; }
-.user-bar .user-role.admin { background: rgba(255,45,110,0.15); color: var(--pink); border: 1px solid rgba(255,45,110,0.4); }
-.user-bar .user-role.analyst { background: rgba(0,229,255,0.1); color: var(--cyan); border: 1px solid var(--cyan-d); }
-.user-actions { margin-left: auto; display: flex; gap: 8px; flex-shrink: 0; }
+.user-bar .user-role { flex-shrink: 0; font-size: 9px; letter-spacing: 1px; padding: 2px 8px; border-radius: 4px; text-transform: uppercase; font-weight: bold; }
+.user-bar .user-role.admin { background: rgba(255,45,110,0.15); color: var(--pink); border: 1px solid rgba(255,45,110,0.5); box-shadow: 0 0 10px rgba(255,45,110,0.2); }
+.user-bar .user-role.analyst { background: rgba(0,229,255,0.1); color: var(--cyan); border: 1px solid var(--cyan-d); box-shadow: 0 0 10px rgba(0,229,255,0.2); }
+.user-actions { display: flex; gap: 8px; flex-shrink: 0; }
 .btn-user-action { width: 28px; height: 28px; display: flex; align-items: center; justify-content: center; background: rgba(255,255,255,0.02); border: 1px solid var(--border2); color: var(--textbr); font-size: 14px; border-radius: 4px; cursor: pointer; transition: all .2s; }
 .btn-user-action:hover { border-color: var(--cyan); color: var(--cyan); box-shadow: 0 0 8px rgba(0,229,255,0.2); transform: translateY(-1px); }
 .btn-logout:hover { border-color: var(--pink); color: var(--pink); box-shadow: 0 0 8px rgba(255,45,110,0.2); transform: translateY(-1px); }
@@ -1226,10 +1355,12 @@ onUnmounted(() => {
 .node-group-chevron.collapsed { transform: rotate(180deg); }
 .node-group-items { margin-top: 4px; }
 
-.node-item { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: var(--r); cursor: pointer; border: 1px solid transparent; margin-bottom: 4px; transition: all .18s; position: relative; }
-.node-item:hover { background: var(--bg3); border-color: var(--border); }
-.node-item.active { background: rgba(0,255,157,.06); border-color: rgba(0,255,157,.3); }
-.node-item.active::before { content: ''; position: absolute; left: 0; top: 20%; height: 60%; width: 2px; background: var(--green); box-shadow: 0 0 8px var(--green); }
+.node-card { display: flex; align-items: center; gap: 12px; padding: 12px; background: rgba(16, 24, 40, 0.4); border-radius: var(--r2); cursor: pointer; border: 1px solid rgba(0, 229, 255, 0.05); margin-bottom: 8px; transition: all .25s cubic-bezier(0.4, 0, 0.2, 1); position: relative; box-shadow: 0 4px 12px rgba(0,0,0,0.2); overflow: hidden; }
+.node-card::before { content: ''; position: absolute; inset: 0; background: linear-gradient(135deg, rgba(0,229,255,0.1), transparent); opacity: 0; transition: opacity .3s; }
+.node-card:hover { background: rgba(16, 24, 40, 0.8); border-color: rgba(0,229,255,0.3); transform: translateY(-2px); box-shadow: 0 6px 16px rgba(0,0,0,0.4), 0 0 12px rgba(0,229,255,0.1); }
+.node-card:hover::before { opacity: 1; }
+.node-card.selected { background: rgba(0,255,157,.08); border-color: rgba(0,255,157,.4); box-shadow: 0 0 15px rgba(0,255,157,.15); }
+.node-card.selected::after { content: ''; position: absolute; left: 0; top: 0; height: 100%; width: 3px; background: var(--green); box-shadow: 0 0 10px var(--green); }
 
 .node-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--border2); flex-shrink: 0; }
 .node-dot.connected { background: var(--green); box-shadow: 0 0 8px var(--green); animation: pulse-green 2s infinite; }
@@ -1246,26 +1377,31 @@ onUnmounted(() => {
 
 .sidebar-info, .sidebar-empty { padding: 20px; text-align: center; font-family: var(--font-hd); font-size: 10px; color: var(--text); letter-spacing: 1px; }
 
-/* Main */
-.main { flex: 1; display: flex; flex-direction: column; overflow: hidden; background: var(--bg); position: relative; }
-
+/* Main Desktop Workspace */
+.main { flex: 1; display: flex; flex-direction: column; overflow: hidden; background: transparent; position: relative; }
 .main-bg { flex: 1; display: flex; flex-direction: column; position: absolute; inset: 0; z-index: 1; }
 .main-bg.is-topology, .main-bg.is-threat { background: transparent; }
 
 .glass-panel {
-  flex: 1;
+  position: absolute;
+  top: 10px;
+  bottom: 60px; /* leaves room for taskbar */
+  left: 10px;
+  right: 320px; /* leaves room for sidebar */
   display: flex;
   flex-direction: column;
-  position: relative;
-  z-index: 2;
+  z-index: 10;
   background: var(--bg);
+  border: 1px solid rgba(0, 229, 255, 0.2);
+  border-radius: var(--r2);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.7);
   overflow: hidden;
 }
 
 .glass-panel.is-overlay {
   position: absolute;
   top: 20px;
-  right: 20px;
+  right: 320px; /* Offset by the sidebar width (280 + 40 margin) */
   bottom: 20px;
   width: 600px;
   background: var(--glass-bg);
@@ -1329,8 +1465,78 @@ onUnmounted(() => {
 .cmd-list { max-height: 50vh; overflow-y: auto; padding: 6px; }
 .cmd-item { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 6px; cursor: pointer; font-family: var(--font-co); font-size: 13px; color: var(--text); }
 .cmd-item.active { background: rgba(0,229,255,0.12); color: var(--textwh); box-shadow: inset 2px 0 0 var(--cyan); }
-.cmd-icon { width: 18px; text-align: center; }
-.cmd-label { flex: 1; }
+.cmd-icon { opacity: 0.6; font-size: 13px; display: inline-block; width: 16px; text-align: center; }
+.cmd-label { flex: 1; font-size: 13px; }
+
+/* Nuke Modal Styles */
+.nuke-overlay {
+  animation: glitch-in 0.2s ease-out;
+  backdrop-filter: blur(10px) sepia(50%) hue-rotate(300deg) saturate(200%);
+}
+.nuke-card {
+  border: 1px solid var(--pink);
+  box-shadow: 0 0 30px rgba(255, 45, 110, 0.4), inset 0 0 20px rgba(255, 45, 110, 0.1);
+}
+.cyber-modal-header.critical {
+  color: var(--pink);
+  border-bottom: 1px solid var(--pink);
+  text-shadow: 0 0 10px var(--pink);
+  background: rgba(255, 45, 110, 0.1);
+}
+.nuke-warning-text {
+  font-size: 1.1rem;
+  margin-top: 1rem;
+}
+.neon-pink {
+  color: var(--pink);
+  font-weight: bold;
+  text-shadow: 0 0 10px var(--pink);
+  animation: glitch-flicker 2s infinite;
+}
+.target-node {
+  font-size: 1.5rem;
+  color: #fff;
+  display: inline-block;
+  margin-top: 0.5rem;
+  text-shadow: 0 0 10px var(--pink);
+}
+.nuke-subtext {
+  font-size: 0.9rem;
+  color: #ff88aa;
+  margin: 1.5rem 0;
+  opacity: 0.8;
+}
+.center-actions {
+  display: flex;
+  justify-content: center;
+  gap: 1rem;
+}
+.btn-nuke-confirm {
+  background: rgba(255, 45, 110, 0.2) !important;
+  color: var(--pink) !important;
+  border-color: var(--pink) !important;
+  font-weight: bold;
+}
+.btn-nuke-confirm:hover {
+  background: var(--pink) !important;
+  color: #000 !important;
+  box-shadow: 0 0 20px var(--pink) !important;
+}
+
+@keyframes glitch-flicker {
+  0% { opacity: 1; }
+  5% { opacity: 0.8; }
+  10% { opacity: 1; }
+  15% { opacity: 0.3; }
+  20% { opacity: 1; }
+  100% { opacity: 1; }
+}
+@keyframes glitch-in {
+  0% { transform: scale(0.95); opacity: 0; filter: hue-rotate(90deg); }
+  50% { transform: scale(1.02); filter: blur(2px); }
+  100% { transform: scale(1); opacity: 1; filter: none; }
+}
+
 .cmd-empty { padding: 16px; text-align: center; color: var(--text); font-size: 13px; }
 .cmd-hint { padding: 8px 14px; border-top: 1px solid var(--border); font-family: var(--font-co); font-size: 10px; color: var(--text); letter-spacing: 1px; }
 

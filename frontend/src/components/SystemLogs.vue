@@ -9,6 +9,10 @@
       <span class="lb-status">{{ lines.length }} lines</span>
     </div>
     <div ref="con" class="logs-con">
+      <div class="cyber-guide" style="margin-bottom: 12px; font-size: 11px; border-left: 2px solid var(--textbr); padding-left: 8px; background: rgba(255, 255, 255, 0.05);">
+        <strong style="color: var(--textbr);">🎓 Cyber Guide: System Logs (Event Auditing)</strong><br/>
+        <span style="color: #ccc;">Logfiler indeholder spor (breadcrumbs) fra alt, der sker på systemet. I en større virksomhed sendes alle logs centralt til en SIEM (Security Information and Event Management) server, så SOC-analytikere kan lede efter mønstre og Indicators of Compromise (IoC). Hackere forsøger ofte at slette disse logs (T1070) for at skjule deres spor.</span>
+      </div>
       <div v-if="!lines.length" class="logs-empty">{{ note }}</div>
       <div v-for="(l, i) in lines" :key="i" class="log-line" :class="lineClass(l)">{{ l }}</div>
     </div>

@@ -1,4 +1,5 @@
 """Network configuration command generators (ported + expanded from gns3-config)."""
+
 from __future__ import annotations
 
 import re
@@ -38,7 +39,9 @@ def _get_any(d: dict, keys: list[str], default=None):
         value = d.get(key)
         if value is not None and value != "":
             return value
-    normalized = {str(k).lower().replace("_", "").replace("-", ""): v for k, v in d.items()}
+    normalized = {
+        str(k).lower().replace("_", "").replace("-", ""): v for k, v in d.items()
+    }
     for key in keys:
         value = normalized.get(key.lower().replace("_", "").replace("-", ""))
         if value is not None and value != "":
@@ -47,38 +50,42 @@ def _get_any(d: dict, keys: list[str], default=None):
 
 
 def gen_ip(iface: str, addrs: list[str], action: str = "add") -> list[str]:
-    cmds = []
+    cmds = [f"# ── Konfigurer IP på {iface} ────────────────────────────────"]
     for a in addrs:
-        if a.strip() and '/' not in a:
-            cmds.append(f"# WARNING: Address '{a}' has no CIDR prefix (e.g. /24). This may fail.")
+        if a.strip() and "/" not in a:
+            cmds.append(
+                f"# ADVARSEL: IP-adressen '{a}' mangler en subnet-maske (f.eks. /24). Det kan give netværksproblemer."
+            )
     if action == "flush":
-        cmds.append(f"ip addr flush dev {iface}")
+        cmds.append(f"# Sletter (flusher) eksisterende IP-adresser fra kortet for at undgå IP-konflikter")
+        chained = f"ip addr flush dev {iface}"
         for a in addrs:
-            cmds.append(f"ip addr add {a} dev {iface}")
-        cmds.append(f"ip link set {iface} up")
+            chained += f" && ip addr add {a} dev {iface}"
+        chained += f" && ip link set {iface} up"
+        cmds.append(chained)
     elif action == "add":
         for a in addrs:
             cmds.append(f"ip addr add {a} dev {iface}")
         cmds.append(f"ip link set {iface} up")
     elif action == "del":
         for a in addrs:
-            cmds.append(f"ip addr del {a} dev {iface}")
+            cmds.append(f"ip addr del {a} dev {iface} 2>/dev/null || true")
     return cmds
 
 
 def gen_interface(cfg: dict) -> list[str]:
     iface = (cfg.get("interface") or "eth0").strip() or "eth0"
     action = cfg.get("action", "add")
-    
+
     if action == "delete_interface":
         return [
             f"# ── Delete Interface: {iface} ──────────────────────────",
             f"ip link set {iface} down 2>/dev/null || true",
-            f"ip link del dev {iface} 2>/dev/null || true"
+            f"ip link del dev {iface} 2>/dev/null || true",
         ]
-        
+
     cmds = [f"# ── Interface Setup: {iface} ──────────────────────────"]
-    
+
     # Auto-create VLAN sub-interface if "." is in the name (e.g. eth0.100)
     if "." in iface:
         parts = iface.split(".", 1)
@@ -86,18 +93,20 @@ def gen_interface(cfg: dict) -> list[str]:
             parent, vid = parts[0], parts[1]
             cmds.append(f"modprobe 8021q 2>/dev/null || true")
             cmds.append(f"ip link set {parent} up")
-            cmds.append(f"ip link add link {parent} name {iface} type vlan id {vid} 2>/dev/null || true")
+            cmds.append(
+                f"ip link add link {parent} name {iface} type vlan id {vid} 2>/dev/null || true"
+            )
             cmds.append(f"ip link set {iface} up")
-    
+
     # Static IPs
     addrs = _split_csvish(cfg.get("addresses"))
     if addrs:
         cmds.extend(gen_ip(iface, addrs, action))
-    
+
     # DHCP
     if cfg.get("dhcp"):
         cmds.extend(gen_dhcp(iface, "renew"))
-    
+
     # Explicit link state override or default up
     state = cfg.get("state")
     if state == "up":
@@ -107,12 +116,17 @@ def gen_interface(cfg: dict) -> list[str]:
     elif not state or state == "none":
         if not addrs and not cfg.get("dhcp"):
             cmds.append(f"ip link set {iface} up")
-        
+
     return cmds
 
 
 def gen_routes(routes: list[dict], action: str = "add") -> list[str]:
-    cmds = []
+    cmds = ["# ── Statisk Routing (IP Route) ─────────────────────────────"]
+    if action == "flush":
+        cmds.append("# 1. Sletter manuelle ruter for at starte forfra (behoud kernel-routes)")
+        cmds.append("sh -lc 'ip route show | grep -v \"proto kernel\" | while read -r line; do ip route del $line 2>/dev/null || true; done'")
+        action = "add"
+
     for r in routes:
         dst = _get_any(r, ["dst", "destination", "dest", "prefix", "network"])
         if not dst:
@@ -121,9 +135,12 @@ def gen_routes(routes: list[dict], action: str = "add") -> list[str]:
         via = _get_any(r, ["via", "gateway", "next_hop", "nexthop"])
         dev = _get_any(r, ["dev", "interface", "iface"])
         metric = _get_any(r, ["metric", "route_metric"])
-        if via:    parts += ["via",    str(via)]
-        if dev:    parts += ["dev",    str(dev)]
-        if metric: parts += ["metric", str(metric)]
+        if via:
+            parts += ["via", str(via)]
+        if dev:
+            parts += ["dev", str(dev)]
+        if metric:
+            parts += ["metric", str(metric)]
         cmds.append(" ".join(parts))
     return cmds
 
@@ -158,15 +175,17 @@ def gen_dhcp(iface: str, action: str = "renew") -> list[str]:
 
 def gen_dns(cfg: dict) -> list[str]:
     nameservers = _split_csvish(cfg.get("nameservers"))
-    search      = _split_csvish(cfg.get("search"))
-    records     = cfg.get("records") or []
-    hostname    = str(cfg.get("hostname", "")).strip()
-    domain      = str(cfg.get("domain", "")).strip()
+    search = _split_csvish(cfg.get("search"))
+    records = cfg.get("records") or []
+    hostname = str(cfg.get("hostname", "")).strip()
+    domain = str(cfg.get("domain", "")).strip()
 
     cmds = [
-        "# ── DNS / resolver configuration ──────────────────────────",
+        "# ── DNS / Navneopløsning ──────────────────────────────────",
+        "# Opsætter /etc/resolv.conf som fortæller noden hvilke",
+        "# DNS-servere den skal spørge for at oversætte domænenavne.",
         "rm -f /tmp/nr_resolv.conf",
-        "echo '# Generated by Netrunner' > /tmp/nr_resolv.conf",
+        "echo '# Automatisk konfigureret af Netrunner' > /tmp/nr_resolv.conf",
     ]
     if search:
         cmds.append(f"echo 'search {' '.join(search)}' >> /tmp/nr_resolv.conf")
@@ -174,47 +193,55 @@ def gen_dns(cfg: dict) -> list[str]:
         cmds.append(f"echo 'nameserver {ns}' >> /tmp/nr_resolv.conf")
     if not nameservers:
         cmds.append("echo '# no nameservers defined yet' >> /tmp/nr_resolv.conf")
-    cmds.extend([
-        "cp /tmp/nr_resolv.conf /etc/resolv.conf",
-        "rm -f /tmp/nr_resolv.conf",
-    ])
+    cmds.extend(
+        [
+            "cp /tmp/nr_resolv.conf /etc/resolv.conf",
+            "rm -f /tmp/nr_resolv.conf",
+        ]
+    )
 
     if hostname:
         fqdn = f"{hostname}.{domain}" if domain else hostname
-        cmds.extend([
-            f"echo {shlex.quote(hostname)} > /etc/hostname",
-            f"hostname {shlex.quote(hostname)}",
-            "sed -i '/# BEGIN NETRUNNER HOSTS/,/# END NETRUNNER HOSTS/d' /etc/hosts 2>/dev/null || true",
-            "echo '# BEGIN NETRUNNER HOSTS' >> /etc/hosts",
-            f"echo '127.0.1.1 {fqdn} {hostname}' >> /etc/hosts",
-        ])
+        cmds.extend(
+            [
+                f"echo {shlex.quote(hostname)} > /etc/hostname",
+                f"hostname {shlex.quote(hostname)}",
+                "sed -i '/# BEGIN NETRUNNER HOSTS/,/# END NETRUNNER HOSTS/d' /etc/hosts 2>/dev/null || true",
+                "echo '# BEGIN NETRUNNER HOSTS' >> /etc/hosts",
+                f"echo '127.0.1.1 {fqdn} {hostname}' >> /etc/hosts",
+            ]
+        )
     else:
-        cmds.extend([
-            "sed -i '/# BEGIN NETRUNNER HOSTS/,/# END NETRUNNER HOSTS/d' /etc/hosts 2>/dev/null || true",
-            "echo '# BEGIN NETRUNNER HOSTS' >> /etc/hosts",
-        ])
+        cmds.extend(
+            [
+                "sed -i '/# BEGIN NETRUNNER HOSTS/,/# END NETRUNNER HOSTS/d' /etc/hosts 2>/dev/null || true",
+                "echo '# BEGIN NETRUNNER HOSTS' >> /etc/hosts",
+            ]
+        )
 
     for record in records:
-        name  = str(record.get("name",  "")).strip()
+        name = str(record.get("name", "")).strip()
         value = str(record.get("value", "")).strip()
         if name and value:
             cmds.append(f"echo '{value} {name}' >> /etc/hosts")
 
-    cmds.extend([
-        "echo '# END NETRUNNER HOSTS' >> /etc/hosts",
-        "echo 'DNS configuration updated'",
-    ])
+    cmds.extend(
+        [
+            "echo '# END NETRUNNER HOSTS' >> /etc/hosts",
+            "echo 'DNS configuration updated'",
+        ]
+    )
     return cmds
 
 
 def gen_dhcp_server(cfg: dict) -> list[str]:
-    iface       = str(cfg.get("interface", "eth1")).strip() or "eth1"
+    iface = str(cfg.get("interface", "eth1")).strip() or "eth1"
     range_start = str(cfg.get("range_start", "")).strip()
-    range_end   = str(cfg.get("range_end", "")).strip()
-    mask        = str(cfg.get("mask", "255.255.255.0")).strip() or "255.255.255.0"
-    gateway     = str(cfg.get("gateway", "")).strip()
-    lease       = str(cfg.get("lease", "12h")).strip() or "12h"
-    domain      = str(cfg.get("domain", "")).strip()
+    range_end = str(cfg.get("range_end", "")).strip()
+    mask = str(cfg.get("mask", "255.255.255.0")).strip() or "255.255.255.0"
+    gateway = str(cfg.get("gateway", "")).strip()
+    lease = str(cfg.get("lease", "12h")).strip() or "12h"
+    domain = str(cfg.get("domain", "")).strip()
     dns_servers = _split_csvish(cfg.get("dns"))
     static_hosts = cfg.get("static_hosts") or []
 
@@ -229,70 +256,127 @@ def gen_dhcp_server(cfg: dict) -> list[str]:
         "echo 'dhcp-authoritative' >> /etc/dnsmasq.d/netrunner-dhcp.conf",
     ]
     if range_start and range_end:
-        cmds.append(f"echo 'dhcp-range={range_start},{range_end},{mask},{lease}' >> /etc/dnsmasq.d/netrunner-dhcp.conf")
+        cmds.append(
+            f"echo 'dhcp-range={range_start},{range_end},{mask},{lease}' >> /etc/dnsmasq.d/netrunner-dhcp.conf"
+        )
     if gateway:
-        cmds.append(f"echo 'dhcp-option=option:router,{gateway}' >> /etc/dnsmasq.d/netrunner-dhcp.conf")
+        cmds.append(
+            f"echo 'dhcp-option=option:router,{gateway}' >> /etc/dnsmasq.d/netrunner-dhcp.conf"
+        )
     if dns_servers:
-        cmds.append(f"echo 'dhcp-option=option:dns-server,{','.join(dns_servers)}' >> /etc/dnsmasq.d/netrunner-dhcp.conf")
+        cmds.append(
+            f"echo 'dhcp-option=option:dns-server,{','.join(dns_servers)}' >> /etc/dnsmasq.d/netrunner-dhcp.conf"
+        )
     if domain:
-        cmds.extend([
-            f"echo 'domain={domain}' >> /etc/dnsmasq.d/netrunner-dhcp.conf",
-            f"echo 'local=/{domain}/' >> /etc/dnsmasq.d/netrunner-dhcp.conf",
-        ])
+        cmds.extend(
+            [
+                f"echo 'domain={domain}' >> /etc/dnsmasq.d/netrunner-dhcp.conf",
+                f"echo 'local=/{domain}/' >> /etc/dnsmasq.d/netrunner-dhcp.conf",
+            ]
+        )
     for lease_item in static_hosts:
-        mac      = str(lease_item.get("mac",      "")).strip()
-        ip       = str(lease_item.get("ip",       "")).strip()
+        mac = str(lease_item.get("mac", "")).strip()
+        ip = str(lease_item.get("ip", "")).strip()
         hostname = str(lease_item.get("hostname", "")).strip()
         if mac and ip:
             host_bits = [mac, ip]
             if hostname:
                 host_bits.append(hostname)
-            cmds.append(f"echo 'dhcp-host={','.join(host_bits)}' >> /etc/dnsmasq.d/netrunner-dhcp.conf")
-    cmds.extend([
-        "dnsmasq --test -C /etc/dnsmasq.d/netrunner-dhcp.conf 2>/dev/null || echo '(dnsmasq test failed or missing)'",
-        "pkill dnsmasq 2>/dev/null || true",
-        "dnsmasq --conf-file=/etc/dnsmasq.d/netrunner-dhcp.conf 2>/tmp/nr-dnsmasq.log || cat /tmp/nr-dnsmasq.log",
-    ])
+            cmds.append(
+                f"echo 'dhcp-host={','.join(host_bits)}' >> /etc/dnsmasq.d/netrunner-dhcp.conf"
+            )
+    cmds.extend(
+        [
+            "dnsmasq --test -C /etc/dnsmasq.d/netrunner-dhcp.conf 2>/dev/null || echo '(dnsmasq test failed or missing)'",
+            "pkill dnsmasq 2>/dev/null || true",
+            "dnsmasq --conf-file=/etc/dnsmasq.d/netrunner-dhcp.conf 2>/tmp/nr-dnsmasq.log || cat /tmp/nr-dnsmasq.log",
+        ]
+    )
     return cmds
 
 
 def gen_nat(cfg: dict) -> list[str]:
-    outbound   = str(_get_any(cfg, ["outbound_iface", "out_interface", "wan_iface", "wan", "external_iface"], "eth0")).strip() or "eth0"
-    inbound    = str(_get_any(cfg, ["inbound_iface", "in_interface", "lan_iface", "lan", "internal_iface"], "eth1")).strip() or "eth1"
-    raw_source = _get_any(cfg, ["source_subnet", "inside_subnet", "inside_subnets", "source", "src"], "")
-    source     = raw_source[0] if isinstance(raw_source, list) and raw_source else raw_source
-    source     = str(source or "").strip()
+    outbound = (
+        str(
+            _get_any(
+                cfg,
+                [
+                    "outbound_iface",
+                    "out_interface",
+                    "wan_iface",
+                    "wan",
+                    "external_iface",
+                ],
+                "eth0",
+            )
+        ).strip()
+        or "eth0"
+    )
+    inbound = (
+        str(
+            _get_any(
+                cfg,
+                ["inbound_iface", "in_interface", "lan_iface", "lan", "internal_iface"],
+                "eth1",
+            )
+        ).strip()
+        or "eth1"
+    )
+    raw_source = _get_any(
+        cfg, ["source_subnet", "inside_subnet", "inside_subnets", "source", "src"], ""
+    )
+    source = (
+        raw_source[0] if isinstance(raw_source, list) and raw_source else raw_source
+    )
+    source = str(source or "").strip()
     masquerade = bool(cfg.get("masquerade", True))
-    forwards   = cfg.get("port_forwards") or cfg.get("forwards") or cfg.get("rules") or []
+    forwards = cfg.get("port_forwards") or cfg.get("forwards") or cfg.get("rules") or []
 
     cmds = [
         "# ── NAT / port forwarding via iptables ─────────────────────",
+        "# 1. Aktiver IP Forwarding (Gør noden til en router)",
         "sysctl -w net.ipv4.ip_forward=1",
+        "",
+        "# 2. Opret custom kæde (NR_FORWARD) for at isolere vores regler",
         "iptables -N NR_FORWARD 2>/dev/null || true",
         "iptables -F NR_FORWARD",
         "iptables -D FORWARD -j NR_FORWARD 2>/dev/null || true",
         "iptables -A FORWARD -j NR_FORWARD",
+        "",
+        "# 3. Opret custom NAT-kæde (NR_NAT)",
         "iptables -t nat -N NR_NAT 2>/dev/null || true",
         "iptables -t nat -F NR_NAT",
         "iptables -t nat -D PREROUTING -j NR_NAT 2>/dev/null || true",
         "iptables -t nat -D POSTROUTING -j NR_NAT 2>/dev/null || true",
         "iptables -t nat -A PREROUTING -j NR_NAT",
         "iptables -t nat -A POSTROUTING -j NR_NAT",
+        "",
+        "# 4. Tillad eksisterende/etablerede forbindelser",
         "iptables -A NR_FORWARD -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT",
     ]
     if source:
-        cmds.append(f"iptables -A NR_FORWARD -i {inbound} -o {outbound} -s {source} -j ACCEPT")
+        cmds.append(
+            f"iptables -A NR_FORWARD -i {inbound} -o {outbound} -s {source} -j ACCEPT"
+        )
     if masquerade:
+        cmds.append("# 5. Opret Source NAT (Masquerade) for at skjule LAN bag WAN IP")
         parts = ["iptables", "-t", "nat", "-A", "NR_NAT"]
         if source:
             parts += ["-s", source]
         parts += ["-o", outbound, "-j", "MASQUERADE"]
         cmds.append(" ".join(parts))
     for rule in forwards:
-        proto       = str(rule.get("proto", "tcp")).strip() or "tcp"
-        ext_port    = str(_get_any(rule, ["external_port", "ext_port", "port", "dport"], "")).strip()
-        target_ip   = str(_get_any(rule, ["target_ip", "to_ip", "destination_ip", "host"], "")).strip()
-        target_port = str(_get_any(rule, ["target_port", "to_port", "internal_port"], "")).strip() or ext_port
+        proto = str(rule.get("proto", "tcp")).strip() or "tcp"
+        ext_port = str(
+            _get_any(rule, ["external_port", "ext_port", "port", "dport"], "")
+        ).strip()
+        target_ip = str(
+            _get_any(rule, ["target_ip", "to_ip", "destination_ip", "host"], "")
+        ).strip()
+        target_port = (
+            str(_get_any(rule, ["target_port", "to_port", "internal_port"], "")).strip()
+            or ext_port
+        )
         if not (ext_port and target_ip):
             continue
         cmds.append(
@@ -303,22 +387,24 @@ def gen_nat(cfg: dict) -> list[str]:
             f"iptables -A NR_FORWARD -i {outbound} -o {inbound} -p {proto} -d {target_ip} "
             f"--dport {target_port} -j ACCEPT"
         )
-    cmds.extend([
-        "iptables -S NR_FORWARD 2>/dev/null || true",
-        "iptables -t nat -S NR_NAT 2>/dev/null || true",
-    ])
+    cmds.extend(
+        [
+            "iptables -S NR_FORWARD 2>/dev/null || true",
+            "iptables -t nat -S NR_NAT 2>/dev/null || true",
+        ]
+    )
     return cmds
 
 
 def gen_reset_node() -> list[str]:
     return [
         "# ── Reset network configuration ─────────────────────────────",
-        "sh -lc 'for dev in $(ip -o link show | awk -F\": \" \"{print \\$2}\" | cut -d@ -f1 | grep -v \"^lo$\"); do ip addr flush dev \"$dev\" 2>/dev/null || true; ip link set \"$dev\" down 2>/dev/null || true; ip link set \"$dev\" up 2>/dev/null || true; done'",
+        'sh -lc \'for dev in $(ip -o link show | awk -F": " "{print \\$2}" | cut -d@ -f1 | grep -v "^lo$"); do ip addr flush dev "$dev" 2>/dev/null || true; ip link set "$dev" down 2>/dev/null || true; ip link set "$dev" up 2>/dev/null || true; done\'',
         "ip route flush table main 2>/dev/null || true",
         "ip -6 route flush table main 2>/dev/null || true",
-        "sh -lc 'for dev in $(ip -o link show type wireguard 2>/dev/null | awk -F\": \" \"{print \\$2}\" | cut -d@ -f1); do wg-quick down \"$dev\" 2>/dev/null || ip link del \"$dev\" 2>/dev/null || true; done'",
-        "sh -lc 'for dev in $(ip -o link show type vlan 2>/dev/null | awk -F\": \" \"{print \\$2}\" | cut -d@ -f1); do ip link del \"$dev\" 2>/dev/null || true; done'",
-        "sh -lc 'for dev in $(ip -o link show type bridge 2>/dev/null | awk -F\": \" \"{print \\$2}\" | cut -d@ -f1); do [ \"$dev\" = \"docker0\" ] && continue; ip link set \"$dev\" down 2>/dev/null || true; ip link del \"$dev\" type bridge 2>/dev/null || true; done'",
+        'sh -lc \'for dev in $(ip -o link show type wireguard 2>/dev/null | awk -F": " "{print \\$2}" | cut -d@ -f1); do wg-quick down "$dev" 2>/dev/null || ip link del "$dev" 2>/dev/null || true; done\'',
+        'sh -lc \'for dev in $(ip -o link show type vlan 2>/dev/null | awk -F": " "{print \\$2}" | cut -d@ -f1); do ip link del "$dev" 2>/dev/null || true; done\'',
+        'sh -lc \'for dev in $(ip -o link show type bridge 2>/dev/null | awk -F": " "{print \\$2}" | cut -d@ -f1); do [ "$dev" = "docker0" ] && continue; ip link set "$dev" down 2>/dev/null || true; ip link del "$dev" type bridge 2>/dev/null || true; done\'',
         "sysctl -w net.ipv4.ip_forward=0 2>/dev/null || true",
         "sysctl -w net.ipv6.conf.all.forwarding=0 2>/dev/null || true",
         "nft flush ruleset 2>/dev/null || true",
@@ -344,8 +430,10 @@ def gen_reset_node() -> list[str]:
 def gen_vlan_router(iface: str, vlans: list[dict]) -> list[str]:
     iface = (iface or "eth0").strip() or "eth0"
     cmds = [
-        f"# ── Router-on-a-stick on {iface} ───────────────────────────",
+        f"# ── Router-on-a-stick på {iface} ───────────────────────────",
+        "# 1. Indlæs 802.1Q (VLAN) modulet i Linux-kernen",
         "modprobe 8021q 2>/dev/null || true",
+        "# 2. Tænd for den fysiske port (trunk linket op mod switchen)",
         f"ip link set {iface} up",
     ]
     seen = set()
@@ -363,7 +451,9 @@ def gen_vlan_router(iface: str, vlans: list[dict]) -> list[str]:
         else:
             if v.get("description"):
                 cmds.append(f"# VLAN {vid}: {v['description']}")
-            cmds.append(f"ip link add link {iface} name {sub} type vlan id {vid} 2>/dev/null || true")
+            cmds.append(
+                f"ip link add link {iface} name {sub} type vlan id {vid} 2>/dev/null || true"
+            )
             cmds.append(f"ip link set {sub} up")
             addr = (v.get("address") or "").strip()
             if addr:
@@ -374,9 +464,17 @@ def gen_vlan_router(iface: str, vlans: list[dict]) -> list[str]:
 def gen_vlan_switch(bridge: str, vlans: list[dict], ports: list[dict]) -> list[str]:
     bridge = (bridge or "br0").strip() or "br0"
     cmds = [
-        f"# ── VLAN-aware switch on {bridge} ───────────────────────────",
-        f"ip link add name {bridge} type bridge vlan_filtering 1 2>/dev/null || "
-        f"ip link set {bridge} type bridge vlan_filtering 1",
+        f"# ── VLAN Switch (Bridge): {bridge} ──────────────────────────",
+        "# 1. Sørg for at 'bridge' værktøjet er tilgængeligt",
+        "apk add bridge 2>/dev/null || apt-get install -y bridge-utils iproute2 2>/dev/null || true",
+        "",
+        "# 2. Ryd op i eksisterende bridge og VLAN interfaces",
+        f"sh -lc 'for dev in $(ip -o link show type vlan 2>/dev/null | awk -F\": \" \"{{print \\$2}}\" | cut -d@ -f1 | grep \"^vlan\"); do ip link del \"$dev\" 2>/dev/null || true; done'",
+        f"ip link set {bridge} down 2>/dev/null || true",
+        f"ip link del {bridge} type bridge 2>/dev/null || true",
+        "",
+        "# 3. Opret logisk switch (bridge) med VLAN filtrering (802.1q)",
+        f"ip link add name {bridge} type bridge vlan_filtering 1 2>/dev/null || ip link set {bridge} type bridge vlan_filtering 1",
         f"ip link set {bridge} up",
         f"bridge vlan del dev {bridge} vid 1 self 2>/dev/null || true",
     ]
@@ -386,6 +484,13 @@ def gen_vlan_switch(bridge: str, vlans: list[dict], ports: list[dict]) -> list[s
             continue
         name = (v.get("name") or "").strip()
         cmds.append(f"# VLAN {vid}" + (f" ({name})" if name else ""))
+        address = (v.get("address") or "").strip()
+        if address:
+            cmds.append(f"bridge vlan add dev {bridge} vid {vid} self 2>/dev/null || true")
+            sub = f"vlan{vid}"
+            cmds.append(f"ip link add link {bridge} name {sub} type vlan id {vid} 2>/dev/null || true")
+            cmds.append(f"ip link set {sub} up")
+            cmds.append(f"ip addr add {address} dev {sub} 2>/dev/null || true")
 
     for p in ports or []:
         iface = (p.get("iface") or "").strip()
@@ -429,7 +534,9 @@ def _get_robust(d: dict, keys: list[str]) -> any:
                     return ", ".join(str(x) for x in val)
                 return val
     # Fallback to normalized keys (lowercase, no underscores or dashes)
-    lower_dict = {str(k).lower().replace("_", "").replace("-", ""): v for k, v in d.items()}
+    lower_dict = {
+        str(k).lower().replace("_", "").replace("-", ""): v for k, v in d.items()
+    }
     for k in keys:
         norm_k = k.lower().replace("_", "").replace("-", "")
         if norm_k in lower_dict:
@@ -449,14 +556,16 @@ def gen_wireguard(iface: str, cfg: dict) -> list[str]:
             f"wg-quick down {iface} 2>/dev/null || ip link del {iface} 2>/dev/null || true",
             f"rc-update del wg-quick.{iface} default 2>/dev/null || systemctl disable wg-quick@{iface} 2>/dev/null || true",
             f"rm -f /etc/wireguard/{iface}.conf /etc/wireguard/privatekey /etc/wireguard/publickey 2>/dev/null || true",
-            f"echo 'WireGuard interface {iface} and keys deleted successfully'"
+            f"echo 'WireGuard interface {iface} and keys deleted successfully'",
         ]
 
     private_key = _get_robust(cfg, ["private_key", "privateKey", "PrivateKey"])
     address = _get_robust(cfg, ["address", "addresses", "Address", "Addresses"])
 
     if not private_key:
-        raise ValueError("WireGuard PrivateKey is required to generate/apply configuration.")
+        raise ValueError(
+            "WireGuard PrivateKey is required to generate/apply configuration."
+        )
     if not address:
         raise ValueError("WireGuard IP Address (e.g. 10.0.0.1/24) is required.")
 
@@ -484,7 +593,10 @@ def gen_wireguard(iface: str, cfg: dict) -> list[str]:
             (["preshared_key", "presharedKey", "PresharedKey"], "PresharedKey"),
             (["endpoint", "Endpoint"], "Endpoint"),
             (["allowed_ips", "allowedIPs", "AllowedIPs"], "AllowedIPs"),
-            (["persistent_keepalive", "persistentKeepalive", "PersistentKeepalive"], "PersistentKeepalive"),
+            (
+                ["persistent_keepalive", "persistentKeepalive", "PersistentKeepalive"],
+                "PersistentKeepalive",
+            ),
         ]:
             val = _get_robust(peer, keys)
             if val is not None and str(val).strip() != "":
@@ -492,17 +604,18 @@ def gen_wireguard(iface: str, cfg: dict) -> list[str]:
     conf = "\n".join(lines)
 
     return [
-        "# ── Install WireGuard ───────────────────────────────────────",
+        "# ── Install WireGuard (VPN) ─────────────────────────────────",
+        "# Sørger for at WireGuard værktøjer er installeret på maskinen",
         "apk add wireguard-tools 2>/dev/null || apt-get install -y wireguard-tools 2>/dev/null || yum install -y wireguard-tools 2>/dev/null || true",
         "",
-        "# ── Keypair generation (run manually on device) ─────────────",
+        "# ── Tip: Manuel Nøgle-generering på enheden ─────────────────",
         "# wg genkey | tee /etc/wireguard/privatekey | wg pubkey > /etc/wireguard/publickey",
         "# cat /etc/wireguard/privatekey && cat /etc/wireguard/publickey",
         "",
-        f"# ── Write /etc/wireguard/{iface}.conf ──────────────────────",
+        f"# ── Skriv konfigurationsfilen /etc/wireguard/{iface}.conf ────",
         f"mkdir -p /etc/wireguard\ncat > /etc/wireguard/{iface}.conf << 'EOF'\n{conf}\nEOF\nchmod 600 /etc/wireguard/{iface}.conf",
         "",
-        "# ── Activate ────────────────────────────────────────────────",
+        "# ── Aktiver VPN Tunnel (Opretter virtuelt netværkskort) ──────",
         f"wg-quick down {iface} 2>/dev/null || ip link del {iface} 2>/dev/null || true",
         f"wg-quick up {iface}",
         "",
@@ -519,24 +632,35 @@ def gen_persist_script(name: str, commands: list[str]) -> list[str]:
     openrc_path = f"/etc/local.d/netrunner-{script_name}.start"
     service_name = f"netrunner-{script_name}.service"
     service_path = f"/etc/systemd/system/{service_name}"
-    body = ["#!/bin/sh", "# Generated by Netrunner", ""]
+    body = [
+        "#!/bin/sh",
+        "# ---------------------------------------------------------",
+        "# Automatisk genereret af Netrunner",
+        f"# Dette script konfigurerer: {script_name}",
+        "# Scriptet køres af init-systemet (Systemd eller OpenRC)",
+        "# hver gang denne node starter op (Persistent Config).",
+        "# ---------------------------------------------------------",
+        "",
+    ]
     body.extend(commands or [])
 
     body_str = "\n".join(body)
-    service = "\n".join([
-        "[Unit]",
-        f"Description=Netrunner persistent config: {script_name}",
-        "After=network-online.target",
-        "Wants=network-online.target",
-        "",
-        "[Service]",
-        "Type=oneshot",
-        f"ExecStart={script_path}",
-        "RemainAfterExit=yes",
-        "",
-        "[Install]",
-        "WantedBy=multi-user.target",
-    ])
+    service = "\n".join(
+        [
+            "[Unit]",
+            f"Description=Netrunner persistent config: {script_name}",
+            "After=network-online.target",
+            "Wants=network-online.target",
+            "",
+            "[Service]",
+            "Type=oneshot",
+            f"ExecStart={script_path}",
+            "RemainAfterExit=yes",
+            "",
+            "[Install]",
+            "WantedBy=multi-user.target",
+        ]
+    )
     return [
         "# ── Install persistent boot script ──────────────────────────",
         f"mkdir -p /usr/local/sbin\ncat > {script_path} << '{marker}'\n{body_str}\n{marker}\nchmod +x {script_path}",
@@ -551,7 +675,10 @@ def gen_persist_script(name: str, commands: list[str]) -> list[str]:
             f"  chmod +x {openrc_path}\n"
             f"  rc-update add local default\n"
             f"else\n"
-            f"  echo 'No supported boot manager found: install {script_path} manually.'\n"
+            f"  if [ ! -f /etc/rc.local ]; then echo '#!/bin/sh' > /etc/rc.local; fi\n"
+            f"  grep -q '{script_path}' /etc/rc.local || echo '{script_path}' >> /etc/rc.local\n"
+            f"  chmod +x /etc/rc.local\n"
+            f"  echo 'Fallback: Installed via /etc/rc.local (No systemd/OpenRC found).'\n"
             f"fi"
         ),
         f"echo 'Persistent config installed: {script_path}'",
@@ -559,18 +686,20 @@ def gen_persist_script(name: str, commands: list[str]) -> list[str]:
 
 
 def gen_backup_commands(paths: dict) -> list[str]:
-    def q(s): return shlex.quote(s)
-    ip_addr   = paths["ip_addr"]
-    ip_route  = paths["ip_route"]
+    def q(s):
+        return shlex.quote(s)
+
+    ip_addr = paths["ip_addr"]
+    ip_route = paths["ip_route"]
     ip6_route = paths["ip6_route"]
-    ipv4_fwd  = paths["ipv4_forward"]
-    ipv6_fwd  = paths["ipv6_forward"]
-    iptables  = paths["iptables"]
-    nft       = paths["nft"]
-    resolv    = paths["resolv"]
-    hosts     = paths["hosts"]
-    dnsmasq   = paths["dnsmasq"]
-    wg_dir    = paths["wireguard"]
+    ipv4_fwd = paths["ipv4_forward"]
+    ipv6_fwd = paths["ipv6_forward"]
+    iptables = paths["iptables"]
+    nft = paths["nft"]
+    resolv = paths["resolv"]
+    hosts = paths["hosts"]
+    dnsmasq = paths["dnsmasq"]
+    wg_dir = paths["wireguard"]
     backup_dir = paths["dir"]
 
     return [
@@ -593,18 +722,20 @@ def gen_backup_commands(paths: dict) -> list[str]:
 
 
 def gen_restore_commands(paths: dict) -> list[str]:
-    def q(s): return shlex.quote(s)
-    ip_addr   = paths["ip_addr"]
-    ip_route  = paths["ip_route"]
+    def q(s):
+        return shlex.quote(s)
+
+    ip_addr = paths["ip_addr"]
+    ip_route = paths["ip_route"]
     ip6_route = paths["ip6_route"]
-    ipv4_fwd  = paths["ipv4_forward"]
-    ipv6_fwd  = paths["ipv6_forward"]
-    iptables  = paths["iptables"]
-    nft       = paths["nft"]
-    resolv    = paths["resolv"]
-    hosts     = paths["hosts"]
-    dnsmasq   = paths["dnsmasq"]
-    wg_dir    = paths["wireguard"]
+    ipv4_fwd = paths["ipv4_forward"]
+    ipv6_fwd = paths["ipv6_forward"]
+    iptables = paths["iptables"]
+    nft = paths["nft"]
+    resolv = paths["resolv"]
+    hosts = paths["hosts"]
+    dnsmasq = paths["dnsmasq"]
+    wg_dir = paths["wireguard"]
 
     return [
         "# ── Restore network state from backup ───────────────────────",
@@ -631,10 +762,10 @@ def gen_restore_commands(paths: dict) -> list[str]:
 def gen_nmap(cfg: dict) -> list[str]:
     target = str(cfg.get("target", "127.0.0.1")).strip() or "127.0.0.1"
     scan_type = cfg.get("scan_type", "quick")
-    
+
     # Base command
     nmap = ["nmap"]
-    
+
     if scan_type == "quick":
         nmap += ["-F", "-T4"]
     elif scan_type == "service":
@@ -647,18 +778,18 @@ def gen_nmap(cfg: dict) -> list[str]:
         nmap += ["-sn"]
     elif scan_type == "full":
         nmap += ["-p-", "-sV", "-T4"]
-    
+
     if cfg.get("dns_resolve") is False:
         nmap += ["-n"]
-    
+
     if cfg.get("interface"):
         nmap += ["-e", cfg["interface"]]
-        
+
     nmap.append(target)
-    
+
     return [
         "# ── Nmap Network Scan ──────────────────────────────────────",
-        " ".join(nmap)
+        " ".join(nmap),
     ]
 
 
@@ -666,77 +797,87 @@ def gen_iperf3(cfg: dict) -> list[str]:
     mode = cfg.get("mode", "client")
     cmds = ["# ── iperf3 Bandwidth Test ──────────────────────────────────"]
     if mode == "server":
-        cmds.append("iperf3 -s -1") # Run once and exit
+        cmds.append("iperf3 -s -1")  # Run once and exit
     else:
         server = str(cfg.get("server", "")).strip()
-        if not server: raise ValueError("Server IP/Hostname required")
+        if not server:
+            raise ValueError("Server IP/Hostname required")
         args = ["iperf3", "-c", server, "-t", str(cfg.get("duration", 10))]
-        if cfg.get("reverse"): args.append("-R")
-        if cfg.get("udp"): args.append("-u")
-        if cfg.get("bitrate"): args += ["-b", cfg["bitrate"]]
+        if cfg.get("reverse"):
+            args.append("-R")
+        if cfg.get("udp"):
+            args.append("-u")
+        if cfg.get("bitrate"):
+            args += ["-b", cfg["bitrate"]]
         cmds.append(" ".join(args))
     return cmds
 
 
 def gen_mtr(cfg: dict) -> list[str]:
     target = str(cfg.get("target", "")).strip()
-    if not target: raise ValueError("Target required")
+    if not target:
+        raise ValueError("Target required")
     count = cfg.get("count", 5)
     return [
         "# ── MTR Traceroute ─────────────────────────────────────────",
-        f"mtr -rw -c {count} {target}"
+        f"mtr -rw -c {count} {target}",
     ]
 
 
 def gen_speedtest() -> list[str]:
     return [
         "# ── Speedtest-CLI ──────────────────────────────────────────",
-        "speedtest-cli --simple || speedtest --simple"
+        "speedtest-cli --simple || speedtest --simple",
     ]
 
 
 def gen_dns_lookup(cfg: dict) -> list[str]:
     target = str(cfg.get("target", "")).strip()
-    if not target: raise ValueError("Target required")
+    if not target:
+        raise ValueError("Target required")
     qtype = cfg.get("query_type", "A")
     server = str(cfg.get("server", "")).strip()
-    
+
     cmd = ["dig", qtype, target]
-    if server: cmd.append(f"@{server}")
+    if server:
+        cmd.append(f"@{server}")
     cmd.append("+short")
-    
+
     return [
         "# ── DNS Lookup (dig) ───────────────────────────────────────",
-        " ".join(cmd)
+        " ".join(cmd),
     ]
 
 
 def gen_wol(cfg: dict) -> list[str]:
     mac = str(cfg.get("mac", "")).strip()
-    if not mac: raise ValueError("MAC address required")
+    if not mac:
+        raise ValueError("MAC address required")
     iface = str(cfg.get("interface", "")).strip()
-    
+
     cmd = ["wakeonlan"]
-    if iface: cmd += ["-i", iface]
+    if iface:
+        cmd += ["-i", iface]
     cmd.append(mac)
-    
+
     return [
         "# ── Wake-on-LAN ────────────────────────────────────────────",
-        " ".join(cmd)
+        " ".join(cmd),
     ]
 
 
 def gen_arp_scan(cfg: dict) -> list[str]:
     iface = str(cfg.get("interface", "")).strip()
     target = str(cfg.get("target", "localnet")).strip()
-    
+
     cmd = ["arp-scan"]
-    if iface: cmd += ["-I", iface]
+    if iface:
+        cmd += ["-I", iface]
     cmd.append(target)
-    
+
     return [
         "# ── Arp-scan ───────────────────────────────────────────────",
-        " ".join(cmd)
+        " ".join(cmd),
     ]
 
 
@@ -757,12 +898,12 @@ def gen_pmf(cfg: dict) -> list[str]:
         hidden      – bool, whether the SSID is hidden
         ap_channel  – AP channel (only used in ap mode), default 6
     """
-    ssid      = str(cfg.get("ssid", "")).strip()
-    password  = str(cfg.get("password", "")).strip()
-    iface     = str(cfg.get("interface", "wlan0")).strip() or "wlan0"
-    mode      = str(cfg.get("mode", "client")).strip().lower()
-    country   = str(cfg.get("country", "DK")).strip().upper()
-    hidden    = bool(cfg.get("hidden", False))
+    ssid = str(cfg.get("ssid", "")).strip()
+    password = str(cfg.get("password", "")).strip()
+    iface = str(cfg.get("interface", "wlan0")).strip() or "wlan0"
+    mode = str(cfg.get("mode", "client")).strip().lower()
+    country = str(cfg.get("country", "DK")).strip().upper()
+    hidden = bool(cfg.get("hidden", False))
     ap_channel = int(cfg.get("ap_channel", 6))
 
     if not ssid:
@@ -812,8 +953,8 @@ def gen_pmf(cfg: dict) -> list[str]:
     # ── nmcli commands (NetworkManager) ───────────────────────────
     # 802-11-wireless.pmf values: 1=disable, 2=optional, 3=required
     nmcli_cmds = [
-        f"nmcli connection modify \"{ssid}\" 802-11-wireless.pmf 3",
-        f"nmcli connection modify \"{ssid}\" 802-11-wireless.key-mgmt \"wpa-psk-sha256 wpa-psk\"",
+        f'nmcli connection modify "{ssid}" 802-11-wireless.pmf 3',
+        f'nmcli connection modify "{ssid}" 802-11-wireless.key-mgmt "wpa-psk-sha256 wpa-psk"',
     ]
 
     cmds = [
@@ -844,8 +985,8 @@ def gen_pmf(cfg: dict) -> list[str]:
         ]
     else:
         nmcli_connect = (
-            f"nmcli dev wifi connect \"{ssid}\""
-            + (f" password \"{password}\"" if password else "")
+            f'nmcli dev wifi connect "{ssid}"'
+            + (f' password "{password}"' if password else "")
             + f" 2>/dev/null && ("
             + " && ".join(nmcli_cmds)
             + f") && echo 'Connected via nmcli with PMF Required'"

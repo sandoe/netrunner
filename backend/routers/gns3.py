@@ -1,4 +1,5 @@
 """GNS3 API integration for importing nodes and links."""
+
 from __future__ import annotations
 
 import httpx
@@ -17,6 +18,7 @@ router = APIRouter()
 
 import configparser
 
+
 def get_gns3_config():
     conf_path = Path.home() / ".config" / "GNS3" / "2.2" / "gns3_server.conf"
     if conf_path.exists():
@@ -29,10 +31,11 @@ def get_gns3_config():
             pass
     return None
 
+
 async def _gns3_req(method: str, path: str, body: Optional[dict] = None):
     s = await load_settings()
     base = s.get("gns3_server_url", "http://127.0.0.1:3080").rstrip("/")
-    
+
     server_conf = get_gns3_config()
     auth = None
     if server_conf:
@@ -41,7 +44,7 @@ async def _gns3_req(method: str, path: str, body: Optional[dict] = None):
         conf_auth = server_conf.getboolean("auth", fallback=False)
         if conf_auth and conf_user and conf_pass:
             auth = (conf_user, conf_pass)
-            
+
     candidates = []
     # Always include the local GNS3 server if config exists
     if server_conf:
@@ -49,7 +52,7 @@ async def _gns3_req(method: str, path: str, body: Optional[dict] = None):
         conf_port = server_conf.get("port", "3080")
         local_base = f"http://{conf_host}:{conf_port}"
         candidates.append((local_base, auth))
-        
+
     # Also include the configured URL from settings
     if base not in [c[0] for c in candidates]:
         candidates.append((base, auth))
@@ -60,20 +63,26 @@ async def _gns3_req(method: str, path: str, body: Optional[dict] = None):
     extra = []
     for c_url, c_auth in candidates:
         if "127.0.0.1" in c_url or "localhost" in c_url:
-            mapped = c_url.replace("127.0.0.1", "host.docker.internal").replace("localhost", "host.docker.internal")
-            if mapped not in [c[0] for c in candidates] and mapped not in [e[0] for e in extra]:
+            mapped = c_url.replace("127.0.0.1", "host.docker.internal").replace(
+                "localhost", "host.docker.internal"
+            )
+            if mapped not in [c[0] for c in candidates] and mapped not in [
+                e[0] for e in extra
+            ]:
                 extra.append((mapped, c_auth))
     candidates.extend(extra)
 
     results = []
     success = False
     last_err = None
-    
+
     for b_url, b_auth in candidates:
         async with httpx.AsyncClient() as client:
             try:
                 url = f"{b_url}/v2{path}"
-                res = await client.request(method, url, json=body, auth=b_auth, timeout=10.0)
+                res = await client.request(
+                    method, url, json=body, auth=b_auth, timeout=10.0
+                )
                 if res.status_code == 404:
                     # Record the real "not found" so it isn't masked by a later
                     # unreachable-candidate (e.g. host.docker.internal) DNS error.
@@ -93,7 +102,7 @@ async def _gns3_req(method: str, path: str, body: Optional[dict] = None):
                 # earlier HTTP/404 error instead of overwriting it.
                 if last_err is None:
                     last_err = e
-                
+
     if success:
         if method == "GET" and isinstance(results, list):
             # De-duplicate lists by unique key
@@ -102,34 +111,42 @@ async def _gns3_req(method: str, path: str, body: Optional[dict] = None):
             for item in results:
                 # Use the MOST specific id first. Nodes/links in one project all
                 # share project_id, so keying on it would collapse them to one.
-                key = (item.get("node_id") or item.get("link_id")
-                       or item.get("project_id") or item.get("name") or str(item))
+                key = (
+                    item.get("node_id")
+                    or item.get("link_id")
+                    or item.get("project_id")
+                    or item.get("name")
+                    or str(item)
+                )
                 if key not in seen:
                     seen.add(key)
                     unique_results.append(item)
             return unique_results
         return results
-        
+
     raise HTTPException(status_code=500, detail=f"GNS3 API error: {last_err}")
+
 
 @router.get("/gns3/projects")
 async def list_gns3_projects():
     return await _gns3_req("GET", "/projects")
+
 
 @router.post("/gns3/sync/{project_id}")
 async def sync_gns3_project(project_id: str):
     # 1. Get project nodes and links
     g_nodes = await _gns3_req("GET", f"/projects/{project_id}/nodes")
     g_links = await _gns3_req("GET", f"/projects/{project_id}/links")
-    
-    if g_nodes is None: raise HTTPException(status_code=404, detail="Project not found")
+
+    if g_nodes is None:
+        raise HTTPException(status_code=404, detail="Project not found")
 
     nodes = await load_nodes()
     links = await load_links()
-    
+
     # Map GNS3 node UUID to Netrunner ID
     uuid_map = {}
-    
+
     # 2. Sync Nodes
     g_node_host = None  # GNS3 VM / compute IP where the consoles live
     for gn in g_nodes:
@@ -144,9 +161,11 @@ async def sync_gns3_project(project_id: str):
         found_id = None
         for nid, n in nodes.items():
             meta = (n.get("metadata") or {}).get("gns3") or {}
-            if meta.get("node_id") == gn["node_id"] \
-               or n.get("name") == gn["name"] \
-               or (console and n.get("port") == console):
+            if (
+                meta.get("node_id") == gn["node_id"]
+                or n.get("name") == gn["name"]
+                or (console and n.get("port") == console)
+            ):
                 found_id = nid
                 break
 
@@ -159,7 +178,8 @@ async def sync_gns3_project(project_id: str):
                 existing["port"] = console
             existing["transport"] = "telnet"
             existing.setdefault("metadata", {})["gns3"] = {
-                "project_id": project_id, "node_id": gn["node_id"],
+                "project_id": project_id,
+                "node_id": gn["node_id"],
                 "node_type": gn.get("node_type"),
             }
         else:
@@ -173,10 +193,13 @@ async def sync_gns3_project(project_id: str):
                 "device_type": "gns3",
                 "tags": ["gns3-imported"],
                 "created": gn.get("created_at"),
-                "metadata": {"gns3": {
-                    "project_id": project_id, "node_id": gn["node_id"],
-                    "node_type": gn.get("node_type"),
-                }},
+                "metadata": {
+                    "gns3": {
+                        "project_id": project_id,
+                        "node_id": gn["node_id"],
+                        "node_type": gn.get("node_type"),
+                    }
+                },
             }
             found_id = new_id
 
@@ -197,40 +220,44 @@ async def sync_gns3_project(project_id: str):
 
     await save_nodes(nodes)
     await save_links(links)
-    
+
     return {"status": "success", "nodes": len(g_nodes), "links": new_links}
+
 
 @router.get("/gns3/local-projects")
 async def list_local_gns3_projects():
     s = await load_settings()
     base_path = Path(s.get("gns3_local_projects_path", "/home/aso/GNS3/projects"))
-    
+
     if not base_path.exists():
         return []
-    
+
     projects = []
     try:
         for p_dir in base_path.iterdir():
             if p_dir.is_dir():
                 gns3_files = list(p_dir.glob("*.gns3"))
                 if gns3_files:
-                    projects.append({
-                        "name": p_dir.name,
-                        "path": str(gns3_files[0]),
-                        "id": p_dir.name
-                    })
+                    projects.append(
+                        {
+                            "name": p_dir.name,
+                            "path": str(gns3_files[0]),
+                            "id": p_dir.name,
+                        }
+                    )
     except:
         return []
     return projects
 
-@router.post("/local-sync")
+
+@router.post("/gns3/local-sync")
 async def sync_local_gns3_project(payload: dict):
     path = payload.get("path")
     if not path or not os.path.exists(path):
         raise HTTPException(status_code=404, detail="Project file not found")
-        
+
     try:
-        with open(path, 'r') as f:
+        with open(path, "r") as f:
             data = json.load(f)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to read .gns3 file: {e}")
@@ -242,10 +269,17 @@ async def sync_local_gns3_project(payload: dict):
     nodes = await load_nodes()
     links = await load_links()
     uuid_map = {}
-    
+
     s = await load_settings()
     # Assume console is reachable via the configured server host
-    remote_host = s.get("gns3_server_url", "http://192.168.122.121").replace("http://", "").split(":")[0]
+    remote_host = (
+        s.get("gns3_server_url", "http://192.168.122.121")
+        .replace("http://", "")
+        .replace("https://", "")
+        .split(":")[0]
+        .split("/")[0]
+        .strip()
+    )
 
     for gn in g_nodes:
         found_id = None
@@ -253,7 +287,7 @@ async def sync_local_gns3_project(payload: dict):
             if n.get("name") == gn["name"]:
                 found_id = nid
                 break
-        
+
         if not found_id:
             new_id = f"local_{gn['node_id'][:8]}"
             nodes[new_id] = {
@@ -264,10 +298,10 @@ async def sync_local_gns3_project(payload: dict):
                 "transport": "telnet",
                 "device_type": "gns3",
                 "tags": ["local-gns3-import"],
-                "created": None
+                "created": None,
             }
             found_id = new_id
-        
+
         uuid_map[gn["node_id"]] = found_id
 
     new_links = 0

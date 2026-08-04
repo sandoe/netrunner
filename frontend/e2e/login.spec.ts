@@ -1,6 +1,8 @@
 import { test, expect } from '@playwright/test';
+import { deploymentPassword, isServerDeployment } from './credentials';
 
-test('admin login and topology view', async ({ page }) => {
+test('@release admin login and topology view', async ({ page }) => {
+  test.skip(!isServerDeployment(), 'Privileged accounts are disabled in student deployments');
   // Go to the login page
   await page.goto('/');
 
@@ -9,15 +11,20 @@ test('admin login and topology view', async ({ page }) => {
   
   // Fill in the login credentials
   await page.fill('input[type="text"]', 'admin');
-  await page.fill('input[type="password"]', 'admin');
+  await page.fill('input[type="password"]', deploymentPassword('admin'));
   
   // Submit the form
   await page.click('button[type="submit"]');
 
-  // Verify that we are logged in and see the Topology view
-  await expect(page.locator('.view-title')).toHaveText(/TOPOLOGY/i);
-  
-  // Verify that the WAR ROOM button is visible for admin
-  const warRoomBtn = page.locator('button', { hasText: 'WAR ROOM' });
-  await expect(warRoomBtn).toBeVisible();
+  // Verify that the authenticated desktop is visible.
+  await expect(page.locator('.start-btn')).toBeVisible();
+
+  // Open the real topology route and assert its current user-facing controls.
+  await page.goto('/topology');
+  await expect(page.locator('.topology-container')).toBeVisible();
+  await expect(page.getByRole('button', { name: /SELECT/ })).toBeVisible();
+
+  // Verify that admin-only operations are available in the start menu.
+  await page.locator('.start-btn').click();
+  await expect(page.getByRole('heading', { name: 'RED TEAM' })).toBeVisible();
 });

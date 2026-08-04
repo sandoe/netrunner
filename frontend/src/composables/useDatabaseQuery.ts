@@ -6,33 +6,33 @@ import {
   parseTSV 
 } from './useDatabaseConfig'
 
-export const sqlQuery = ref('')
-export const queryDuration = ref(0)
-export const resultsHeaders = ref<string[]>([])
-export const resultsRows = ref<Record<string, any>[]>([])
-export const rawNosqlOutput = ref('')
+const sqlQuery = ref('')
+const queryDuration = ref(0)
+const resultsHeaders = ref<string[]>([])
+const resultsRows = ref<Record<string, any>[]>([])
+const rawNosqlOutput = ref('')
 
-export const inlineEditRow = ref<number | null>(null)
-export const inlineEditCol = ref<string | null>(null)
-export const inlineEditValue = ref('')
-export const inlineInputRef = ref<HTMLInputElement | null>(null)
+const inlineEditRow = ref<number | null>(null)
+const inlineEditCol = ref<string | null>(null)
+const inlineEditValue = ref('')
+const inlineInputRef = ref<HTMLInputElement | null>(null)
 
-export const showConfirmModal = ref(false)
-export const pendingSql = ref('')
-export const onConfirmCallback = ref<(() => Promise<void>) | null>(null)
+const showConfirmModal = ref(false)
+const pendingSql = ref('')
+const onConfirmCallback = ref<(() => Promise<void>) | null>(null)
 
-export const showAddRowModal = ref(false)
-export const newRowData = ref<Record<string, string>>({})
+const showAddRowModal = ref(false)
+const newRowData = ref<Record<string, string>>({})
 
-export const showAddInfluxPointModal = ref(false)
-export const newInfluxPoint = ref({
+const showAddInfluxPointModal = ref(false)
+const newInfluxPoint = ref({
   measurement: '',
   tags: '',
   fields: '',
   timestamp: ''
 })
 
-export async function runQuery(nodeId: string) {
+async function runQuery(nodeId: string) {
   if (!sqlQuery.value.trim()) return
   
   const { 
@@ -103,7 +103,7 @@ export async function runQuery(nodeId: string) {
   }
 }
 
-export function appendQuery(tpl: string) {
+function appendQuery(tpl: string) {
   const { activeTable, activeTableColumns } = useDatabaseConfig()
   const table = activeTable.value || 'min_tabel'
   let query = tpl.replace(/<table>/g, table)
@@ -122,20 +122,20 @@ export function appendQuery(tpl: string) {
   sqlQuery.value = query
 }
 
-export function formatCellValue(val: any): string {
+function formatCellValue(val: any): string {
   if (val === null || val === undefined) return 'NULL'
   if (val === '') return '"" (Tom)'
   return String(val)
 }
 
-export function getCellClass(val: any): string {
+function getCellClass(val: any): string {
   if (val === null || val === undefined) return 'font-gray font-small italic'
   if (val === '') return 'font-gray font-small italic'
   if (!isNaN(val)) return 'font-green'
   return ''
 }
 
-export function startInlineEdit(rowIdx: number, colName: string, curVal: any) {
+function startInlineEdit(rowIdx: number, colName: string, curVal: any) {
   inlineEditRow.value = rowIdx
   inlineEditCol.value = colName
   inlineEditValue.value = curVal === null || curVal === undefined ? '' : String(curVal)
@@ -148,13 +148,13 @@ export function startInlineEdit(rowIdx: number, colName: string, curVal: any) {
   })
 }
 
-export function cancelInlineEdit() {
+function cancelInlineEdit() {
   inlineEditRow.value = null
   inlineEditCol.value = null
   inlineEditValue.value = ''
 }
 
-export function buildRowCondition(row: Record<string, any>): string {
+function buildRowCondition(row: Record<string, any>): string {
   const { activeTableColumns } = useDatabaseConfig()
   const pks = activeTableColumns.value.filter(c => c.pk)
   if (pks.length > 0) {
@@ -173,7 +173,7 @@ export function buildRowCondition(row: Record<string, any>): string {
   }).join(' AND ')
 }
 
-export function confirmInlineEdit(row: Record<string, any>, nodeId: string) {
+function confirmInlineEdit(row: Record<string, any>, nodeId: string) {
   if (inlineEditRow.value === null || !inlineEditCol.value) return
   
   const newVal = inlineEditValue.value
@@ -221,7 +221,7 @@ export function confirmInlineEdit(row: Record<string, any>, nodeId: string) {
   cancelInlineEdit()
 }
 
-export async function executePendingSql() {
+async function executePendingSql() {
   showConfirmModal.value = false
   if (onConfirmCallback.value) {
     await onConfirmCallback.value()
@@ -229,7 +229,7 @@ export async function executePendingSql() {
   }
 }
 
-export function deleteRow(row: Record<string, any>, nodeId: string) {
+function deleteRow(row: Record<string, any>, nodeId: string) {
   const { activeTable, loading, showFlashMsg, buildDbCommand } = useDatabaseConfig()
   if (!activeTable.value) return
   
@@ -261,7 +261,7 @@ export function deleteRow(row: Record<string, any>, nodeId: string) {
   showConfirmModal.value = true
 }
 
-export function openAddRowModal() {
+function openAddRowModal() {
   const { activeTable, activeTableColumns } = useDatabaseConfig()
   if (!activeTable.value || activeTableColumns.value.length === 0) return
   newRowData.value = {}
@@ -271,7 +271,7 @@ export function openAddRowModal() {
   showAddRowModal.value = true
 }
 
-export function submitAddRow(nodeId: string) {
+function submitAddRow(nodeId: string) {
   showAddRowModal.value = false
   const { activeTable, loading, showFlashMsg, buildDbCommand } = useDatabaseConfig()
   if (!activeTable.value) return
@@ -319,7 +319,7 @@ export function submitAddRow(nodeId: string) {
   showConfirmModal.value = true
 }
 
-export function openAddInfluxPointModal() {
+function openAddInfluxPointModal() {
   newInfluxPoint.value = {
     measurement: '',
     tags: '',
@@ -329,7 +329,7 @@ export function openAddInfluxPointModal() {
   showAddInfluxPointModal.value = true
 }
 
-export async function submitAddInfluxPoint(nodeId: string) {
+async function submitAddInfluxPoint(nodeId: string) {
   showAddInfluxPointModal.value = false
   const { dbConfig, loading, showFlashMsg, buildDbCommand, loadSchema } = useDatabaseConfig()
   

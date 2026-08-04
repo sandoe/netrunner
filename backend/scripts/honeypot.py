@@ -7,38 +7,53 @@ import sys
 LOG_FILE = "/tmp/netrunner-honeypot.log"
 PORT = 2121  # Fake FTP port
 
+
 def handle_client(client_socket, address):
     ip, port = address
     try:
         client_socket.send(b"220 (vsFTPd 3.0.3)\r\n")
-        data = client_socket.recv(1024).decode(errors='ignore').strip()
-        
+        data = client_socket.recv(1024).decode(errors="ignore").strip()
+
         if data.startswith("USER"):
             client_socket.send(b"331 Please specify the password.\r\n")
-            pass_data = client_socket.recv(1024).decode(errors='ignore').strip()
-            
+            pass_data = client_socket.recv(1024).decode(errors="ignore").strip()
+
             entry = {
                 "timestamp": time.time(),
                 "event": "honeypot_login",
                 "attacker_ip": ip,
                 "port": PORT,
-                "payload": f"{data} | {pass_data}"
+                "payload": f"{data} | {pass_data}",
             }
-            
+
+            SERVER_URL = __import__("os").environ.get("ORCHESTRATOR_URL")
+            if SERVER_URL:
+                try:
+                    import urllib.request
+
+                    req = urllib.request.Request(
+                        f"{SERVER_URL.rstrip('/')}/api/telemetry",
+                        data=json.dumps(entry).encode("utf-8"),
+                        headers={"Content-Type": "application/json"},
+                    )
+                    urllib.request.urlopen(req, timeout=3)
+                except Exception:
+                    pass
             with open(LOG_FILE, "a") as f:
                 f.write(json.dumps(entry) + "\n")
-                
+
             client_socket.send(b"530 Login incorrect.\r\n")
     except Exception:
         pass
     finally:
         client_socket.close()
 
+
 def main():
     print(f"Starting Netrunner Honeypot on port {PORT}... Logging to {LOG_FILE}")
     server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    
+
     try:
         server.bind(("0.0.0.0", PORT))
         server.listen(5)
@@ -50,15 +65,29 @@ def main():
                 "event": "honeypot_connect",
                 "attacker_ip": addr[0],
                 "port": PORT,
-                "payload": "CONNECTION_ESTABLISHED"
+                "payload": "CONNECTION_ESTABLISHED",
             }
+            SERVER_URL = __import__("os").environ.get("ORCHESTRATOR_URL")
+            if SERVER_URL:
+                try:
+                    import urllib.request
+
+                    req = urllib.request.Request(
+                        f"{SERVER_URL.rstrip('/')}/api/telemetry",
+                        data=json.dumps(entry).encode("utf-8"),
+                        headers={"Content-Type": "application/json"},
+                    )
+                    urllib.request.urlopen(req, timeout=3)
+                except Exception:
+                    pass
             with open(LOG_FILE, "a") as f:
                 f.write(json.dumps(entry) + "\n")
-                
+
             client_handler = threading.Thread(target=handle_client, args=(client, addr))
             client_handler.start()
     except Exception as e:
         print(f"Honeypot failed: {e}")
+
 
 if __name__ == "__main__":
     main()

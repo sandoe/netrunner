@@ -1,166 +1,95 @@
 <template>
-  <div class="dashboard-container" :class="{ 'war-room-mode': warRoomMode }">
-    <div class="header">
-      <div>
-        <h2><span class="glitch-text" data-text="EXECUTIVE">EXECUTIVE</span> DASHBOARD</h2>
-        <p class="subtitle">CISO Level Network Overview</p>
-      </div>
-      <button class="btn-war-room" @click="warRoomMode = !warRoomMode" :aria-pressed="warRoomMode">
-        <span aria-hidden="true">{{ warRoomMode ? '🔥' : '🛡️' }}</span> {{ warRoomMode ? 'DISABLE WAR ROOM' : 'ACTIVATE WAR ROOM' }}
-      </button>
-    </div>
+  <div class="dashboard-container">
+    <div class="crt-overlay"></div>
 
-    <!-- Quick Stats from WelcomeView -->
-    <div class="dashboard-stats dashboard-stats-margin">
-      <button class="dash-stat-box" @click="$router.push('/node')">
-        <div class="ds-value">{{ store.nodeList.length }}</div>
-        <div class="ds-label">REGISTERED NODES</div>
-      </button>
-      <button class="dash-stat-box" @click="$router.push('/pulse')">
-        <div class="ds-value text-green">{{ store.connectedCount }}</div>
-        <div class="ds-label">ACTIVE CONNECTIONS</div>
-      </button>
-      <button class="dash-stat-box" @click="warRoomMode = !warRoomMode">
-        <div class="ds-value" :class="warRoomMode ? 'text-pink' : 'text-cyan'">{{ warRoomMode ? 'ACTIVE' : 'STANDBY' }}</div>
-        <div class="ds-label">WAR ROOM STATUS</div>
-      </button>
-      <button class="dash-stat-box border-pink" @click="$router.push('/alerts')">
-        <div class="ds-value text-pink">!</div>
-        <div class="ds-label">ALERT INBOX</div>
-      </button>
-    </div>
-
-    <div v-if="loading" class="loading">Loading Analytics...</div>
-    <div v-else-if="errorMsg" class="error-state">{{ errorMsg }}</div>
-    <div v-else-if="metrics" class="dashboard-content">
-      
-      <!-- Metrics Grid -->
-      <div class="metrics-grid">
-        <div class="metric-card warning">
-          <div class="icon"><span aria-hidden="true">🔥</span></div>
-          <div class="data">
-            <h3>{{ metrics.critical_alerts }}</h3>
-            <span>Critical Threats</span>
-          </div>
-        </div>
-        <div class="metric-card success">
-          <div class="icon"><span aria-hidden="true">🛡️</span></div>
-          <div class="data">
-            <h3>{{ metrics.mitigation_rate_percent }}%</h3>
-            <span>Mitigation Rate</span>
-          </div>
-        </div>
-        <div class="metric-card">
-          <div class="icon"><span aria-hidden="true">🤖</span></div>
-          <div class="data">
-            <h3>{{ metrics.active_playbooks }}</h3>
-            <span>Active Playbooks</span>
-          </div>
-        </div>
-        <div class="metric-card info">
-          <div class="icon"><span aria-hidden="true">📊</span></div>
-          <div class="data">
-            <h3>{{ metrics.total_alerts }}</h3>
-            <span>Total Events</span>
-          </div>
+    <div class="dashboard-content">
+      <div class="header">
+        <div>
+          <h2>GLOBAL DASHBOARD</h2>
+          <p class="subtitle">System Analytics & Threat Intel</p>
         </div>
       </div>
 
-      <!-- Charts Area -->
-      <div class="charts-area">
-        <div class="chart-container">
-          <h3>THREAT TRENDS (LAST 7 DAYS)</h3>
-          <div class="chart-wrapper">
-            <div v-if="!trends || trends.labels.length === 0" class="empty-state">No data available for the last 7 days</div>
-            <Line v-else :data="lineChartData" :options="chartOptions" aria-label="Threat Trends Line Chart" role="img" />
-          </div>
+      <!-- Quick Stats -->
+      <div class="dashboard-stats dashboard-stats-margin">
+        <button class="dash-stat-box glass-panel" @click="$router.push('/topology')">
+          <div class="ds-value">{{ store.nodeList.length }}</div>
+          <div class="ds-label">NODES ONLINE</div>
+        </button>
+        <div class="dash-stat-box glass-panel">
+          <div class="ds-value hud-primary-text">{{ store.connectedCount }}</div>
+          <div class="ds-label">ACTIVE CONNECTIONS</div>
         </div>
-        
-        <div class="chart-container">
-          <h3>ALERT TRIAGE STATUS</h3>
-          <div class="chart-wrapper doughnut-wrapper">
-            <div v-if="!metrics || (metrics.new_alerts === 0 && metrics.investigating_alerts === 0 && metrics.closed_alerts === 0 && metrics.false_positives === 0)" class="empty-state">No alert data available</div>
-            <Doughnut v-else :data="doughnutChartData" :options="chartOptions" aria-label="Alert Triage Status Doughnut Chart" role="img" />
-          </div>
-        </div>
+        <button class="dash-stat-box glass-panel" @click="$router.push('/alerts')">
+          <div class="ds-value" style="color: #ff3366">!</div>
+          <div class="ds-label">ALERT INBOX</div>
+        </button>
       </div>
-      
+
+      <div v-if="loading" class="loading">SYNCING TELEMETRY...</div>
+      <div v-else-if="errorMsg" class="error-state">DATA STREAM COMPROMISED</div>
+      <div v-else-if="metrics" class="hud-main">
+
+        <!-- Metrics Grid -->
+        <div class="metrics-grid">
+          <div class="metric-card warning glass-panel">
+            <div class="data">
+              <h3>{{ metrics.critical_alerts }}</h3>
+              <span>Critical Events</span>
+            </div>
+            <div class="spark-mini">
+              <SparklineGraph :data="liveData.critical" color="#ff3366" />
+            </div>
+          </div>
+
+          <div class="metric-card glass-panel">
+            <div class="data">
+              <h3>{{ metrics.mitigation_rate_percent }}%</h3>
+              <span>Mitigation Rate</span>
+            </div>
+            <div class="spark-mini">
+              <SparklineGraph :data="liveData.mitigation" color="var(--hud-primary)" />
+            </div>
+          </div>
+
+          <div class="metric-card info glass-panel">
+            <div class="data">
+              <h3>{{ metrics.total_alerts }}</h3>
+              <span>Total Volume</span>
+            </div>
+            <div class="spark-mini">
+              <SparklineGraph :data="liveData.volume" color="#ffaa00" />
+            </div>
+          </div>
+        </div>
+
+      </div>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, computed, onUnmounted } from 'vue'
+import { ref, onMounted } from 'vue'
 import { getDashboardSummaryAnalyticsSummaryGet } from '@/api_client'
 import { useNodesStore } from '@/stores/nodes'
 import { useRouter } from 'vue-router'
-import {
-  Chart as ChartJS,
-  CategoryScale,
-  LinearScale,
-  PointElement,
-  LineElement,
-  Title,
-  Tooltip,
-  Legend,
-  ArcElement
-} from 'chart.js'
-import { Line, Doughnut } from 'vue-chartjs'
-
-ChartJS.register(
-  CategoryScale,
-  LinearScale,
-  PointElement,
-  LineElement,
-  Title,
-  Tooltip,
-  Legend,
-  ArcElement
-)
-
-interface MetricData {
-  critical_alerts: number;
-  mitigation_rate_percent: number;
-  active_playbooks: number;
-  total_alerts: number;
-  new_alerts: number;
-  investigating_alerts: number;
-  closed_alerts: number;
-  false_positives: number;
-}
-
-interface TrendDataset {
-  label: string;
-  data: number[];
-}
-
-interface TrendData {
-  labels: string[];
-  datasets: TrendDataset[];
-}
+import SparklineGraph from '@/components/SparklineGraph.vue'
 
 const store = useNodesStore()
 const router = useRouter()
 
 const loading = ref(true)
 const errorMsg = ref<string | null>(null)
-const metrics = ref<MetricData | null>(null)
-const trends = ref<TrendData | null>(null)
-const summary = ref<any>(null)
-
-const warRoomMode = ref(false)
-let pollTimer: ReturnType<typeof setInterval> | null = null
+const metrics = ref<any>(null)
 
 const fetchData = async () => {
   try {
     errorMsg.value = null
     const res = await getDashboardSummaryAnalyticsSummaryGet()
-    summary.value = res.data
     metrics.value = res.metrics
-    trends.value = res.trends
   } catch (err) {
     console.error("Error loading dashboard", err)
-    errorMsg.value = "Failed to load dashboard data. Please try again later."
+    errorMsg.value = "Failed to load dashboard data."
   } finally {
     loading.value = false
   }
@@ -168,228 +97,158 @@ const fetchData = async () => {
 
 onMounted(() => {
   fetchData()
-  // Poll every 30 seconds for live feeling
-  pollTimer = setInterval(fetchData, 30000)
-})
-
-onUnmounted(() => {
-  if (pollTimer) clearInterval(pollTimer)
-})
-
-const chartOptions = {
-  responsive: true,
-  maintainAspectRatio: false,
-  color: '#aaa',
-  plugins: {
-    legend: {
-      labels: { color: '#ccc', font: { family: 'Orbitron' } }
-    }
-  },
-  scales: {
-    x: { grid: { color: 'rgba(255,255,255,0.1)' }, ticks: { color: '#aaa' } },
-    y: { grid: { color: 'rgba(255,255,255,0.1)' }, ticks: { color: '#aaa' } }
-  }
-}
-
-const lineChartData = computed(() => {
-  if (!trends.value) return { labels: [], datasets: [] }
-  return {
-    labels: trends.value.labels,
-    datasets: [
-      {
-        label: trends.value.datasets[0].label,
-        backgroundColor: warRoomMode.value ? 'rgba(255, 51, 102, 0.4)' : 'rgba(255, 51, 102, 0.2)',
-        borderColor: '#ff3366',
-        data: trends.value.datasets[0].data,
-        tension: 0.4,
-        fill: true
-      },
-      {
-        label: trends.value.datasets[1].label,
-        backgroundColor: warRoomMode.value ? 'rgba(255, 170, 0, 0.4)' : 'rgba(0, 240, 255, 0.2)',
-        borderColor: warRoomMode.value ? '#ffaa00' : '#00f0ff',
-        data: trends.value.datasets[1].data,
-        tension: 0.4,
-        fill: true
-      }
-    ]
-  }
-})
-
-const doughnutChartData = computed(() => {
-  if (!metrics.value) return { labels: [], datasets: [] }
-  return {
-    labels: ['New', 'Investigating', 'Closed', 'False Positive'],
-    datasets: [
-      {
-        backgroundColor: warRoomMode.value 
-          ? ['#ff3366', '#ff0000', '#aa0000', '#550000']
-          : ['#ff3366', '#ffaa00', '#00f0ff', '#555555'],
-        borderColor: '#111827',
-        borderWidth: 2,
-        data: [
-          metrics.value.new_alerts,
-          metrics.value.investigating_alerts,
-          metrics.value.closed_alerts,
-          metrics.value.false_positives
-        ]
-      }
-    ]
-  }
 })
 </script>
 
 <style scoped>
+/* CSS Variables driven by DEFCON State */
 .dashboard-container {
+  --hud-primary: #00f0ff;
+  --hud-bg: rgba(10, 15, 30, 0.85);
+  --hud-text: #fff;
+  --hud-danger: #ff3366;
+
+  position: relative;
+  min-height: 100vh;
+  background: #050505;
+  color: var(--hud-text);
+  overflow: hidden;
+  transition: all 0.5s ease;
+  font-family: 'Orbitron', 'Inter', sans-serif;
+}
+
+.crt-overlay {
+  position: absolute;
+  top: 0; left: 0; width: 100%; height: 100%;
+  pointer-events: none;
+  z-index: 1;
+  background: repeating-linear-gradient(
+    rgba(0, 0, 0, 0.15) 0px,
+    rgba(0, 0, 0, 0.15) 1px,
+    transparent 1px,
+    transparent 2px
+  );
+}
+
+.dashboard-content {
+  position: relative;
+  z-index: 2;
   padding: 2rem;
   max-width: 1400px;
   margin: 0 auto;
-  color: #fff;
-  transition: all 0.3s ease;
-  min-height: 100vh;
-}
-
-/* War Room Mode Styling */
-.dashboard-container.war-room-mode {
-  background: radial-gradient(circle at center, #2a0808 0%, #050000 100%);
-}
-.dashboard-container.war-room-mode .header h2 {
-  color: #ff3366;
-  text-shadow: 0 0 15px rgba(255, 51, 102, 0.6);
-  animation: pulse-red 2s infinite;
-}
-.dashboard-container.war-room-mode .metric-card {
-  border-color: rgba(255, 51, 102, 0.4);
-  box-shadow: 0 4px 15px rgba(255, 51, 102, 0.1);
-}
-.dashboard-container.war-room-mode .chart-container {
-  border-color: rgba(255, 51, 102, 0.4);
 }
 
 .header {
-  margin-bottom: 2rem;
-  border-bottom: 1px solid var(--cyan, #00f0ff);
-  padding-bottom: 1rem;
-  transition: border-color 0.3s ease;
   display: flex;
   justify-content: space-between;
-  align-items: center;
-}
-@media (max-width: 600px) {
-  .header {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 1rem;
-  }
-}
-.dashboard-container.war-room-mode .header {
-  border-bottom-color: var(--pink, #ff3366);
+  align-items: flex-end;
+  border-bottom: 2px solid var(--hud-primary);
+  padding-bottom: 1rem;
+  margin-bottom: 2rem;
+  transition: border-color 0.5s;
 }
 
 .header h2 {
-  font-family: 'Orbitron', sans-serif;
-  color: var(--cyan, #00f0ff);
   margin: 0;
-  font-size: 2rem;
-  text-shadow: 0 0 10px rgba(0, 240, 255, 0.3);
+  font-size: 2.5rem;
+  text-shadow: 0 0 15px var(--hud-primary);
 }
+
 .subtitle {
-  color: #ccc;
+  color: var(--hud-primary);
   margin-top: 0.5rem;
-  letter-spacing: 1px;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  font-size: 0.9rem;
 }
 
-.btn-war-room {
-  background: transparent;
-  border: 2px solid var(--accent-blue, #00f0ff);
-  color: var(--accent-blue, #00f0ff);
-  padding: 10px 20px;
-  border-radius: 4px;
-  font-family: 'Orbitron', sans-serif;
-  font-weight: bold;
-  cursor: pointer;
-  transition: all 0.3s;
+/* Glitch CSS */
+.glitch-text {
+  position: relative;
+  display: inline-block;
+  color: var(--hud-primary);
 }
-.dashboard-container.war-room-mode .btn-war-room {
-  border-color: #ff3366;
-  color: #ff3366;
-  background: rgba(255, 51, 102, 0.1);
-  box-shadow: 0 0 15px rgba(255, 51, 102, 0.4);
+.dashboard-container[data-defcon="1"] .glitch-text::before,
+.dashboard-container[data-defcon="1"] .glitch-text::after,
+.dashboard-container[data-defcon="2"] .glitch-text::before,
+.dashboard-container[data-defcon="2"] .glitch-text::after {
+  content: attr(data-text);
+  position: absolute;
+  top: 0;
+  left: 0;
+  opacity: 0.8;
 }
-.dashboard-container.war-room-mode .btn-war-room:hover {
-  background: rgba(255, 51, 102, 0.3);
+.glitch-text::before {
+  color: #0ff;
+  z-index: -1;
+  animation: glitch-anim-1 2s infinite linear alternate-reverse;
+}
+.glitch-text::after {
+  color: #f0f;
+  z-index: -2;
+  animation: glitch-anim-2 3s infinite linear alternate-reverse;
 }
 
-/* Dashboard Stats from WelcomeView */
+@keyframes glitch-anim-1 {
+  0% { clip-path: inset(20% 0 80% 0); transform: translate(-2px, 1px); }
+  20% { clip-path: inset(60% 0 10% 0); transform: translate(2px, -1px); }
+  40% { clip-path: inset(40% 0 50% 0); transform: translate(-2px, 2px); }
+  60% { clip-path: inset(80% 0 5% 0); transform: translate(2px, -2px); }
+  80% { clip-path: inset(10% 0 70% 0); transform: translate(-1px, 1px); }
+  100% { clip-path: inset(30% 0 50% 0); transform: translate(1px, -1px); }
+}
+
+@keyframes glitch-anim-2 {
+  0% { clip-path: inset(10% 0 60% 0); transform: translate(2px, -1px); }
+  20% { clip-path: inset(30% 0 20% 0); transform: translate(-2px, 1px); }
+  40% { clip-path: inset(70% 0 10% 0); transform: translate(2px, -2px); }
+  60% { clip-path: inset(20% 0 50% 0); transform: translate(-2px, 2px); }
+  80% { clip-path: inset(50% 0 30% 0); transform: translate(1px, -1px); }
+  100% { clip-path: inset(5% 0 80% 0); transform: translate(-1px, 1px); }
+}
+
 .dashboard-stats {
   display: flex;
   gap: 20px;
-  justify-content: flex-start;
   flex-wrap: wrap;
 }
 .dashboard-stats-margin {
   margin-bottom: 2rem;
 }
-@media (max-width: 600px) {
-  .dashboard-stats {
-    flex-direction: column;
-  }
-  .dash-stat-box {
-    width: 100%;
-  }
-}
 
 .dash-stat-box {
-  background: rgba(10, 14, 23, 0.8);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: var(--hud-bg);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-bottom: 3px solid var(--hud-primary);
   padding: 20px;
+  flex: 1;
   min-width: 150px;
   cursor: pointer;
-  transition: all 0.2s ease;
-  border-radius: 4px;
+  transition: all 0.3s;
   text-align: center;
-  flex: 1;
-  color: inherit;
-  display: block;
 }
-.dash-stat-box:focus-visible {
-  outline: 2px solid var(--cyan, #00f0ff);
-  outline-offset: 2px;
+div.dash-stat-box {
+  cursor: default;
 }
-.dashboard-container.war-room-mode .dash-stat-box {
-  background: rgba(30, 5, 10, 0.8);
-  border-color: rgba(255, 51, 102, 0.3);
-}
-
-.dash-stat-box:hover {
+.dash-stat-box:not(div):hover {
   transform: translateY(-2px);
-  border-color: var(--cyan, #00f0ff);
-  box-shadow: 0 0 15px rgba(0, 240, 255, 0.2);
-}
-.dashboard-container.war-room-mode .dash-stat-box:hover {
-  border-color: var(--pink, #ff3366);
-  box-shadow: 0 0 15px rgba(255, 51, 102, 0.3);
+  border-color: var(--hud-primary);
+  box-shadow: 0 5px 20px rgba(0,0,0,0.5), 0 0 15px inset rgba(255,255,255,0.05);
 }
 
 .ds-value {
   font-size: 2.5rem;
   font-weight: bold;
-  color: var(--cyan, #00f0ff);
   margin-bottom: 10px;
 }
-.text-green { color: var(--green, #00ff00); }
-.text-pink { color: var(--pink, #ff3366); }
-.text-cyan { color: var(--cyan, #00f0ff); }
-.border-pink { border-color: var(--pink, #ff3366); }
-
-.dashboard-container.war-room-mode .ds-value {
-  color: var(--pink, #ff3366);
+.hud-primary-text {
+  color: var(--hud-primary);
+  text-shadow: 0 0 10px var(--hud-primary);
 }
-
 .ds-label {
   font-size: 0.8rem;
   color: #8892b0;
-  letter-spacing: 1px;
+  letter-spacing: 2px;
 }
 
 .metrics-grid {
@@ -400,128 +259,143 @@ const doughnutChartData = computed(() => {
 }
 
 .metric-card {
-  background: rgba(10, 15, 30, 0.8);
+  background: var(--hud-bg);
   border: 1px solid rgba(255,255,255,0.1);
-  border-radius: 8px;
   padding: 1.5rem;
   display: flex;
+  justify-content: space-between;
   align-items: center;
-  gap: 1.5rem;
-  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
   position: relative;
   overflow: hidden;
-  transition: all 0.3s ease;
 }
-.dashboard-container.war-room-mode .metric-card {
-  background: rgba(30, 5, 10, 0.8);
-}
-
-.metric-card::after {
+.metric-card::before {
   content: '';
   position: absolute;
-  top: 0; left: 0; right: 0; height: 2px;
-  background: rgba(255,255,255,0.2);
+  top: 0; left: 0; width: 4px; height: 100%;
+  background: var(--hud-primary);
+  box-shadow: 0 0 10px var(--hud-primary);
 }
-
-.metric-card.warning::after { background: #ff3366; box-shadow: 0 0 10px #ff3366; }
-.metric-card.success::after { background: #00f0ff; box-shadow: 0 0 10px #00f0ff; }
-.dashboard-container.war-room-mode .metric-card.success::after { background: #ffaa00; box-shadow: 0 0 10px #ffaa00; }
-.metric-card.info::after { background: #ffaa00; box-shadow: 0 0 10px #ffaa00; }
-
-.metric-card .icon {
-  font-size: 2.5rem;
-  opacity: 0.8;
-}
+.metric-card.warning::before { background: var(--hud-danger); box-shadow: 0 0 10px var(--hud-danger); }
+.metric-card.info::before { background: #ffaa00; box-shadow: 0 0 10px #ffaa00; }
 
 .metric-card .data h3 {
-  margin: 0;
-  font-size: 2.2rem;
-  font-family: 'Orbitron', sans-serif;
+  margin: 0 0 5px 0;
+  font-size: 2rem;
 }
 .metric-card .data span {
   color: #aaa;
-  font-size: 0.9rem;
-  text-transform: uppercase;
+  font-size: 0.8rem;
   letter-spacing: 1px;
+  text-transform: uppercase;
 }
 
-.charts-area {
+.spark-mini {
+  width: 100px;
+  height: 40px;
+}
+
+.streams-area {
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+  margin-top: 20px;
+}
+.stream-container, .engines-panel {
+  background: var(--hud-bg);
+  border: 1px solid var(--hud-border);
+  padding: 15px;
+  border-radius: 4px;
+}
+.engines-grid {
   display: grid;
-  grid-template-columns: 2fr 1fr;
-  gap: 1.5rem;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 15px;
+  margin-top: 15px;
+}
+.engine-card {
+  background: rgba(0,0,0,0.4);
+  border: 1px solid var(--hud-primary);
+  padding: 15px;
+  border-radius: 4px;
+  text-align: center;
+}
+.engine-card h4 {
+  color: var(--hud-primary);
+  margin: 0 0 5px 0;
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 1.1em;
+}
+.engine-card p {
+  color: #a0a0a0;
+  font-size: 0.85em;
+  margin-bottom: 15px;
+}
+.status-badge {
+  display: inline-block;
+  padding: 4px 8px;
+  border-radius: 3px;
+  font-size: 0.8em;
+  font-weight: bold;
+}
+.status-badge.active {
+  background: rgba(0, 255, 204, 0.2);
+  color: var(--hud-primary);
+  border: 1px solid var(--hud-primary);
+  box-shadow: 0 0 5px var(--hud-primary);
 }
 
 @media (max-width: 900px) {
-  .charts-area {
+  .streams-area {
     grid-template-columns: 1fr;
   }
 }
 
-.chart-container {
-  background: rgba(10, 15, 30, 0.8);
+.stream-container {
+  background: var(--hud-bg);
   border: 1px solid rgba(255,255,255,0.1);
-  border-radius: 8px;
   padding: 1.5rem;
-  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
-  transition: all 0.3s ease;
+  border-top: 1px solid var(--hud-primary);
 }
 
-.chart-container h3 {
-  margin-top: 0;
-  color: #888;
-  font-size: 1rem;
-  letter-spacing: 1px;
-  margin-bottom: 1.5rem;
-  border-bottom: 1px solid rgba(255,255,255,0.05);
-  padding-bottom: 0.5rem;
-}
-
-.chart-wrapper {
-  height: 350px;
-  position: relative;
-}
-.doughnut-wrapper {
+.stream-header {
   display: flex;
-  justify-content: center;
-}
-
-@keyframes pulse-red {
-  0% { text-shadow: 0 0 10px rgba(255, 51, 102, 0.4); }
-  50% { text-shadow: 0 0 25px rgba(255, 51, 102, 0.8); }
-  100% { text-shadow: 0 0 10px rgba(255, 51, 102, 0.4); }
-}
-
-.loading {
-  font-size: 1.2rem;
-  color: var(--cyan, #00f0ff);
-  text-align: center;
-  padding: 3rem;
-  animation: pulse 1.5s infinite ease-in-out;
-}
-
-.error-state {
-  color: var(--pink, #ff3366);
-  background: rgba(255, 51, 102, 0.1);
-  border: 1px solid var(--pink, #ff3366);
-  padding: 2rem;
-  text-align: center;
-  border-radius: 8px;
-  margin: 2rem 0;
-}
-
-.empty-state {
-  display: flex;
+  justify-content: space-between;
   align-items: center;
-  justify-content: center;
-  height: 100%;
-  color: #888;
-  font-style: italic;
-  text-align: center;
+  margin-bottom: 1rem;
+}
+.stream-header h3 {
+  margin: 0;
+  font-size: 1rem;
+  letter-spacing: 2px;
+  color: #ccc;
+}
+.live-indicator {
+  font-size: 0.7rem;
+  color: var(--hud-primary);
+  border: 1px solid var(--hud-primary);
+  padding: 2px 6px;
+  border-radius: 2px;
+  animation: blink 1s infinite step-end;
 }
 
-@keyframes pulse {
-  0% { opacity: 0.6; }
-  50% { opacity: 1; }
-  100% { opacity: 0.6; }
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+
+.stream-graph {
+  height: 150px;
+}
+
+.loading, .error-state {
+  text-align: center;
+  padding: 4rem;
+  font-size: 1.5rem;
+  letter-spacing: 5px;
+  color: var(--hud-primary);
+  animation: pulse 1.5s infinite;
+}
+.error-state {
+  color: var(--hud-danger);
 }
 </style>

@@ -1,57 +1,102 @@
-# Netrunner
+# Netrunner classroom platform
 
-Netrunner is a comprehensive network and Linux management tool featuring AI-driven orchestration, live telemetry, and configuration automation.
+Netrunner is a Linux-hosted network and security teaching platform. It combines
+a Vue web interface, a FastAPI backend, a terminal multiplexer and local
+PostgreSQL, InfluxDB, Redis, Redpanda and Memgraph services.
 
-## Features
-- **Node Management:** Organize and manage Linux servers, Raspberry Pis, and GNS3/Network devices.
-- **Live Telemetry:** Real-time diagnostics for network interfaces, routing, firewall rules, and system metrics.
-- **Config Automation:** Generate and apply complex configurations (VLANs, NAT, WireGuard, Firewall, Services).
-- **Interactive Terminal:** Integrated SSH/Telnet terminal with connection pooling.
-- **AI Agent:** Chat-based orchestration for managing nodes and topology using tool-calling.
-- **MCP Server:** Model Context Protocol integration for AI clients like Claude.
-- **GNS3 Integration:** Sync nodes and links directly from GNS3 projects.
+> Only run offensive modules against systems and networks where you have
+> explicit permission. The built-in `student` role is read-only; use an
+> `analyst` account for supervised practical work that must change devices.
 
-## Setup
+## Supported deployment
 
-### Prerequisites
-- Python 3.10+
-- Node.js LTS (includes `npm`)
+The classroom release is validated on a **Linux Docker host** with:
 
-### Quick Start
-Linux/macOS:
+- Docker Engine with the Compose v2 plugin
+- `curl`, `openssl` (or `od`) and Bash
+- at least 8 GB RAM and 15 GB free disk space
+- access to TCP port 8000 from the classroom network
+
+Hardware passthrough, host networking and local GNS3 integration make this
+full deployment unsuitable for Docker Desktop on macOS or Windows.
+
+## Start
 
 ```bash
+git clone https://github.com/netrunner-os/netrunner.git
+cd netrunner
 ./start.sh
 ```
 
-Windows PowerShell:
+This creates a **student deployment** by default. It contains no admin or
+analyst credentials, and the backend rejects privileged accounts and tokens.
+The launcher creates a private `.env` with random credentials, validates the
+Compose file, builds the images, starts the stack and waits for
+`/api/ready`. Re-running it is safe and preserves data and credentials.
 
-```powershell
-.\start.ps1
+For an instructor-controlled shared server, initialize server mode before the
+first start:
+
+```bash
+./start.sh init server
+./start.sh
 ```
 
-Windows Command Prompt:
+Open `http://localhost:8000` on the host, or
+`http://SERVERENS-IP:8000` from a student computer.
 
-```bat
-start.bat
+Show the generated student login locally:
+
+```bash
+./start.sh credentials
 ```
 
-The launcher will create a Python virtual environment, install backend
-dependencies, install/build the frontend, initialize the SQLite database, and
-start Netrunner on `http://localhost:8000`.
+The command never prints admin or analyst credentials. In server mode those
+values exist only in the host's mode-600 `.env`; never distribute that file.
+Credentials are never printed to Docker logs by a configured deployment.
 
-**First-run authentication:**
+## Verify the release
 
-On first startup, Netrunner automatically creates `admin` and `analyst` users
-with **secure random passwords** and prints them to the console. You **must**
-use these one-time passwords to log in and immediately change them via the UI
-or set `NETRUNNER_ADMIN_PASSWORD` / `NETRUNNER_ANALYST_PASSWORD` environment
-variables before first run to define your own initial passwords.
+```bash
+./scripts/release_check.sh
+```
 
-There are no hardcoded default credentials.
+This runs the backend tests, frontend tests and production build, validates the
+deployment files, performs non-destructive live authentication/RBAC checks and,
+when Google Chrome is installed, runs the role-based browser release suite.
+
+For the complete instructor checklist, backup/restore procedure, troubleshooting
+and rollback steps, see [docs/CLASSROOM_DEPLOYMENT.md](docs/CLASSROOM_DEPLOYMENT.md).
+
+## Common operations
+
+```bash
+docker compose ps
+docker compose logs -f netrunner
+docker compose restart netrunner
+docker compose stop
+./start.sh
+```
+
+Do not use `docker compose down -v` in production; persistent classroom state
+lives under `data/`.
+
+## Roles
+
+| Account | Intended use | Permissions |
+|---|---|---|
+| `student` | Student dashboards and observations | Read-only API and UI |
+| `analyst` | Supervised labs and device operation | Read and operational writes |
+| `admin` | Instructor administration | Full access and user management |
 
 ## Architecture
-- **Backend:** FastAPI (Python)
-- **Frontend:** Vue 3 + TypeScript + Vite
-- **Storage:** SQLite (Migrated from JSON)
-- **Communication:** WebSockets (Terminal), REST API
+
+- Frontend: Vue 3, TypeScript and Vite
+- Backend: FastAPI and Python
+- Terminal multiplexer and node agent: Go
+- State: PostgreSQL, InfluxDB, Redis, Redpanda and Memgraph
+- Deployment: Docker Compose on Linux
+
+AI integrations are optional. Leave `OPENAI_API_KEY` empty if they are not used.
+Autonomous IDS triage is disabled by default; set
+`NETRUNNER_ENABLE_AI_TRIAGE=1` only after validating the configured provider key.

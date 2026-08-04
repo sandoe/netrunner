@@ -25,7 +25,7 @@
           <div class="summary-sub">Immediate remediation required for CRITICAL threats.</div>
         </div>
       </div>
-      
+
       <div v-for="(f, i) in findings" :key="i" class="finding-card" :class="f.severity.toLowerCase()">
         <div class="finding-header">
           <span class="finding-cve">{{ f.cve }}</span>
@@ -37,15 +37,21 @@
         <div class="finding-remediation"><strong>REMEDIATION:</strong> {{ f.remediation }}</div>
       </div>
     </div>
-    
+
     <div v-else-if="hasScanned" class="secure-box">
       <span class="secure-icon">🛡️</span>
       <div class="secure-text">NO KNOWN VULNERABILITIES DETECTED</div>
       <div class="secure-sub">Target appears hardened against known CVEs.</div>
     </div>
-    
+
     <div v-else class="empty-state">
       <p>Initiate a vulnerability scan to cross-reference open ports with the CVE database.</p>
+
+      <div class="educational-box">
+        <h4><span class="icon">🎓</span> Cyber Guide: CVE & CVSS</h4>
+        <p><strong>CVE (Common Vulnerabilities and Exposures):</strong> En international ordbog over kendte sikkerhedshuller i software. Hvert CVE-nummer (f.eks. CVE-2021-44228) identificerer en specifik sårbarhed, så alle i IT-verdenen ved, hvad der tales om.</p>
+        <p><strong>CVSS (Common Vulnerability Scoring System):</strong> Et pointsystem fra 0.0 til 10.0, der vurderer hvor farligt et CVE er. En CVSS-score på 9.0-10.0 er <em>Kritisk</em> og betyder ofte, at hackere kan overtage systemet uden at kende et kodeord!</p>
+      </div>
     </div>
   </div>
 </template>
@@ -70,21 +76,21 @@ async function runAnalysis() {
   error.value = ''
   hasScanned.value = false
   findings.value = []
-  
+
   try {
     const res = await fetch(`/api/threats/analyze/${props.nodeId}`, {
       method: 'POST',
       headers: { 'Authorization': `Bearer ${localStorage.getItem('nr_token')}` }
     })
-    
+
     if (!res.ok) {
       throw new Error(`API Error: ${res.statusText}`)
     }
-    
+
     const data = await res.json()
     findings.value = data.findings || []
     hasScanned.value = true
-    
+
     // Refresh nodes store to pick up the new "vulnerable" tag
     await store.refresh()
   } catch (err: any) {
@@ -118,6 +124,38 @@ async function runAnalysis() {
   color: #ff2d6e;
   text-transform: uppercase;
   letter-spacing: 1px;
+}
+
+.empty-state p {
+  margin: 0;
+}
+
+.educational-box {
+  margin-top: 30px;
+  background: rgba(0, 229, 255, 0.05);
+  border: 1px solid rgba(0, 229, 255, 0.2);
+  border-radius: 8px;
+  padding: 16px;
+  text-align: left;
+}
+
+.educational-box h4 {
+  margin: 0 0 10px 0;
+  color: var(--cyan);
+  font-family: var(--font-hd);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.educational-box p {
+  margin: 0 0 10px 0;
+  font-size: 13px;
+  color: var(--text);
+  line-height: 1.5;
+}
+.educational-box p:last-child {
+  margin-bottom: 0;
 }
 
 .btn-analyze {

@@ -4,6 +4,7 @@ The vault key is auto-generated on first run and stored at data/.vault_key.
 Credentials are encrypted at rest in data/vault.json.
 The API never returns plaintext passwords.
 """
+
 from __future__ import annotations
 
 import json
@@ -15,6 +16,7 @@ from .db import load_vault_entry_db, save_vault_entry_db, delete_vault_entry_db
 
 try:
     from cryptography.fernet import Fernet
+
     _HAS_CRYPTO = True
 except ImportError:
     _HAS_CRYPTO = False

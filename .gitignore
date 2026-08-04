@@ -8,11 +8,13 @@ venv/
 backend.log
 
 # Secrets — never commit
+.certs/
 data/.vault_key
 data/.jwt_secret
 data/known_hosts
 
 # Data (node data, captures, exports — user-specific)
+/backend/data/
 data/nodes.json
 data/vault.json
 data/netrunner.db
@@ -22,6 +24,7 @@ data/captures/
 data/exports/
 
 # Frontend build artifacts
+/node_modules/
 frontend/node_modules/
 frontend/dist/
 
@@ -32,3 +35,36 @@ frontend/dist/
 .vscode/
 .idea/
 data/
+
+# Local agent and planning artifacts
+/.agents/
+/ORIGINAL_REQUEST.md
+/PROJECT.md
+/student_capability_report.md
+/run_student_emulation.py
+
+# Generated QA output
+/backend/book.html
+/frontend/playwright-report/
+/frontend/test-results/
+/test_netrunner.db
+
+# One-off local investigation helpers
+/check_*.py
+/find_devices.py
+/fix_*.py
+/get_schema.py
+/investigate.exp
+/migrate_db.py
+/populate_*.py
+/refactor*.py
+/simulate_features.py
+/test_*.py
+/test_*.sh
+/scripts/build_codex.py
+
+# Local browser experiments with hardcoded credentials or machine paths
+/frontend/e2e/ai_orchestrator.spec.ts
+/frontend/e2e/debug.spec.ts
+/frontend/e2e/screenshot.spec.ts
+/frontend/e2e/terminal_focus.spec.ts

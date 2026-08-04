@@ -4,14 +4,20 @@ import subprocess
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from .workspace import PROJECTS_DIR
 from ..core.logger import log as logger
+from .auth import authenticate_ws
 
 router = APIRouter()
 
+
 @router.websocket("/build")
 async def build_workspace(websocket: WebSocket, node_id: str, template: str):
+    if await authenticate_ws(
+        websocket, allowed_roles=("admin", "analyst")
+    ) is None:
+        return
     await websocket.accept()
     workspace_path = os.path.join(PROJECTS_DIR, node_id, "workspace")
-    
+
     if not os.path.exists(workspace_path):
         await websocket.send_text("Error: Workspace not found.")
         await websocket.close()
@@ -19,9 +25,11 @@ async def build_workspace(websocket: WebSocket, node_id: str, template: str):
 
     # Use the host's absolute path since Docker is mounted from the host
     # This assumes netrunner data dir is at /home/aso/Dokumenter/github/netrunner/data
-    host_data_dir = os.environ.get("HOST_DATA_DIR", "/home/aso/Dokumenter/github/netrunner/data")
+    host_data_dir = os.environ.get(
+        "HOST_DATA_DIR", "/home/aso/Dokumenter/github/netrunner/data"
+    )
     host_workspace_path = f"{host_data_dir}/projects/{node_id}/workspace"
-    
+
     if template == "esp-idf-c":
         image = "espressif/idf:latest"
         cmd = "idf.py build && cd build && esptool.py --chip esp32 merge_bin -o merged.bin @flash_args"
@@ -32,48 +40,63 @@ async def build_workspace(websocket: WebSocket, node_id: str, template: str):
         await websocket.send_text("Error: Unknown template.")
         await websocket.close()
         return
-        
-    await websocket.send_text(f"[Netrunner Builder] Starting build for {template} in {host_workspace_path}...\r\n")
-    
+
+    await websocket.send_text(
+        f"[Netrunner Builder] Starting build for {template} in {host_workspace_path}...\r\n"
+    )
+
     # Fix permissions so non-root containers (like rust) can write to the workspace
     container_workspace_path = f"/app/data/projects/{node_id}/workspace"
-    chmod_proc = await asyncio.create_subprocess_exec("chmod", "-R", "777", container_workspace_path)
+    chmod_proc = await asyncio.create_subprocess_exec(
+        "chmod", "-R", "777", container_workspace_path
+    )
     await chmod_proc.wait()
-    
+
     # Run docker container
     docker_cmd = [
-        "docker", "run", "-t", "--rm",
-        "-v", f"{host_workspace_path}:/project",
-        "-w", "/project",
+        "docker",
+        "run",
+        "-t",
+        "--rm",
+        "-v",
+        f"{host_workspace_path}:/project",
+        "-w",
+        "/project",
         image,
-        "bash", "-c", cmd
+        "bash",
+        "-c",
+        cmd,
     ]
-    
-    await websocket.send_text(f"[Netrunner Builder] Executing: {' '.join(docker_cmd)}\r\n")
-    
-    process = await asyncio.create_subprocess_exec(
-        *docker_cmd,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.STDOUT
+
+    await websocket.send_text(
+        f"[Netrunner Builder] Executing: {' '.join(docker_cmd)}\r\n"
     )
-    
+
+    process = await asyncio.create_subprocess_exec(
+        *docker_cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT
+    )
+
     try:
         while True:
             chunk = await process.stdout.read(1024)
             if not chunk:
                 break
-            await websocket.send_text(chunk.decode('utf-8', errors='replace'))
-            
+            await websocket.send_text(chunk.decode("utf-8", errors="replace"))
+
         await process.wait()
-        
+
         if process.returncode == 0:
-            await websocket.send_text("\r\n[Netrunner Builder] Build completed successfully!\r\n")
-            
+            await websocket.send_text(
+                "\r\n[Netrunner Builder] Build completed successfully!\r\n"
+            )
+
             # Now we need to flash it. The flashing logic will be triggered by the frontend
             # calling the flash endpoint, or we can do it here. Let's let the frontend trigger it.
         else:
-            await websocket.send_text(f"\r\n[Netrunner Builder] Build failed with exit code {process.returncode}.\r\n")
-            
+            await websocket.send_text(
+                f"\r\n[Netrunner Builder] Build failed with exit code {process.returncode}.\r\n"
+            )
+
     except WebSocketDisconnect:
         logger.warning("WebSocket disconnected. Terminating build process.")
         try:

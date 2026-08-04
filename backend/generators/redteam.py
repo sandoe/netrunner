@@ -1,13 +1,14 @@
 import os
 import textwrap
 
+
 class RedTeamGenerator:
     """
     Orchestrator for generating Red Team Python payloads.
     These payloads are meant to be executed over SSH on connected nodes
     to perform deep security scans, network attacks, or forensic captures.
     """
-    
+
     @staticmethod
     def generate_dns_spoof_payload(target_domain: str, spoofed_ip: str) -> str:
         """
@@ -219,4 +220,3 @@ except Exception as e:
     print(f"[-] Error querying Shodan: {{e}}")
 """
         return textwrap.dedent(script).strip()
-

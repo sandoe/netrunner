@@ -1,4 +1,5 @@
 """Saved shell script configs API."""
+
 from __future__ import annotations
 
 import re
@@ -21,13 +22,17 @@ def _ensure_dir():
 def api_configs_list():
     _ensure_dir()
     out = []
-    for f in sorted(CONFIGS_DIR.iterdir(), key=lambda x: x.stat().st_mtime, reverse=True):
+    for f in sorted(
+        CONFIGS_DIR.iterdir(), key=lambda x: x.stat().st_mtime, reverse=True
+    ):
         if f.is_file():
-            out.append({
-                "name": f.name,
-                "size": f.stat().st_size,
-                "modified": datetime.fromtimestamp(f.stat().st_mtime).isoformat(),
-            })
+            out.append(
+                {
+                    "name": f.name,
+                    "size": f.stat().st_size,
+                    "modified": datetime.fromtimestamp(f.stat().st_mtime).isoformat(),
+                }
+            )
     return out
 
 
@@ -41,7 +46,8 @@ class ConfigSave(BaseModel):
 def api_configs_save(body: ConfigSave):
     _ensure_dir()
     import time
-    name  = re.sub(r"[^a-zA-Z0-9_\-]", "_", body.name or f"config_{int(time.time())}")
+
+    name = re.sub(r"[^a-zA-Z0-9_\-]", "_", body.name or f"config_{int(time.time())}")
     fname = f"{name}_{body.type}.sh"
     (CONFIGS_DIR / fname).write_text(
         f"#!/bin/sh\n# Saved: {datetime.now().isoformat()}\n# Type: {body.type}\n\n{body.content}\n"

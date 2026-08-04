@@ -1,6 +1,10 @@
 <template>
   <div class="sv">
     <template v-if="snap && snap.connected">
+      <div class="cyber-guide" style="width: 100%; margin-bottom: 12px; font-size: 11px; border-left: 2px solid var(--textbr); padding-left: 8px; background: rgba(255, 255, 255, 0.05);">
+        <strong style="color: var(--textbr);">🎓 Cyber Guide: System Performance</strong><br/>
+        <span style="color: #ccc;">Et systems ressourcer (CPU, RAM, Disk) sladre ofte om, at noget er galt. Eksempelvis kan en pludselig CPU-stigning være tegn på, at en hacker er ved at udvinde kryptovaluta (Cryptojacking), eller at et DoS-angreb æder ressourcerne op.</span>
+      </div>
       <div class="sv-gauges">
         <div class="g" v-for="g in gauges" :key="g.lbl">
           <svg viewBox="0 0 80 80" class="g-ring">

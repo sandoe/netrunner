@@ -5,6 +5,7 @@ or a GNS3 telnet console port). This is distinct per node (even GNS3 consoles,
 which each get their own port), needs no root/ICMP, and yields a real connect
 latency — i.e. "can I actually reach this node's service right now".
 """
+
 import asyncio
 import time
 
@@ -17,7 +18,14 @@ CHECK_INTERVAL = 5.0
 TIMEOUT = 1.5
 
 # GNS3 L2 fabric — no usable console, so a refused TCP probe isn't "down".
-CONSOLELESS = {"ethernet_switch", "ethernet_hub", "frame_relay_switch", "atm_switch", "cloud", "nat"}
+CONSOLELESS = {
+    "ethernet_switch",
+    "ethernet_hub",
+    "frame_relay_switch",
+    "atm_switch",
+    "cloud",
+    "nat",
+}
 
 
 def _is_consoleless(node: dict) -> bool:
@@ -61,24 +69,44 @@ async def reachability_loop(queue):
                 # DOWN on first sight (but stay quiet for healthy nodes).
                 prev = reach_status.get(nid)
                 from .events import record_event
+
                 name = n.get("name") or nid
                 if prev is None:
                     if not ok:
-                        record_event("critical", nid, name, "reachability",
-                                      f"{name} is OFFLINE")
+                        record_event(
+                            "critical", nid, name, "reachability", f"{name} is OFFLINE"
+                        )
                 elif prev.get("reachable") != ok:
                     if ok:
-                        record_event("info", nid, name, "reachability",
-                                      f"{name} is back ONLINE ({lat} ms)")
+                        record_event(
+                            "info",
+                            nid,
+                            name,
+                            "reachability",
+                            f"{name} is back ONLINE ({lat} ms)",
+                        )
                     else:
-                        record_event("critical", nid, name, "reachability",
-                                      f"{name} went OFFLINE")
-                reach_status[nid] = {"reachable": ok, "latency_ms": lat, "ts": time.time()}
+                        record_event(
+                            "critical",
+                            nid,
+                            name,
+                            "reachability",
+                            f"{name} went OFFLINE",
+                        )
+                reach_status[nid] = {
+                    "reachable": ok,
+                    "latency_ms": lat,
+                    "ts": time.time(),
+                }
                 try:
-                    queue.put_nowait({
-                        "type": "reach", "node_id": nid,
-                        "reachable": ok, "latency_ms": lat,
-                    })
+                    queue.put_nowait(
+                        {
+                            "type": "reach",
+                            "node_id": nid,
+                            "reachable": ok,
+                            "latency_ms": lat,
+                        }
+                    )
                 except Exception:
                     pass
 

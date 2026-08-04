@@ -1,13 +1,19 @@
 """
 Netrunner Lateral Movement Router — API endpoints for SSH tunnels and pivoting.
 """
+
 from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 from .auth import require_admin
 from ..core.lateral_movement import (
-    create_socks_proxy, create_local_forward, create_remote_forward,
-    create_pivot_chain, close_tunnel, close_pivot_chain,
-    list_active_tunnels, list_pivot_chains,
+    create_socks_proxy,
+    create_local_forward,
+    create_remote_forward,
+    create_pivot_chain,
+    close_tunnel,
+    close_pivot_chain,
+    list_active_tunnels,
+    list_pivot_chains,
 )
 from ..core.db import load_nodes_db
 
@@ -85,6 +91,7 @@ async def api_lateral_socks_proxy(req: SOCKSProxyRequest):
 
     try:
         from ..core.vault import get_credential
+
         cred = await get_credential(req.node_id, "ssh")
         if cred:
             username = cred.get("username", username)
@@ -127,6 +134,7 @@ async def api_lateral_local_forward(req: LocalForwardRequest):
 
     try:
         from ..core.vault import get_credential
+
         cred = await get_credential(req.node_id, "ssh")
         if cred:
             username = cred.get("username", username)
@@ -171,6 +179,7 @@ async def api_lateral_remote_forward(req: RemoteForwardRequest):
 
     try:
         from ..core.vault import get_credential
+
         cred = await get_credential(req.node_id, "ssh")
         if cred:
             username = cred.get("username", username)

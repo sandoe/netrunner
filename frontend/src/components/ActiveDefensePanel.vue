@@ -22,6 +22,10 @@
 
         <div class="section-title mt-4">VULNERABILITY SCANNER</div>
         <div class="control-group">
+          <div class="cyber-guide" style="margin-bottom: 12px; font-size: 13px; border-left: 3px solid var(--text); padding-left: 8px; background: rgba(255, 255, 255, 0.05);">
+            <strong style="color: var(--text);">🎓 Cyber Guide: Port Scanning (Nmap)</strong><br/>
+            <span style="color: #ccc;">En portscanner som Nmap sender pakker til alle 65535 netværksporte på en enhed for at se hvilke der svarer (f.eks. port 80 = Webserver, 22 = SSH). Hackere bruger det til at finde "døre" ind, mens vi bruger det til at finde døre, vi har glemt at låse!</span>
+          </div>
           <p class="desc">Perform an active Nmap scan against this node to discover open ports and services.</p>
           <button class="btn-tool" @click="runScan" :disabled="scanning">
             {{ scanning ? 'SCANNING...' : 'RUN NMAP SCAN' }}
@@ -38,6 +42,10 @@
         </div>
         <div class="section-title mt-4">ZERO TRUST ARCHITECTURE</div>
         <div class="control-group zta-zone">
+          <div class="cyber-guide" style="margin-bottom: 12px; font-size: 13px; border-left: 3px solid var(--cyan); padding-left: 8px; background: rgba(0, 229, 255, 0.05);">
+            <strong style="color: var(--cyan);">🎓 Cyber Guide: Zero Trust (ZTA)</strong><br/>
+            <span style="color: #ccc;">ZTA ("Stol på ingen, verificér alt") er et sikkerhedsparadigme hvor selv intern netværkstrafik betragtes som usikker. Her opdeles netværket i små segmenter (Micro-segmentation) med strenge firewall-regler, så en hacker ikke kan bevæge sig horisontalt i netværket (Lateral Movement).</span>
+          </div>
           <p class="desc text-cyan">Micro-segmentation. Enforce strict default DROP policies, block lateral movement, and whitelist explicit verified connections.</p>
           <button v-if="isAdmin" class="btn-tool btn-zta" @click="enforceZTA" :disabled="ztaEnforcing || isolating">
             {{ ztaEnforcing ? 'ENFORCING ZTA...' : 'ENFORCE ZTA (HARDEN)' }}
@@ -68,6 +76,10 @@
 
         <div class="section-title mt-4">COWRIE HONEYPOT (INDUSTRY STANDARD)</div>
         <div class="control-group cowrie-zone">
+          <div class="cyber-guide" style="margin-bottom: 12px; font-size: 13px; border-left: 3px solid var(--amber); padding-left: 8px; background: rgba(255, 170, 0, 0.05);">
+            <strong style="color: var(--amber);">🎓 Cyber Guide: Honeypots</strong><br/>
+            <span style="color: #ccc;">En honeypot er et falsk system designet til at lokke hackere til. Cowrie er en anerkendt SSH/Telnet honeypot der logger alle angriberens kommandoer. Dette giver Cyber Defense centret tidlig varsling (Early Warning) om et angreb.</span>
+          </div>
           <p class="desc text-amber">Deploy the official Cowrie SSH/Telnet honeypot. Streams raw attacker interaction logs.</p>
           <div class="cowrie-options" v-if="isAdmin">
             <input type="number" v-model="cowriePort" class="cowrie-input mt-2" placeholder="Port (default: 2223)" />

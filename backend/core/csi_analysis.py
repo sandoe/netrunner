@@ -18,19 +18,18 @@ import math
 import time
 from collections import deque, defaultdict
 
-
 # --- analysis tuning -------------------------------------------------------
-WINDOW_SECONDS = 18.0          # rolling history kept per node
-MOTION_WINDOW = 1.2            # seconds used for the motion estimate
-MIN_VITALS_SECONDS = 10.0      # need this much history before estimating vitals
-RESAMPLE_FS = 10.0             # uniform grid (Hz) for the vitals FFT/Goertzel
+WINDOW_SECONDS = 18.0  # rolling history kept per node
+MOTION_WINDOW = 1.2  # seconds used for the motion estimate
+MIN_VITALS_SECONDS = 10.0  # need this much history before estimating vitals
+RESAMPLE_FS = 10.0  # uniform grid (Hz) for the vitals FFT/Goertzel
 
-BREATHING_BAND = (0.1, 0.6)    # Hz  (6 - 36 breaths / min)
-HEART_BAND = (0.8, 2.0)        # Hz  (48 - 120 beats / min)
+BREATHING_BAND = (0.1, 0.6)  # Hz  (6 - 36 breaths / min)
+HEART_BAND = (0.8, 2.0)  # Hz  (48 - 120 beats / min)
 
 # motion score (mean per-subcarrier std over MOTION_WINDOW) above this => motion
 MOTION_THRESHOLD = 1.5
-MOTION_FULLSCALE = 12.0        # score mapped to motion_level == 1.0
+MOTION_FULLSCALE = 12.0  # score mapped to motion_level == 1.0
 
 
 class _NodeBuffer:

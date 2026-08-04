@@ -9,6 +9,7 @@ from ..core.session import session_manager
 
 mcp = FastMCP("Netrunner")
 
+
 @mcp.tool()
 async def gns3_list_projects() -> List[Dict[str, Any]]:
     """List all available GNS3 projects."""
@@ -17,6 +18,7 @@ async def gns3_list_projects() -> List[Dict[str, Any]]:
     except Exception as e:
         return [{"error": str(e)}]
 
+
 @mcp.tool()
 async def gns3_list_nodes(project_id: str) -> List[Dict[str, Any]]:
     """List all nodes in a specific GNS3 project."""
@@ -24,6 +26,7 @@ async def gns3_list_nodes(project_id: str) -> List[Dict[str, Any]]:
         return await _gns3_req("GET", f"/projects/{project_id}/nodes")
     except Exception as e:
         return [{"error": str(e)}]
+
 
 @mcp.tool()
 async def gns3_start_node(project_id: str, node_id: str) -> Dict[str, Any]:
@@ -34,6 +37,7 @@ async def gns3_start_node(project_id: str, node_id: str) -> Dict[str, Any]:
     except Exception as e:
         return {"error": str(e)}
 
+
 @mcp.tool()
 async def gns3_stop_node(project_id: str, node_id: str) -> Dict[str, Any]:
     """Stop a specific node in a GNS3 project."""
@@ -43,6 +47,7 @@ async def gns3_stop_node(project_id: str, node_id: str) -> Dict[str, Any]:
     except Exception as e:
         return {"error": str(e)}
 
+
 @mcp.tool()
 async def netrunner_list_agents() -> Dict[str, Any]:
     """List all agents/nodes known to Netrunner."""
@@ -51,6 +56,7 @@ async def netrunner_list_agents() -> Dict[str, Any]:
         return nodes
     except Exception as e:
         return {"error": str(e)}
+
 
 @mcp.tool()
 async def netrunner_execute_command(node_id: str, command: str) -> Dict[str, Any]:
@@ -64,6 +70,7 @@ async def netrunner_execute_command(node_id: str, command: str) -> Dict[str, Any
         return {"stdout": out, "stderr": err, "exit_code": code}
     except Exception as e:
         return {"error": str(e)}
+
 
 # The Starlette app can be mounted directly into FastAPI
 mcp_app = mcp.sse_app()

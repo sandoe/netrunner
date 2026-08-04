@@ -1,4 +1,5 @@
 """Node CRUD + execute + read + capture + backup API endpoints."""
+
 from __future__ import annotations
 
 import base64
@@ -10,33 +11,40 @@ import zipfile
 from collections import Counter
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
+from typing import Optional, List, Dict, Any
 
 from fastapi import APIRouter, HTTPException, Response, Depends
 from fastapi.responses import FileResponse
 import redis.asyncio as redis
-from .auth import require_admin
+from .auth import require_admin, get_current_user
 from pydantic import BaseModel, field_validator
 
 from ..core.session import session_manager
-from ..core.vault import store_credentials, load_credentials, delete_credentials, has_credentials
+from ..core.vault import (
+    store_credentials,
+    load_credentials,
+    delete_credentials,
+    has_credentials,
+)
 from ..core.detect import detect_device_type, detect_package_manager
 from ..core.db import load_nodes_db, save_node_db, delete_node_db
+from ..services.node_service import NodeService
 
 router = APIRouter()
 
-DATA_DIR    = Path("data")
+DATA_DIR = Path("data")
 CONFIGS_DIR = DATA_DIR / "configs"
 CAPTURES_DIR = DATA_DIR / "captures"
-EXPORTS_DIR  = DATA_DIR / "exports"
+EXPORTS_DIR = DATA_DIR / "exports"
 
 
 # ---------------------------------------------------------------------------
 # Data helpers
 # ---------------------------------------------------------------------------
 
+
 async def load_nodes() -> dict:
-    return await load_nodes_db()
+    return await NodeService.get_all_nodes()
 
 
 async def save_nodes(nodes: dict) -> None:
@@ -45,27 +53,11 @@ async def save_nodes(nodes: dict) -> None:
 
 
 async def _node_public(nid: str, node: dict) -> dict:
-    return {
-        "id": nid,
-        "name": node.get("name"),
-        "host": node.get("host"),
-        "port": node.get("port"),
-        "username": node.get("username"),
-        "transport": node.get("transport", "telnet"),
-        "device_type": node.get("device_type", "unknown"),
-        "has_password": await has_credentials(nid),
-        "created": node.get("created"),
-        "tags": node.get("tags", []),
-        "metadata": node.get("metadata", {}),
-    }
+    return await NodeService.get_node_public(nid, node)
 
 
 async def _get_node_with_creds(nid: str, nodes: dict) -> dict:
-    node = dict(nodes[nid])
-    username, password = await load_credentials(nid)
-    node["username"] = username or "root"
-    node["password"] = password
-    return node
+    return await NodeService.get_node_with_creds(nid, nodes)
 
 
 def _safe_name(value: str, fallback: str = "file") -> str:
@@ -79,83 +71,128 @@ def _safe_name(value: str, fallback: str = "file") -> str:
 
 READ_CMDS: dict[str, list[str]] = {
     # Network
-    "ip":           ["ip addr show"],
-    "routes":       ["ip route show", "ip -6 route show 2>/dev/null"],
-    "interfaces":   ["ip link show"],
-    "neighbors":    ["ip neigh show 2>/dev/null || echo '(neighbor table unavailable)'"],
-    "sockets":      ["ss -tulpn 2>/dev/null || netstat -tulpn 2>/dev/null || echo '(ss/netstat unavailable)'"],
-    "resolver":     ["cat /etc/resolv.conf 2>/dev/null || echo '(resolv.conf unavailable)'"],
-    "nftables":     ["nft list ruleset 2>/dev/null || echo '(nftables empty or not available)'"],
-    "iptables":     ["iptables-save 2>/dev/null || iptables -S 2>/dev/null || echo '(iptables not available)'"],
-    "ufw":          ["ufw status verbose 2>/dev/null || echo '(ufw not available)'"],
-    "wireguard":    ["wg show 2>/dev/null || wg 2>/dev/null || echo '(WireGuard not running)'"],
-    "forwarding":   ["sysctl net.ipv4.ip_forward net.ipv6.conf.all.forwarding 2>/dev/null || echo '(sysctl unavailable)'"],
-    "vlan-router":  ["ip -d link show type vlan 2>/dev/null || echo '(no VLAN sub-interfaces)'"],
-    "vlan-switch":  [
+    "ip": ["ip addr show"],
+    "routes": ["ip route show", "ip -6 route show 2>/dev/null"],
+    "interfaces": ["ip link show"],
+    "neighbors": ["ip neigh show 2>/dev/null || echo '(neighbor table unavailable)'"],
+    "sockets": [
+        "ss -tulpn 2>/dev/null || netstat -tulpn 2>/dev/null || echo '(ss/netstat unavailable)'"
+    ],
+    "resolver": [
+        "cat /etc/resolv.conf 2>/dev/null || echo '(resolv.conf unavailable)'"
+    ],
+    "nftables": [
+        "echo '=== ACTIVE IN RAM (nft list ruleset) ==='",
+        "if command -v sudo >/dev/null 2>&1; then sudo nft list ruleset 2>/dev/null; else nft list ruleset 2>/dev/null; fi || echo '(nftables empty or not available)'",
+        "echo ''",
+        "echo '=== SAVED ON DISK (/etc/nftables.conf) ==='",
+        "if command -v sudo >/dev/null 2>&1; then sudo cat /etc/nftables.conf 2>/dev/null; else cat /etc/nftables.conf 2>/dev/null; fi || echo '(File /etc/nftables.conf not found)'"
+    ],
+    "iptables": [
+        "iptables-save 2>/dev/null || iptables -S 2>/dev/null || echo '(iptables not available)'"
+    ],
+    "ufw": ["ufw status verbose 2>/dev/null || echo '(ufw not available)'"],
+    "wireguard": [
+        "wg show 2>/dev/null || wg 2>/dev/null || echo '(WireGuard not running)'"
+    ],
+    "forwarding": [
+        "sysctl net.ipv4.ip_forward net.ipv6.conf.all.forwarding 2>/dev/null || echo '(sysctl unavailable)'"
+    ],
+    "vlan-router": [
+        "ip -d link show type vlan 2>/dev/null || echo '(no VLAN sub-interfaces)'"
+    ],
+    "vlan-switch": [
         "ip -d link show type bridge 2>/dev/null || echo '(no bridges)'",
         "bridge vlan show 2>/dev/null || echo '(bridge vlan unavailable)'",
     ],
-    "dns-service":  [
+    "dns-service": [
         "cat /etc/resolv.conf 2>/dev/null || echo '(resolv.conf unavailable)'",
         "sed -n '/# BEGIN NETRUNNER HOSTS/,/# END NETRUNNER HOSTS/p' /etc/hosts 2>/dev/null",
     ],
-    "dhcp-server":  [
+    "dhcp-server": [
         "cat /etc/dnsmasq.d/netrunner-dhcp.conf 2>/dev/null || echo '(dnsmasq config not found)'",
         "cat /var/lib/misc/dnsmasq.leases 2>/dev/null || echo '(no DHCP leases yet)'",
     ],
-    "nat":          [
+    "nat": [
         "iptables -S NR_FORWARD 2>/dev/null || echo '(no NR_FORWARD chain yet)'",
         "iptables -t nat -S NR_NAT 2>/dev/null || echo '(no NR_NAT chain yet)'",
     ],
-    "if-stats":     ["ip -s link show"],
-    "wifi-scan":    ["nmcli -t -f SSID,SIGNAL,SECURITY dev wifi list 2>/dev/null || iwlist scan 2>/dev/null | grep -E 'ESSID|Signal|Encryption' || echo '(WiFi tools not available)'"],
-    "nmap-scan":    ["nmap -T4 -F 127.0.0.1 2>/dev/null || echo '(nmap not installed)'"],
-    "docker":       [
+    "if-stats": ["ip -s link show"],
+    "wifi-scan": [
+        "nmcli -t -f SSID,SIGNAL,SECURITY dev wifi list 2>/dev/null || iwlist scan 2>/dev/null | grep -E 'ESSID|Signal|Encryption' || echo '(WiFi tools not available)'"
+    ],
+    "nmap-scan": ["nmap -T4 -F 127.0.0.1 2>/dev/null || echo '(nmap not installed)'"],
+    "docker": [
         "docker info 2>/dev/null || sudo -n docker info 2>/dev/null || echo '(Docker daemon not running or not installed)'",
-        "echo -e 'CONTAINER ID\\tNAMES\\tIMAGE\\tSTATUS\\tPORTS' && (docker ps -a --format '{{.ID}}{{printf \"\\t\"}}{{.Names}}{{printf \"\\t\"}}{{.Image}}{{printf \"\\t\"}}{{.Status}}{{printf \"\\t\"}}{{.Ports}}' 2>/dev/null || sudo -n docker ps -a --format '{{.ID}}{{printf \"\\t\"}}{{.Names}}{{printf \"\\t\"}}{{.Image}}{{printf \"\\t\"}}{{.Status}}{{printf \"\\t\"}}{{.Ports}}' 2>/dev/null || echo '(No containers)')",
-        "echo -e 'CONTAINER\\tNAME\\tCPU\\tMEM\\tNET' && (docker stats --no-stream --format '{{.Container}}{{printf \"\\t\"}}{{.Name}}{{printf \"\\t\"}}{{.CPUPerc}}{{printf \"\\t\"}}{{.MemUsage}}{{printf \"\\t\"}}{{.NetIO}}' 2>/dev/null || sudo -n docker stats --no-stream --format '{{.Container}}{{printf \"\\t\"}}{{.Name}}{{printf \"\\t\"}}{{.CPUPerc}}{{printf \"\\t\"}}{{.MemUsage}}{{printf \"\\t\"}}{{.NetIO}}' 2>/dev/null || echo '(Stats unavailable)')",
+        'echo -e \'CONTAINER ID\\tNAMES\\tIMAGE\\tSTATUS\\tPORTS\' && (docker ps -a --format \'{{.ID}}{{printf "\\t"}}{{.Names}}{{printf "\\t"}}{{.Image}}{{printf "\\t"}}{{.Status}}{{printf "\\t"}}{{.Ports}}\' 2>/dev/null || sudo -n docker ps -a --format \'{{.ID}}{{printf "\\t"}}{{.Names}}{{printf "\\t"}}{{.Image}}{{printf "\\t"}}{{.Status}}{{printf "\\t"}}{{.Ports}}\' 2>/dev/null || echo \'(No containers)\')',
+        'echo -e \'CONTAINER\\tNAME\\tCPU\\tMEM\\tNET\' && (docker stats --no-stream --format \'{{.Container}}{{printf "\\t"}}{{.Name}}{{printf "\\t"}}{{.CPUPerc}}{{printf "\\t"}}{{.MemUsage}}{{printf "\\t"}}{{.NetIO}}\' 2>/dev/null || sudo -n docker stats --no-stream --format \'{{.Container}}{{printf "\\t"}}{{.Name}}{{printf "\\t"}}{{.CPUPerc}}{{printf "\\t"}}{{.MemUsage}}{{printf "\\t"}}{{.NetIO}}\' 2>/dev/null || echo \'(Stats unavailable)\')',
         "echo -e 'NETWORK ID\\tNAME\\tDRIVER' && (docker network ls --format '{{.ID}}{{printf \"\\t\"}}{{.Name}}{{printf \"\\t\"}}{{.Driver}}' 2>/dev/null || sudo -n docker network ls --format '{{.ID}}{{printf \"\\t\"}}{{.Name}}{{printf \"\\t\"}}{{.Driver}}' 2>/dev/null || echo '(Networks unavailable)')",
         "echo -e 'REPOSITORY\\tTAG\\tSIZE' && (docker images --format '{{.Repository}}{{printf \"\\t\"}}{{.Tag}}{{printf \"\\t\"}}{{.Size}}' 2>/dev/null || sudo -n docker images --format '{{.Repository}}{{printf \"\\t\"}}{{.Tag}}{{printf \"\\t\"}}{{.Size}}' 2>/dev/null || echo '(Images unavailable)')",
         "docker info --format '{{json .Swarm}}' 2>/dev/null || sudo -n docker info --format '{{json .Swarm}}' 2>/dev/null || echo '(Swarm info unavailable)'",
-        "echo -e 'NODE ID\\tHOSTNAME\\tSTATUS\\tAVAILABILITY\\tMANAGER STATUS' && (docker node ls --format '{{.ID}}{{printf \"\\t\"}}{{.Hostname}}{{printf \"\\t\"}}{{.Status}}{{printf \"\\t\"}}{{.Availability}}{{printf \"\\t\"}}{{.ManagerStatus}}' 2>/dev/null || sudo -n docker node ls --format '{{.ID}}{{printf \"\\t\"}}{{.Hostname}}{{printf \"\\t\"}}{{.Status}}{{printf \"\\t\"}}{{.Availability}}{{printf \"\\t\"}}{{.ManagerStatus}}' 2>/dev/null || echo '(Swarm node list unavailable)')",
-        "echo -e 'SERVICE ID\\tNAME\\tMODE\\tREPLICAS\\tIMAGE' && (docker service ls --format '{{.ID}}{{printf \"\\t\"}}{{.Name}}{{printf \"\\t\"}}{{.Mode}}{{printf \"\\t\"}}{{.Replicas}}{{printf \"\\t\"}}{{.Image}}' 2>/dev/null || sudo -n docker service ls --format '{{.ID}}{{printf \"\\t\"}}{{.Name}}{{printf \"\\t\"}}{{.Mode}}{{printf \"\\t\"}}{{.Replicas}}{{printf \"\\t\"}}{{.Image}}' 2>/dev/null || echo '(Swarm service list unavailable)')"
+        'echo -e \'NODE ID\\tHOSTNAME\\tSTATUS\\tAVAILABILITY\\tMANAGER STATUS\' && (docker node ls --format \'{{.ID}}{{printf "\\t"}}{{.Hostname}}{{printf "\\t"}}{{.Status}}{{printf "\\t"}}{{.Availability}}{{printf "\\t"}}{{.ManagerStatus}}\' 2>/dev/null || sudo -n docker node ls --format \'{{.ID}}{{printf "\\t"}}{{.Hostname}}{{printf "\\t"}}{{.Status}}{{printf "\\t"}}{{.Availability}}{{printf "\\t"}}{{.ManagerStatus}}\' 2>/dev/null || echo \'(Swarm node list unavailable)\')',
+        'echo -e \'SERVICE ID\\tNAME\\tMODE\\tREPLICAS\\tIMAGE\' && (docker service ls --format \'{{.ID}}{{printf "\\t"}}{{.Name}}{{printf "\\t"}}{{.Mode}}{{printf "\\t"}}{{.Replicas}}{{printf "\\t"}}{{.Image}}\' 2>/dev/null || sudo -n docker service ls --format \'{{.ID}}{{printf "\\t"}}{{.Name}}{{printf "\\t"}}{{.Mode}}{{printf "\\t"}}{{.Replicas}}{{printf "\\t"}}{{.Image}}\' 2>/dev/null || echo \'(Swarm service list unavailable)\')',
     ],
-
     # Linux system
-    "services":     ["systemctl list-units --type=service --state=running --no-pager 2>/dev/null || service --status-all 2>/dev/null || rc-status 2>/dev/null"],
-    "packages":     ["dpkg -l 2>/dev/null | tail -n +6 | head -50 || rpm -qa 2>/dev/null | head -50 || apk list --installed 2>/dev/null | head -50"],
-    "users":        ["cat /etc/passwd", "who 2>/dev/null || w 2>/dev/null || true"],
-    "groups":       ["cat /etc/group"],
-    "cron":         ["crontab -l 2>/dev/null || echo '(no crontab for root)'", "ls -la /etc/cron* 2>/dev/null || true"],
-    "logs":         ["journalctl -n 80 --no-pager 2>/dev/null || tail -n 80 /var/log/syslog 2>/dev/null || tail -n 80 /var/log/messages 2>/dev/null"],
-    "disk":         ["df -h", "lsblk 2>/dev/null || fdisk -l 2>/dev/null | head -30"],
-    "cpu":          ["lscpu 2>/dev/null || cat /proc/cpuinfo | head -30", "uptime"],
-    "memory":       ["free -h", "cat /proc/meminfo | head -10"],
-    "processes":    ["ps aux --sort=-%cpu 2>/dev/null | head -25 || ps aux | head -25"],
-    "os-info":      ["uname -a", "cat /etc/os-release 2>/dev/null || cat /etc/issue 2>/dev/null"],
-    "environment":  ["env | sort"],
-    "mounts":       ["mount | grep -v 'tmpfs\\|devpts\\|cgroup\\|sysfs\\|proc'", "cat /etc/fstab 2>/dev/null"],
-
+    "services": [
+        "systemctl list-units --type=service --state=running --no-pager 2>/dev/null || service --status-all 2>/dev/null || rc-status 2>/dev/null"
+    ],
+    "packages": [
+        "dpkg -l 2>/dev/null | tail -n +6 | head -50 || rpm -qa 2>/dev/null | head -50 || apk list --installed 2>/dev/null | head -50"
+    ],
+    "users": ["cat /etc/passwd", "who 2>/dev/null || w 2>/dev/null || true"],
+    "groups": ["cat /etc/group"],
+    "cron": [
+        "crontab -l 2>/dev/null || echo '(no crontab for root)'",
+        "ls -la /etc/cron* 2>/dev/null || true",
+    ],
+    "logs": [
+        "journalctl -n 80 --no-pager 2>/dev/null || tail -n 80 /var/log/syslog 2>/dev/null || tail -n 80 /var/log/messages 2>/dev/null"
+    ],
+    "disk": ["df -h", "lsblk 2>/dev/null || fdisk -l 2>/dev/null | head -30"],
+    "cpu": ["lscpu 2>/dev/null || cat /proc/cpuinfo | head -30", "uptime"],
+    "memory": ["free -h", "cat /proc/meminfo | head -10"],
+    "processes": ["ps aux --sort=-%cpu 2>/dev/null | head -25 || ps aux | head -25"],
+    "os-info": [
+        "uname -a",
+        "cat /etc/os-release 2>/dev/null || cat /etc/issue 2>/dev/null",
+    ],
+    "environment": ["env | sort"],
+    "mounts": [
+        "mount | grep -v 'tmpfs\\|devpts\\|cgroup\\|sysfs\\|proc'",
+        "cat /etc/fstab 2>/dev/null",
+    ],
     # Raspberry Pi
-    "rpi-config":   [f"cat /boot/firmware/config.txt 2>/dev/null || cat /boot/config.txt 2>/dev/null || echo '(config.txt not found)'"],
-    "rpi-gpio":     ["raspi-gpio get 2>/dev/null || gpio readall 2>/dev/null || echo '(gpio tools not available — install raspi-gpio or wiringpi)'"],
-    "rpi-temp":     [
+    "rpi-config": [
+        f"cat /boot/firmware/config.txt 2>/dev/null || cat /boot/config.txt 2>/dev/null || echo '(config.txt not found)'"
+    ],
+    "rpi-gpio": [
+        "raspi-gpio get 2>/dev/null || gpio readall 2>/dev/null || echo '(gpio tools not available — install raspi-gpio or wiringpi)'"
+    ],
+    "rpi-temp": [
         "vcgencmd measure_temp 2>/dev/null || cat /sys/class/thermal/thermal_zone0/temp 2>/dev/null | awk '{printf \"temp=%.1f C\\n\", $1/1000}'",
         "vcgencmd get_throttled 2>/dev/null || true",
     ],
-    "rpi-i2c":      ["i2cdetect -l 2>/dev/null", "i2cdetect -y 1 2>/dev/null || echo '(I2C bus 1 not available)'"],
-    "rpi-spi":      ["ls /dev/spidev* 2>/dev/null || echo '(SPI not enabled)'", "lsmod | grep spi"],
-    "rpi-camera":   ["vcgencmd get_camera 2>/dev/null || libcamera-hello --list-cameras 2>/dev/null || echo '(camera tools not available)'"],
-    "rpi-clocks":   [
+    "rpi-i2c": [
+        "i2cdetect -l 2>/dev/null",
+        "i2cdetect -y 1 2>/dev/null || echo '(I2C bus 1 not available)'",
+    ],
+    "rpi-spi": [
+        "ls /dev/spidev* 2>/dev/null || echo '(SPI not enabled)'",
+        "lsmod | grep spi",
+    ],
+    "rpi-camera": [
+        "vcgencmd get_camera 2>/dev/null || libcamera-hello --list-cameras 2>/dev/null || echo '(camera tools not available)'"
+    ],
+    "rpi-clocks": [
         "vcgencmd measure_clock arm 2>/dev/null || true",
         "vcgencmd measure_clock core 2>/dev/null || true",
         "vcgencmd measure_clock v3d 2>/dev/null || true",
     ],
-    "rpi-voltage":  [
+    "rpi-voltage": [
         "vcgencmd measure_volts core 2>/dev/null || true",
         "vcgencmd measure_volts sdram_c 2>/dev/null || true",
     ],
-    "rpi-info":     [
+    "rpi-info": [
         "uname -a",
         "cat /proc/cpuinfo | grep -E 'Model|Hardware|Revision|Serial'",
         "vcgencmd measure_temp 2>/dev/null || cat /sys/class/thermal/thermal_zone0/temp | awk '{printf \"temp=%.1f C\\n\", $1/1000}' 2>/dev/null",
@@ -170,6 +207,7 @@ READ_CMDS: dict[str, list[str]] = {
 # ---------------------------------------------------------------------------
 # Pydantic models
 # ---------------------------------------------------------------------------
+
 
 class NodeCreate(BaseModel):
     name: str
@@ -209,104 +247,51 @@ class NodeUpdate(NodeCreate):
 # Routes
 # ---------------------------------------------------------------------------
 
+
 @router.get("/nodes")
 async def api_nodes():
-    nodes = await load_nodes()
-    return {nid: await _node_public(nid, n) for nid, n in nodes.items()}
+    nodes = await NodeService.get_all_nodes()
+    return {nid: await NodeService.get_node_public(nid, n) for nid, n in nodes.items()}
 
 
 @router.post("/nodes", status_code=201)
 async def api_nodes_create(body: NodeCreate):
-    from ..core.cti import get_ip_geolocation
-    
-    nodes = await load_nodes()
-    nid   = f"n{int(time.time() * 1000)}"
-    
-    # Geolocate the node host
-    geo = await get_ip_geolocation(body.host, default_name=body.name)
-    
-    node  = {
-        "id":          nid,
-        "name":        body.name,
-        "host":        body.host,
-        "port":        body.port,
-        "username":    body.username,
-        "transport":   body.transport,
-        "device_type": body.device_type,
-        "tags":        body.tags,
-        "created":     datetime.now().isoformat(),
-        "metadata":    {"lat": geo["lat"], "lng": geo["lng"], "city": geo["name"]}
-    }
-    nodes[nid] = node
-    await save_nodes(nodes)
-    await store_credentials(nid, body.username, body.password)
-    return await _node_public(nid, node)
+    nid, node = await NodeService.create_node(body.model_dump())
+    return await NodeService.get_node_public(nid, node)
 
 
 @router.put("/nodes/{nid}")
 async def api_node_update(nid: str, body: NodeUpdate):
-    from ..core.cti import get_ip_geolocation
-    
-    nodes = await load_nodes()
-    if nid not in nodes:
-        raise HTTPException(404, "Not found")
-    node = nodes[nid]
-    
-    if body.name        is not None: node["name"]        = body.name
-    if body.host        is not None: 
-        if body.host != node.get("host"):
-            geo = await get_ip_geolocation(body.host, default_name=node.get("name", "Unknown"))
-            if "metadata" not in node:
-                node["metadata"] = {}
-            node["metadata"]["lat"] = geo["lat"]
-            node["metadata"]["lng"] = geo["lng"]
-            node["metadata"]["city"] = geo["name"]
-        node["host"] = body.host
-        
-    if body.port        is not None: node["port"]        = body.port
-    if body.transport   is not None: node["transport"]   = body.transport
-    if body.device_type is not None: node["device_type"] = body.device_type
-    if body.tags        is not None: node["tags"]        = body.tags
-    if body.username is not None or body.password is not None:
-        old_user, old_pass = await load_credentials(nid)
-        new_user = body.username if body.username is not None else old_user
-        new_pass = body.password if body.password is not None else old_pass
-        
-        # If user explicitly updates, always save
-        await store_credentials(nid, new_user, new_pass)
-        if body.username is not None:
-            node["username"] = body.username
-    await save_nodes(nodes)
-    return await _node_public(nid, node)
+    try:
+        node = await NodeService.update_node(nid, body.model_dump(exclude_unset=True))
+        return await NodeService.get_node_public(nid, node)
+    except ValueError as e:
+        if str(e) == "Node not found":
+            raise HTTPException(404, "Not found")
+        raise HTTPException(400, str(e))
+
 
 @router.delete("/nodes/{nid}")
-async def api_node_delete(nid: str):
-    nodes = await load_nodes()
-    nodes.pop(nid, None)
-    await delete_node_db(nid)
-    session_manager.close(nid)
-    await delete_credentials(nid)
+async def api_node_delete(nid: str, current_user: dict = Depends(get_current_user)):
+    nodes = await NodeService.get_all_nodes()
+    if nid not in nodes:
+        raise HTTPException(status_code=404, detail="Node not found")
+
+    node = nodes[nid]
+    role = current_user.get("role", "student")
+
+    if role != "admin":
+        device_type = str(node.get("device_type", "")).lower()
+        if device_type not in ["gns3", "rpi", "raspberry pi", "raspberry_pi"]:
+            raise HTTPException(status_code=403, detail="You do not have permission to delete this node type.")
+
+    await NodeService.delete_node(nid)
     return {"ok": True}
+
 
 @router.post("/nodes/nuke-all", dependencies=[Depends(require_admin)])
 async def api_nuke_all_nodes():
-    nodes = await load_nodes()
-    import subprocess
-    import shlex
-    
-    # 1. Kill any docker containers associated with nodes, or test containers
-    for nid, node in list(nodes.items()):
-        if node.get("transport") == "docker" and node.get("host"):
-            subprocess.run(f"docker rm -f {shlex.quote(node['host'])} 2>/dev/null || true", shell=True)
-        # Delete from DB
-        await delete_node_db(nid)
-        session_manager.close(nid)
-        await delete_credentials(nid)
-        
-    # Also nuke generic test switches just in case
-    cmd = "docker rm -f $(docker ps -a -q -f name=test-sw -f name=netrunner-sw) 2>/dev/null || true"
-    subprocess.run(cmd, shell=True, check=False)
-    
+    await NodeService.nuke_all_nodes()
     return {"ok": True, "message": "Nuked all nodes and test containers"}
 
 
@@ -314,6 +299,7 @@ async def api_nuke_all_nodes():
 async def api_events():
     """Recent infrastructure events/alerts (reachability, CPU/RAM thresholds)."""
     from ..core.events import recent_events
+
     return {"events": recent_events()}
 
 
@@ -321,6 +307,7 @@ async def api_events():
 async def api_clear_events():
     """Clear the event/alert feed."""
     from ..core.events import clear_events
+
     return {"status": "cleared", "removed": clear_events()}
 
 
@@ -340,37 +327,74 @@ async def _run_demo_storm():
             src = random.choice(CITIES)
             tgt = await get_ip_geolocation("10.0.0.1", default_name=node)
             tech = _infer_technique(msg)
-            await cti_queue.put({
-                "id": f"storm_{int(_t.time()*1000)}_{random.randint(1000,9999)}",
-                "timestamp": _t.time(),
-                "source": {"ip": f"{random.randint(11,223)}.{random.randint(0,255)}.{random.randint(0,255)}.{random.randint(1,254)}",
-                           "city": src["name"], "lat": src["lat"], "lng": src["lng"]},
-                "target": {"ip": "10.0.0.1", "city": f"{node} ({tgt['name']})", "lat": tgt["lat"], "lng": tgt["lng"]},
-                "type": (tech["name"] if tech else msg)[:48],
-                "severity": _sevmap.get(sev, "medium"),
-                "targeted": True,
-                "technique": tech,
-            })
+            await cti_queue.put(
+                {
+                    "id": f"storm_{int(_t.time()*1000)}_{random.randint(1000,9999)}",
+                    "timestamp": _t.time(),
+                    "source": {
+                        "ip": f"{random.randint(11,223)}.{random.randint(0,255)}.{random.randint(0,255)}.{random.randint(1,254)}",
+                        "city": src["name"],
+                        "lat": src["lat"],
+                        "lng": src["lng"],
+                    },
+                    "target": {
+                        "ip": "10.0.0.1",
+                        "city": f"{node} ({tgt['name']})",
+                        "lat": tgt["lat"],
+                        "lng": tgt["lng"],
+                    },
+                    "type": (tech["name"] if tech else msg)[:48],
+                    "severity": _sevmap.get(sev, "medium"),
+                    "targeted": True,
+                    "technique": tech,
+                }
+            )
         except Exception:
             pass
+
     seq = [
-        (0.0, "warning",  "EDGE-02",  "Recon: external port sweep / service enumeration detected"),
-        (2.0, "critical", "EDGE-02",  "Exploit attempt on public-facing service — unauthorized access"),
-        (2.2, "warning",  "EDGE-02",  "Brute force / credential spray against SSH"),
-        (2.5, "critical", "PC-1",     "Malware payload / script execution on PC-1"),
-        (2.2, "warning",  "PC-1",     "Privilege escalation to root detected"),
-        (2.2, "warning",  "PC-1",     "Defense evasion: attempt to clear logs / disable agent"),
-        (2.5, "critical", "DB-01",    "Lateral movement PC-1 → DB-01 via remote services (SMB)"),
-        (2.2, "warning",  "DB-01",    "Credential dumping / hash harvest on DB-01"),
-        (2.5, "critical", "DB-01",    "Data staged and exfiltration over C2 BLOCKED"),
-        (2.2, "critical", "PERIM-01", "Network denial of service — perimeter uplink lost"),
-        (2.5, "info",     "SOAR",     "SOAR playbook engaged — isolating PC-1"),
-        (2.5, "info",     "NETRUNNER","Threat contained — all systems nominal"),
+        (
+            0.0,
+            "warning",
+            "EDGE-02",
+            "Recon: external port sweep / service enumeration detected",
+        ),
+        (
+            2.0,
+            "critical",
+            "EDGE-02",
+            "Exploit attempt on public-facing service — unauthorized access",
+        ),
+        (2.2, "warning", "EDGE-02", "Brute force / credential spray against SSH"),
+        (2.5, "critical", "PC-1", "Malware payload / script execution on PC-1"),
+        (2.2, "warning", "PC-1", "Privilege escalation to root detected"),
+        (
+            2.2,
+            "warning",
+            "PC-1",
+            "Defense evasion: attempt to clear logs / disable agent",
+        ),
+        (
+            2.5,
+            "critical",
+            "DB-01",
+            "Lateral movement PC-1 → DB-01 via remote services (SMB)",
+        ),
+        (2.2, "warning", "DB-01", "Credential dumping / hash harvest on DB-01"),
+        (2.5, "critical", "DB-01", "Data staged and exfiltration over C2 BLOCKED"),
+        (
+            2.2,
+            "critical",
+            "PERIM-01",
+            "Network denial of service — perimeter uplink lost",
+        ),
+        (2.5, "info", "SOAR", "SOAR playbook engaged — isolating PC-1"),
+        (2.5, "info", "NETRUNNER", "Threat contained — all systems nominal"),
     ]
     for delay, sev, node, msg in seq:
         await asyncio.sleep(delay)
         record_event(sev, "demo", node, "demo", msg)
-        if sev != "info":   # fire a matching attack arc on the globe
+        if sev != "info":  # fire a matching attack arc on the globe
             await _arc(sev, node, msg)
 
 
@@ -378,6 +402,7 @@ async def _run_demo_storm():
 async def api_demo_storm(admin: dict = Depends(require_admin)):
     """Kick off the demo incident (fire-and-forget)."""
     import asyncio
+
     asyncio.create_task(_run_demo_storm())
     return {"status": "storm_started"}
 
@@ -386,6 +411,7 @@ async def api_demo_storm(admin: dict = Depends(require_admin)):
 async def api_node_reachability():
     """Latest TCP-reachability probe per node (reachable + connect latency)."""
     from ..core.reachability import reach_status
+
     return reach_status
 
 
@@ -393,6 +419,7 @@ async def api_node_reachability():
 async def api_node_vitals():
     """Latest real CPU/RAM/net vitals per node (from the telemetry poller)."""
     from ..core.telemetry import node_vitals
+
     return node_vitals
 
 
@@ -401,7 +428,9 @@ async def api_node_system_snapshot(nid: str):
     """Live system snapshot for the SYSTEM tab: load, uptime, disk, top
     processes, hostname/kernel — plus CPU/RAM from the telemetry vitals."""
     from ..core.session import session_manager
-    from ..core.telemetry import node_vitals
+    from ..core.telemetry import node_vitals, active_monitoring
+    import time
+
     nodes = await load_nodes()
     if nid not in nodes:
         raise HTTPException(404, "Node not found")
@@ -409,6 +438,15 @@ async def api_node_system_snapshot(nid: str):
         return {"connected": False}
 
     node = await _get_node_with_creds(nid, nodes)
+
+    # Mark as actively monitored by the frontend
+    active_monitoring[nid] = time.time()
+
+    # Do not poll telemetry over Telnet, because it shares a single serial console
+    # and background commands will pollute the terminal screen for the user.
+    if node.get("transport", "ssh").lower() == "telnet":
+        return {"connected": True, "error": "Telemetry disabled for Telnet to prevent console spam"}
+
     cmds = [
         "cat /proc/loadavg",
         "cat /proc/uptime",
@@ -439,7 +477,12 @@ async def api_node_system_snapshot(nid: str):
     # disk (root)
     try:
         f = out(2).split()
-        snap["disk"] = {"used_pct": int(f[4].rstrip("%")), "size": f[1], "used": f[2], "avail": f[3]}
+        snap["disk"] = {
+            "used_pct": int(f[4].rstrip("%")),
+            "size": f[1],
+            "used": f[2],
+            "avail": f[3],
+        }
     except Exception:
         snap["disk"] = None
     # top processes (pid user cpu mem comm)
@@ -448,7 +491,15 @@ async def api_node_system_snapshot(nid: str):
         p = line.split(None, 4)
         if len(p) == 5:
             try:
-                procs.append({"pid": int(p[0]), "user": p[1], "cpu": float(p[2]), "mem": float(p[3]), "cmd": p[4]})
+                procs.append(
+                    {
+                        "pid": int(p[0]),
+                        "user": p[1],
+                        "cpu": float(p[2]),
+                        "mem": float(p[3]),
+                        "cmd": p[4],
+                    }
+                )
             except Exception:
                 pass
     snap["processes"] = procs
@@ -464,6 +515,7 @@ async def api_node_system_snapshot(nid: str):
 
 async def _node_run_one(nid: str, cmd: str):
     from ..core.session import session_manager
+
     nodes = await load_nodes()
     if nid not in nodes:
         raise HTTPException(404, "Node not found")
@@ -478,22 +530,28 @@ async def _node_run_one(nid: str, cmd: str):
 
 class KillRequest(BaseModel):
     pid: int
-    signal: str = "TERM"   # TERM | KILL
+    signal: str = "TERM"  # TERM | KILL
+
 
 @router.post("/nodes/{nid}/system/kill")
 async def api_node_kill(nid: str, body: KillRequest):
     sig = "KILL" if body.signal.upper() == "KILL" else "TERM"
-    out, err = await _node_run_one(nid, f"kill -{sig} {int(body.pid)} 2>&1 || sudo -n kill -{sig} {int(body.pid)} 2>&1")
+    out, err = await _node_run_one(
+        nid,
+        f"kill -{sig} {int(body.pid)} 2>&1 || sudo -n kill -{sig} {int(body.pid)} 2>&1",
+    )
     return {"status": "ok", "pid": body.pid, "signal": sig, "output": out, "error": err}
 
 
 @router.get("/nodes/{nid}/system/logs")
 async def api_node_logs(nid: str, lines: int = 120):
     n = max(10, min(500, int(lines)))
-    cmd = (f"journalctl -n {n} --no-pager 2>/dev/null "
-           f"|| tail -n {n} /var/log/syslog 2>/dev/null "
-           f"|| tail -n {n} /var/log/messages 2>/dev/null "
-           f"|| dmesg | tail -n {n}")
+    cmd = (
+        f"journalctl -n {n} --no-pager 2>/dev/null "
+        f"|| tail -n {n} /var/log/syslog 2>/dev/null "
+        f"|| tail -n {n} /var/log/messages 2>/dev/null "
+        f"|| dmesg | tail -n {n}"
+    )
     out, err = await _node_run_one(nid, cmd)
     return {"lines": out.split("\n") if out else [], "error": err}
 
@@ -502,21 +560,28 @@ async def api_node_logs(nid: str, lines: int = 120):
 async def api_node_services(nid: str):
     out, err = await _node_run_one(
         nid,
-        "systemctl list-units --type=service --all --no-pager --no-legend --plain 2>/dev/null | head -80")
+        "systemctl list-units --type=service --all --no-pager --no-legend --plain 2>/dev/null | head -80",
+    )
     services = []
     for line in (out or "").splitlines():
         f = line.split(None, 4)
         if len(f) >= 4 and f[0].endswith(".service"):
-            services.append({
-                "name": f[0][:-8], "load": f[1], "active": f[2], "sub": f[3],
-                "desc": f[4] if len(f) > 4 else "",
-            })
+            services.append(
+                {
+                    "name": f[0][:-8],
+                    "load": f[1],
+                    "active": f[2],
+                    "sub": f[3],
+                    "desc": f[4] if len(f) > 4 else "",
+                }
+            )
     return {"services": services, "error": err if not services else None}
 
 
 class ServiceAction(BaseModel):
     name: str
-    action: str   # start | stop | restart
+    action: str  # start | stop | restart
+
 
 @router.post("/nodes/{nid}/system/service")
 async def api_node_service_action(nid: str, body: ServiceAction):
@@ -524,8 +589,16 @@ async def api_node_service_action(nid: str, body: ServiceAction):
         raise HTTPException(400, "Invalid action")
     svc = re.sub(r"[^a-zA-Z0-9._@-]", "", body.name)
     out, err = await _node_run_one(
-        nid, f"sudo -n systemctl {body.action} {svc} 2>&1 || systemctl {body.action} {svc} 2>&1")
-    return {"status": "ok", "service": svc, "action": body.action, "output": out, "error": err}
+        nid,
+        f"sudo -n systemctl {body.action} {svc} 2>&1 || systemctl {body.action} {svc} 2>&1",
+    )
+    return {
+        "status": "ok",
+        "service": svc,
+        "action": body.action,
+        "output": out,
+        "error": err,
+    }
 
 
 @router.get("/nodes/connections")
@@ -553,7 +626,9 @@ async def api_node_disconnect(nid: str):
     return {"ok": True}
 
 
-async def _discover_gns3_node_details(node: dict) -> tuple[Optional[str], Optional[str], Optional[int]]:
+async def _discover_gns3_node_details(
+    node: dict,
+) -> tuple[Optional[str], Optional[str], Optional[int]]:
     """Discover (project_id, node_id, console_port) for a GNS3 node.
 
     Matches by console port first, then falls back to the node name — GNS3
@@ -562,6 +637,7 @@ async def _discover_gns3_node_details(node: dict) -> tuple[Optional[str], Option
     Returns (None, None, None) if nothing matches.
     """
     from .gns3 import _gns3_req
+
     port = node.get("port")
     node_name = node.get("name", "").strip().lower()
     try:
@@ -569,8 +645,8 @@ async def _discover_gns3_node_details(node: dict) -> tuple[Optional[str], Option
         if not projects:
             return None, None, None
 
-        port_match = None   # console port matches
-        name_match = None   # name matches (port may have drifted)
+        port_match = None  # console port matches
+        name_match = None  # name matches (port may have drifted)
 
         # Only consider OPENED projects: closed projects can't be queried
         # (GNS3 returns 403) and their console ports may be stale, leading to
@@ -586,7 +662,7 @@ async def _discover_gns3_node_details(node: dict) -> tuple[Optional[str], Option
                 proj_nodes = await _gns3_req("GET", f"/projects/{proj_id}/nodes")
             except Exception:
                 continue
-            for gn in (proj_nodes or []):
+            for gn in proj_nodes or []:
                 gn_name = gn.get("name", "").strip().lower()
                 gn_console = gn.get("console")
                 # Best possible: both name and console port match
@@ -611,27 +687,30 @@ async def api_node_reboot(nid: str, body: Optional[dict] = None):
     if nid not in nodes:
         raise HTTPException(404, "Not found")
     node = await _get_node_with_creds(nid, nodes)
-    
+
     body = body or {}
     method = body.get("method", "command")
-    
+
     if method == "gns3":
         # Check metadata for GNS3 IDs, otherwise perform dynamic auto-discovery
         gns3_meta = node.get("metadata", {}).get("gns3", {})
         project_id = gns3_meta.get("project_id")
         node_id = gns3_meta.get("node_id")
-        
+
         force_rediscover = False
         if project_id and node_id:
             # Self-healing verification: test if project/node is active and accessible
             from .gns3 import _gns3_req
+
             try:
                 await _gns3_req("GET", f"/projects/{project_id}/nodes/{node_id}")
             except Exception:
                 force_rediscover = True
-                
+
         if not project_id or not node_id or force_rediscover:
-            new_project_id, new_node_id, new_console = await _discover_gns3_node_details(node)
+            new_project_id, new_node_id, new_console = (
+                await _discover_gns3_node_details(node)
+            )
             if new_project_id and new_node_id:
                 project_id = new_project_id
                 node_id = new_node_id
@@ -639,7 +718,7 @@ async def api_node_reboot(nid: str, body: Optional[dict] = None):
                     nodes[nid]["metadata"] = {}
                 nodes[nid]["metadata"]["gns3"] = {
                     "project_id": project_id,
-                    "node_id": node_id
+                    "node_id": node_id,
                 }
                 if new_console and new_console != nodes[nid].get("port"):
                     nodes[nid]["port"] = new_console
@@ -649,41 +728,44 @@ async def api_node_reboot(nid: str, body: Optional[dict] = None):
                     409,
                     "This node's GNS3 project is closed (or its console port changed) "
                     "and it wasn't found in any open project. Open the project in GNS3, "
-                    "or re-run GNS3 SYNC to refresh this node's mapping."
+                    "or re-run GNS3 SYNC to refresh this node's mapping.",
                 )
             elif not project_id or not node_id:
                 raise HTTPException(
                     400,
-                    "Could not discover GNS3 project ID or node ID for this node. Ensure the node is active in an open GNS3 project."
+                    "Could not discover GNS3 project ID or node ID for this node. Ensure the node is active in an open GNS3 project.",
                 )
 
         # Send reload request via GNS3 API
         from .gns3 import _gns3_req
+
         try:
-            res = await _gns3_req("POST", f"/projects/{project_id}/nodes/{node_id}/reload")
+            res = await _gns3_req(
+                "POST", f"/projects/{project_id}/nodes/{node_id}/reload"
+            )
             # Force disconnect console immediately because it is rebooting
             session_manager.close(nid)
             return {
                 "status": "success",
                 "message": "GNS3 API reload initiated successfully.",
                 "api_call": f"POST /projects/{project_id}/nodes/{node_id}/reload",
-                "details": res
+                "details": res,
             }
         except Exception as e:
             raise HTTPException(500, f"GNS3 API reload failed: {e}")
-            
-    else: # method == "command"
+
+    else:  # method == "command"
         password = node.get("password", "")
         if password:
             escaped = password.replace("'", "'\\''")
             cmd = f"reboot -f || echo '{escaped}' | sudo -S reboot -f || sudo reboot -f || reboot || sudo reboot"
         else:
             cmd = "reboot -f || sudo reboot -f || reboot || sudo reboot"
-            
+
         results, err = await session_manager.run(nid, node, [cmd])
         if err:
             raise HTTPException(500, f"Failed to execute reboot command: {err}")
-            
+
         # Give the session a tiny moment to process and verify connection state
         # If still connected, command finished but connection did not drop (meaning it failed)
         if session_manager.is_connected(nid):
@@ -692,17 +774,15 @@ async def api_node_reboot(nid: str, body: Optional[dict] = None):
                 output = results[0].get("output") or results[0].get("error") or ""
             raise HTTPException(
                 500,
-                f"Reboot command failed: {output or 'Node finished command but connection was not severed.'}"
+                f"Reboot command failed: {output or 'Node finished command but connection was not severed.'}",
             )
-            
+
         session_manager.close(nid)
         return {
             "status": "success",
             "message": "Console terminal reboot command accepted.",
-            "api_call": "Terminal force-reboot command sent"
+            "api_call": "Terminal force-reboot command sent",
         }
-
-
 
 
 class Gns3ApiRequest(BaseModel):
@@ -710,7 +790,9 @@ class Gns3ApiRequest(BaseModel):
     path: str
     body: Optional[dict] = None
 
+
 Gns3ApiRequest.model_rebuild()
+
 
 @router.post("/nodes/{nid}/gns3-api")
 async def api_node_gns3_api(nid: str, payload: Gns3ApiRequest):
@@ -718,23 +800,26 @@ async def api_node_gns3_api(nid: str, payload: Gns3ApiRequest):
     if nid not in nodes:
         raise HTTPException(404, "Node not found")
     node = await _get_node_with_creds(nid, nodes)
-    
+
     # 1. Discover or load GNS3 details
     gns3_meta = node.get("metadata", {}).get("gns3", {})
     project_id = gns3_meta.get("project_id")
     node_id = gns3_meta.get("node_id")
-    
+
     force_rediscover = False
     if project_id and node_id:
         # Self-healing verification: test if project/node is active and accessible
         from .gns3 import _gns3_req
+
         try:
             await _gns3_req("GET", f"/projects/{project_id}/nodes/{node_id}")
         except Exception:
             force_rediscover = True
-            
+
     if not project_id or not node_id or force_rediscover:
-        new_project_id, new_node_id, new_console = await _discover_gns3_node_details(node)
+        new_project_id, new_node_id, new_console = await _discover_gns3_node_details(
+            node
+        )
         if new_project_id and new_node_id:
             project_id = new_project_id
             node_id = new_node_id
@@ -742,7 +827,7 @@ async def api_node_gns3_api(nid: str, payload: Gns3ApiRequest):
                 nodes[nid]["metadata"] = {}
             nodes[nid]["metadata"]["gns3"] = {
                 "project_id": project_id,
-                "node_id": node_id
+                "node_id": node_id,
             }
             # Self-correct a drifted console port so telnet + future lookups work
             if new_console and new_console != nodes[nid].get("port"):
@@ -755,31 +840,33 @@ async def api_node_gns3_api(nid: str, payload: Gns3ApiRequest):
                 409,
                 "This node's GNS3 project is closed (or its console port changed) "
                 "and it wasn't found in any open project. Open the project in GNS3, "
-                "or re-run GNS3 SYNC to refresh this node's mapping."
+                "or re-run GNS3 SYNC to refresh this node's mapping.",
             )
         elif not project_id or not node_id:
             raise HTTPException(
                 400,
-                "Could not auto-discover GNS3 IDs. Ensure the node is currently running in an open GNS3 project."
+                "Could not auto-discover GNS3 IDs. Ensure the node is currently running in an open GNS3 project.",
             )
-            
+
     # 2. Format path placeholders: replace '{project_id}' and '{node_id}'
-    formatted_path = payload.path.replace("{project_id}", project_id).replace("{node_id}", node_id)
+    formatted_path = payload.path.replace("{project_id}", project_id).replace(
+        "{node_id}", node_id
+    )
     if not formatted_path.startswith("/"):
         formatted_path = "/" + formatted_path
-        
+
     # 3. Call _gns3_req
     from .gns3 import _gns3_req
+
     try:
         res = await _gns3_req(payload.method.upper(), formatted_path, payload.body)
         return {
             "status": "success",
             "url": f"{payload.method.upper()} /v2{formatted_path}",
-            "response": res
+            "response": res,
         }
     except Exception as e:
         raise HTTPException(500, f"GNS3 API call failed: {e}")
-
 
 
 @router.post("/nodes/{nid}/detect")
@@ -788,8 +875,9 @@ async def api_node_detect(nid: str):
     if nid not in nodes:
         raise HTTPException(404, "Not found")
     node = await _get_node_with_creds(nid, nodes)
-    device_type = detect_device_type(
-        node["host"], node["port"],
+    device_type = await detect_device_type(
+        node["host"],
+        node["port"],
         node.get("username", "root"),
         node.get("password", ""),
     )
@@ -798,16 +886,82 @@ async def api_node_detect(nid: str):
     return {"device_type": device_type}
 
 
+@router.get("/nodes/{nid}/persist")
+async def api_node_persist_list(nid: str):
+    nodes = await load_nodes()
+    if nid not in nodes:
+        raise HTTPException(404, "Not found")
+    node = await _get_node_with_creds(nid, nodes)
+
+    script = (
+        "for f in /usr/local/sbin/netrunner-*.sh; do "
+        "[ -e \"$f\" ] && echo \"$f\"; "
+        "done; "
+        "[ -e \"/etc/sysctl.d/99-netrunner.conf\" ] && echo \"/etc/sysctl.d/99-netrunner.conf\""
+    )
+    results, err = await session_manager.run(nid, node, [script])
+    if err:
+        raise HTTPException(500, err)
+
+    out = results[0].get("output", "") if results else ""
+    scripts = [line.strip() for line in out.splitlines() if line.strip()]
+
+    parsed = []
+    for s in scripts:
+        if "netrunner-" in s and s.endswith(".sh"):
+            name = s.replace("/usr/local/sbin/netrunner-", "").replace(".sh", "")
+            parsed.append({"name": name, "path": s})
+        elif s == "/etc/sysctl.d/99-netrunner.conf":
+            parsed.append({"name": "sysctl", "path": s})
+    return {"persists": parsed}
+
+
+@router.delete("/nodes/{nid}/persist/{name}")
+async def api_node_persist_delete(nid: str, name: str):
+    nodes = await load_nodes()
+    if nid not in nodes:
+        raise HTTPException(404, "Not found")
+    node = await _get_node_with_creds(nid, nodes)
+
+    if name == "sysctl":
+        cmds = [
+            "rm -f /etc/sysctl.d/99-netrunner.conf",
+            "sysctl --system 2>/dev/null || true"
+        ]
+    else:
+        safe_name = _safe_name(name, "config")
+        script_path = f"/usr/local/sbin/netrunner-{safe_name}.sh"
+        service_name = f"netrunner-{safe_name}.service"
+        service_path = f"/etc/systemd/system/{service_name}"
+        openrc_path = f"/etc/local.d/netrunner-{safe_name}.start"
+
+        cmds = [
+            f"if command -v systemctl >/dev/null 2>&1; then systemctl stop {service_name} 2>/dev/null || true; systemctl disable {service_name} 2>/dev/null || true; fi",
+            f"if command -v rc-update >/dev/null 2>&1; then rm -f {shlex.quote(openrc_path)}; rc-update -u; fi",
+            f"rm -f {shlex.quote(script_path)} {shlex.quote(service_path)}",
+            "if command -v systemctl >/dev/null 2>&1; then systemctl daemon-reload; fi"
+        ]
+
+    results, err = await session_manager.run(nid, node, cmds)
+    if err:
+        raise HTTPException(500, err)
+    return {"ok": True, "results": results}
+
+
 @router.get("/nodes/{nid}/read/{ctype}")
 async def api_node_read(nid: str, ctype: str):
     nodes = await load_nodes()
     if nid not in nodes:
         raise HTTPException(404, "Not found")
     if ctype not in READ_CMDS:
-        raise HTTPException(400, f"Unknown type '{ctype}'. Valid: {', '.join(READ_CMDS)}")
+        raise HTTPException(
+            400, f"Unknown type '{ctype}'. Valid: {', '.join(READ_CMDS)}"
+        )
     node = await _get_node_with_creds(nid, nodes)
     timeout = 60.0 if ctype == "nmap-scan" else 15.0
-    results, err = await session_manager.run(nid, node, READ_CMDS[ctype], timeout=timeout)
+    results, err = await session_manager.run(
+        nid, node, READ_CMDS[ctype], timeout=timeout
+    )
     if err:
         raise HTTPException(500, err)
     return {"results": results}
@@ -833,7 +987,7 @@ async def api_node_execute(nid: str, body: dict):
 # ---------------------------------------------------------------------------
 
 _captures: dict[str, dict] = {}
-_backups:  dict[str, dict] = {}
+_backups: dict[str, dict] = {}
 
 
 def _cap_paths(nid: str, cap_id: str) -> dict:
@@ -870,7 +1024,7 @@ async def api_capture_delete(nid: str, cap_id: str):
     paths = meta["paths"]
     cleanup = (
         f"PID=$(cat {shlex.quote(paths['pid'])} 2>/dev/null || echo ''); "
-        f"if [ -n \"$PID\" ]; then kill \"$PID\" 2>/dev/null || true; fi; "
+        f'if [ -n "$PID" ]; then kill "$PID" 2>/dev/null || true; fi; '
         f"rm -f {shlex.quote(paths['pcap'])} {shlex.quote(paths['pid'])} {shlex.quote(paths['log'])}"
     )
     try:
@@ -880,8 +1034,10 @@ async def api_capture_delete(nid: str, cap_id: str):
         pass
     local = _capture_local_dir(nid) / f"{_safe_name(cap_id)}.pcap"
     if local.exists():
-        try: local.unlink()
-        except Exception: pass
+        try:
+            local.unlink()
+        except Exception:
+            pass
     return {"ok": True}
 
 
@@ -891,10 +1047,10 @@ async def api_capture_start(nid: str, body: dict):
     if nid not in nodes:
         raise HTTPException(404, "Not found")
 
-    cap_id       = _safe_name(body.get("id") or f"cap_{int(time.time())}", "capture")
-    iface        = (body.get("interface") or "eth0").strip() or "eth0"
+    cap_id = _safe_name(body.get("id") or f"cap_{int(time.time())}", "capture")
+    iface = (body.get("interface") or "eth0").strip() or "eth0"
     packet_limit = max(0, int(body.get("packet_limit", 0) or 0))
-    filter_expr  = (body.get("filter") or "").strip()
+    filter_expr = (body.get("filter") or "").strip()
 
     paths = _cap_paths(nid, cap_id)
     tcpdump = ["tcpdump", "-i", iface, "-U", "-n", "-s0", "-w", paths["pcap"]]
@@ -914,24 +1070,33 @@ async def api_capture_start(nid: str, body: dict):
         f"sleep 1; cat {shlex.quote(paths['pid'])} 2>/dev/null || echo 0"
     )
     node = await _get_node_with_creds(nid, nodes)
-    
+
     # Check if tcpdump is installed
-    check_results, check_err = await session_manager.run(nid, node, ["command -v tcpdump || echo '__MISSING__'"])
+    check_results, check_err = await session_manager.run(
+        nid, node, ["command -v tcpdump || echo '__MISSING__'"]
+    )
     if check_err:
         raise HTTPException(500, check_err)
     if "__MISSING__" in (check_results[0].get("output", "") if check_results else ""):
-        raise HTTPException(400, "tcpdump is not installed on this node. Please install it to use capture features.")
+        raise HTTPException(
+            400,
+            "tcpdump is not installed on this node. Please install it to use capture features.",
+        )
 
     results, err = await session_manager.run(nid, node, [remote])
     if err:
         raise HTTPException(500, err)
 
-    output = (results[0].get("output", "") if results else "")
+    output = results[0].get("output", "") if results else ""
     pid_match = re.search(r"(\d+)", output)
     meta = {
-        "id": cap_id, "interface": iface, "filter": filter_expr,
-        "packet_limit": packet_limit, "started": datetime.now().isoformat(),
-        "paths": paths, "pid": pid_match.group(1) if pid_match else "",
+        "id": cap_id,
+        "interface": iface,
+        "filter": filter_expr,
+        "packet_limit": packet_limit,
+        "started": datetime.now().isoformat(),
+        "paths": paths,
+        "pid": pid_match.group(1) if pid_match else "",
     }
     _captures[f"{nid}:{cap_id}"] = meta
     return {"ok": True, "capture": meta}
@@ -949,19 +1114,27 @@ async def api_capture_status(nid: str, cap_id: str):
     paths = meta["paths"]
     status_script = (
         f"PID=$(cat {shlex.quote(paths['pid'])} 2>/dev/null || echo ''); "
-        f"if [ -n \"$PID\" ] && kill -0 \"$PID\" 2>/dev/null; then echo STATE=running; else echo STATE=stopped; fi; "
+        f'if [ -n "$PID" ] && kill -0 "$PID" 2>/dev/null; then echo STATE=running; else echo STATE=stopped; fi; '
         f"echo PID=$PID; "
         f"SIZE=$(wc -c < {shlex.quote(paths['pcap'])} 2>/dev/null || echo 0); echo SIZE=$SIZE; "
         f"tail -n 10 {shlex.quote(paths['log'])} 2>/dev/null || true"
     )
     node = await _get_node_with_creds(nid, nodes)
-    results, err = await session_manager.run(nid, node, [f"sh -lc {shlex.quote(status_script)}"])
+    results, err = await session_manager.run(
+        nid, node, [f"sh -lc {shlex.quote(status_script)}"]
+    )
     if err:
         raise HTTPException(500, err)
     output = results[0].get("output", "") if results else ""
-    state  = "running" if "STATE=running" in output else "stopped"
+    state = "running" if "STATE=running" in output else "stopped"
     size_m = re.search(r"SIZE=(\d+)", output)
-    return {"capture": {**meta, "state": state, "size": int(size_m.group(1)) if size_m else 0}}
+    return {
+        "capture": {
+            **meta,
+            "state": state,
+            "size": int(size_m.group(1)) if size_m else 0,
+        }
+    }
 
 
 @router.post("/nodes/{nid}/capture/{cap_id}/stop")
@@ -975,11 +1148,13 @@ async def api_capture_stop(nid: str, cap_id: str):
     paths = meta["paths"]
     stop_script = (
         f"PID=$(cat {shlex.quote(paths['pid'])} 2>/dev/null || echo ''); "
-        f"if [ -n \"$PID\" ]; then kill \"$PID\" 2>/dev/null || true; sleep 1; fi; "
+        f'if [ -n "$PID" ]; then kill "$PID" 2>/dev/null || true; sleep 1; fi; '
         f"SIZE=$(wc -c < {shlex.quote(paths['pcap'])} 2>/dev/null || echo 0); echo SIZE=$SIZE"
     )
     node = await _get_node_with_creds(nid, nodes)
-    results, err = await session_manager.run(nid, node, [f"sh -lc {shlex.quote(stop_script)}"])
+    results, err = await session_manager.run(
+        nid, node, [f"sh -lc {shlex.quote(stop_script)}"]
+    )
     if err:
         raise HTTPException(500, err)
     output = results[0].get("output", "") if results else ""
@@ -1001,7 +1176,9 @@ async def api_capture_download(nid: str, cap_id: str):
         f"else base64 {shlex.quote(paths['pcap'])} 2>/dev/null || busybox base64 {shlex.quote(paths['pcap'])}; fi"
     )
     node = await _get_node_with_creds(nid, nodes)
-    results, err = await session_manager.run(nid, node, [f"sh -lc {shlex.quote(dl_script)}"])
+    results, err = await session_manager.run(
+        nid, node, [f"sh -lc {shlex.quote(dl_script)}"]
+    )
     if err:
         raise HTTPException(500, err)
     output = (results[0].get("output") or "").strip() if results else ""
@@ -1015,7 +1192,9 @@ async def api_capture_download(nid: str, cap_id: str):
     local_dir = _capture_local_dir(nid)
     fname = f"{_safe_name(cap_id)}.pcap"
     (local_dir / fname).write_bytes(raw)
-    return FileResponse(local_dir / fname, filename=fname, media_type="application/octet-stream")
+    return FileResponse(
+        local_dir / fname, filename=fname, media_type="application/octet-stream"
+    )
 
 
 @router.get("/nodes/{nid}/capture/{cap_id}/analyze")
@@ -1023,11 +1202,11 @@ async def api_capture_analyze(nid: str, cap_id: str):
     nodes = await load_nodes()
     if nid not in nodes:
         raise HTTPException(404, "Not found")
-        
+
     local_dir = _capture_local_dir(nid)
     fname = f"{_safe_name(cap_id)}.pcap"
     pcap_path = local_dir / fname
-    
+
     # Auto-download if not present locally
     if not pcap_path.exists():
         meta = _captures.get(f"{nid}:{cap_id}")
@@ -1039,7 +1218,9 @@ async def api_capture_analyze(nid: str, cap_id: str):
             f"else base64 {shlex.quote(paths['pcap'])} 2>/dev/null || busybox base64 {shlex.quote(paths['pcap'])}; fi"
         )
         node = await _get_node_with_creds(nid, nodes)
-        results, err = await session_manager.run(nid, node, [f"sh -lc {shlex.quote(dl_script)}"])
+        results, err = await session_manager.run(
+            nid, node, [f"sh -lc {shlex.quote(dl_script)}"]
+        )
         if err:
             raise HTTPException(500, err)
         output = (results[0].get("output") or "").strip() if results else ""
@@ -1054,6 +1235,7 @@ async def api_capture_analyze(nid: str, cap_id: str):
     try:
         from scapy.all import rdpcap, IP, TCP, UDP, ICMP, DNS
         import asyncio
+
         # rdpcap is synchronous and blocking, wrap in to_thread
         packets = await asyncio.to_thread(rdpcap, str(pcap_path))
     except Exception as e:
@@ -1062,7 +1244,7 @@ async def api_capture_analyze(nid: str, cap_id: str):
     src_ips = Counter()
     dst_ips = Counter()
     protocols = Counter()
-    
+
     for pkt in packets:
         if IP in pkt:
             src_ips[pkt[IP].src] += 1
@@ -1085,7 +1267,7 @@ async def api_capture_analyze(nid: str, cap_id: str):
         "total_packets": len(packets),
         "top_sources": [{"ip": k, "count": v} for k, v in src_ips.most_common(5)],
         "top_destinations": [{"ip": k, "count": v} for k, v in dst_ips.most_common(5)],
-        "protocols": [{"name": k, "count": v} for k, v in protocols.items()]
+        "protocols": [{"name": k, "count": v} for k, v in protocols.items()],
     }
 
 
@@ -1093,15 +1275,22 @@ async def api_capture_analyze(nid: str, cap_id: str):
 # Backup / rollback
 # ---------------------------------------------------------------------------
 
+
 def _backup_paths(nid: str, backup_id: str) -> dict:
     base = f"/tmp/nrbackup_{_safe_name(nid)}_{_safe_name(backup_id)}"
     return {
-        "dir": base, "ip_addr": f"{base}/ip.addr",
-        "ip_route": f"{base}/ip.route", "ip6_route": f"{base}/ip6.route",
-        "ipv4_forward": f"{base}/ipv4_forward", "ipv6_forward": f"{base}/ipv6_forward",
-        "iptables": f"{base}/iptables.save", "nft": f"{base}/nft.rules",
-        "resolv": f"{base}/resolv.conf", "hosts": f"{base}/hosts",
-        "dnsmasq": f"{base}/netrunner-dhcp.conf", "wireguard": f"{base}/wireguard",
+        "dir": base,
+        "ip_addr": f"{base}/ip.addr",
+        "ip_route": f"{base}/ip.route",
+        "ip6_route": f"{base}/ip6.route",
+        "ipv4_forward": f"{base}/ipv4_forward",
+        "ipv6_forward": f"{base}/ipv6_forward",
+        "iptables": f"{base}/iptables.save",
+        "nft": f"{base}/nft.rules",
+        "resolv": f"{base}/resolv.conf",
+        "hosts": f"{base}/hosts",
+        "dnsmasq": f"{base}/netrunner-dhcp.conf",
+        "wireguard": f"{base}/wireguard",
     }
 
 
@@ -1110,20 +1299,25 @@ async def api_node_backup(nid: str, body: dict = {}):
     nodes = await load_nodes()
     if nid not in nodes:
         raise HTTPException(404, "Not found")
-    backup_id = _safe_name((body or {}).get("id") or f"bkp_{int(time.time())}", "backup")
+    backup_id = _safe_name(
+        (body or {}).get("id") or f"bkp_{int(time.time())}", "backup"
+    )
     paths = _backup_paths(nid, backup_id)
 
     from ..generators.network import gen_backup_commands
-    cmds  = gen_backup_commands(paths)
-    node  = await _get_node_with_creds(nid, nodes)
+
+    cmds = gen_backup_commands(paths)
+    node = await _get_node_with_creds(nid, nodes)
     results, err = await session_manager.run(nid, node, cmds)
     if err:
         raise HTTPException(500, err)
 
     # Build restore commands inline (simplified)
     meta = {
-        "id": backup_id, "created": datetime.now().isoformat(),
-        "paths": paths, "results": results,
+        "id": backup_id,
+        "created": datetime.now().isoformat(),
+        "paths": paths,
+        "results": results,
     }
     _backups[nid] = meta
     return {"ok": True, "backup": {k: v for k, v in meta.items() if k != "results"}}
@@ -1140,12 +1334,17 @@ async def api_node_rollback(nid: str):
     paths = meta["paths"]
 
     from ..generators.network import gen_restore_commands
+
     restore_cmds = gen_restore_commands(paths)
     node = await _get_node_with_creds(nid, nodes)
     results, err = await session_manager.run(nid, node, restore_cmds)
     if err:
         raise HTTPException(500, err)
-    return {"ok": True, "backup": {"id": meta["id"], "created": meta["created"]}, "results": results}
+    return {
+        "ok": True,
+        "backup": {"id": meta["id"], "created": meta["created"]},
+        "results": results,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -1153,9 +1352,21 @@ async def api_node_rollback(nid: str):
 # ---------------------------------------------------------------------------
 
 DEFAULT_EXPORT_DIAGNOSTICS = [
-    "ip", "routes", "interfaces", "neighbors", "sockets", "resolver",
-    "forwarding", "iptables", "nftables", "ufw", "wireguard", "dns-service",
-    "dhcp-server", "vlan-switch", "vlan-router",
+    "ip",
+    "routes",
+    "interfaces",
+    "neighbors",
+    "sockets",
+    "resolver",
+    "forwarding",
+    "iptables",
+    "nftables",
+    "ufw",
+    "wireguard",
+    "dns-service",
+    "dhcp-server",
+    "vlan-switch",
+    "vlan-router",
 ]
 
 
@@ -1166,17 +1377,19 @@ async def api_node_export(nid: str, body: dict = {}):
         raise HTTPException(404, "Not found")
     body = body or {}
     node_meta = nodes[nid]
-    export_name = f"{_safe_name(node_meta.get('name', nid))}_export_{int(time.time())}.zip"
+    export_name = (
+        f"{_safe_name(node_meta.get('name', nid))}_export_{int(time.time())}.zip"
+    )
     export_path = EXPORTS_DIR / export_name
     EXPORTS_DIR.mkdir(parents=True, exist_ok=True)
 
-    diag_types     = body.get("live_diagnostics")
+    diag_types = body.get("live_diagnostics")
     if diag_types is None:
         diag_types = DEFAULT_EXPORT_DIAGNOSTICS
-    include_caps   = body.get("include_captures", True)
+    include_caps = body.get("include_captures", True)
 
     diagnostics: dict[str, str] = {}
-    diag_errors:  dict[str, str] = {}
+    diag_errors: dict[str, str] = {}
     if diag_types:
         node_full = await _get_node_with_creds(nid, nodes)
         for ctype in diag_types:
@@ -1223,16 +1436,15 @@ async def api_node_install_tool(nid: str, body: dict):
     sudo_pass = body.get("sudo_pass")
     if not tool:
         raise HTTPException(400, "Missing tool name")
-        
+
     nodes = await load_nodes()
     if nid not in nodes:
         raise HTTPException(404, "Node not found")
-        
+
     node = await _get_node_with_creds(nid, nodes)
     if sudo_pass is not None:
         node["password"] = sudo_pass
 
-    
     # Map common tools to package names if different
     package_map = {
         "nmap": "nmap",
@@ -1247,22 +1459,24 @@ async def api_node_install_tool(nid: str, body: dict):
         "lldp": "lldpd",
         "mtr": "mtr",
         "speedtest": "speedtest-cli",
-        "dns-lookup": "bind9-host", # or 'dnsutils' / 'bind-tools'
+        "dns-lookup": "bind9-host",  # or 'dnsutils' / 'bind-tools'
         "wol": "wakeonlan",
-        "arp-scan": "arp-scan"
+        "arp-scan": "arp-scan",
     }
-    
+
     pkg = package_map.get(tool.lower(), tool.lower())
-    
+
     # Detect package manager
     async def _run(c):
         res, err = await session_manager.run(nid, node, [c])
-        if err: return ""
+        if err:
+            return ""
         return res[0].get("output", "") if res else ""
 
     mgr = await detect_package_manager(_run)
-    
+
     password = node.get("password", "")
+
     def sudo(c: str) -> str:
         if password:
             return f"echo '{password}' | sudo -S {c}"
@@ -1278,13 +1492,66 @@ async def api_node_install_tool(nid: str, body: dict):
     elif mgr == "pacman":
         commands = [sudo(f"pacman -Sy --noconfirm {pkg}")]
     else:
-        raise HTTPException(400, f"Unsupported package manager on this node (detected: {mgr})")
+        raise HTTPException(
+            400, f"Unsupported package manager on this node (detected: {mgr})"
+        )
 
     results, err = await session_manager.run(nid, node, commands)
     if err:
         raise HTTPException(500, err)
-        
+
     return {"status": "success", "results": results}
+
+
+@router.get("/nodes/{nid}/interfaces/physical")
+async def get_physical_interfaces(nid: str, current_user=Depends(require_admin)):
+    """Fetch physical interface details (type, speed, duplex) from a node."""
+    nodes = await load_nodes()
+    if nid not in nodes:
+        raise HTTPException(status_code=404, detail="Node not found")
+
+    node = await _get_node_with_creds(nid, nodes)
+    if not session_manager.is_connected(nid):
+        return {"interfaces": []}
+
+    script = """
+    for iface in $(ls /sys/class/net/ 2>/dev/null); do
+        if [ "$iface" = "lo" ]; then continue; fi
+        type="wired"
+        if [ -d "/sys/class/net/$iface/wireless" ]; then type="wireless"; fi
+        if [ -d "/sys/class/net/$iface/bluetooth" ] || [[ "$iface" == bnep* ]] || [[ "$iface" == bt* ]]; then type="bluetooth"; fi
+
+        operstate=$(cat /sys/class/net/$iface/operstate 2>/dev/null || echo "unknown")
+        speed=$(cat /sys/class/net/$iface/speed 2>/dev/null || echo "unknown")
+        duplex=$(cat /sys/class/net/$iface/duplex 2>/dev/null || echo "unknown")
+        mac=$(cat /sys/class/net/$iface/address 2>/dev/null || echo "unknown")
+
+        echo "$iface|$type|$operstate|$speed|$duplex|$mac"
+    done
+    """
+    res, err = await session_manager.run(nid, node, [script])
+    if err:
+        raise HTTPException(500, detail=err)
+
+    interfaces = []
+    output = res[0].get("output", "") if res else ""
+    for line in output.strip().split("\n"):
+        if not line or "|" not in line:
+            continue
+        parts = line.split("|")
+        if len(parts) >= 6:
+            interfaces.append(
+                {
+                    "name": parts[0],
+                    "type": parts[1],
+                    "state": parts[2],
+                    "speed": parts[3] if parts[3] != "unknown" else "N/A",
+                    "duplex": parts[4] if parts[4] != "unknown" else "N/A",
+                    "mac": parts[5],
+                }
+            )
+
+    return {"interfaces": interfaces}
 
 
 @router.get("/exports/{fname}")
@@ -1295,56 +1562,107 @@ def api_export_download(fname: str):
         raise HTTPException(404, "Not found")
     return FileResponse(p, filename=fname, media_type="application/zip")
 
+
 @router.post("/nodes/{nid}/capture/inject")
 async def api_capture_inject(nid: str, body: dict):
     nodes = await load_nodes()
     if nid not in nodes:
         raise HTTPException(404, "Not found")
-    
+
     target_ip = body.get("target_ip", "")
-    port = int(body.get("port", 0))
+    port = int(body.get("port", 0)) if body.get("port") else 0
     protocol = body.get("protocol", "UDP").upper()
     payload = body.get("payload", "")
+    count = int(body.get("count", 1))
 
-    if not target_ip or not port:
-        raise HTTPException(400, "Missing target_ip or port")
+    if not target_ip:
+        raise HTTPException(400, "Missing target_ip")
 
-    # We will write a tiny python script on the node to do the socket send
-    script = f"""import socket, binascii
+    script = f"""import socket, binascii, time
 target_ip = '{target_ip}'
 port = {port}
 protocol = '{protocol}'
 data = '{payload}'
+count = {count}
 
 try:
     decoded_data = binascii.unhexlify(data.replace(' ', '').replace('\\n', ''))
 except:
     decoded_data = data.encode('utf-8')
 
-sock_type = socket.SOCK_DGRAM if protocol == 'UDP' else socket.SOCK_STREAM
+sock_type = socket.SOCK_DGRAM
+proto_num = socket.IPPROTO_UDP
+if protocol == 'TCP':
+    sock_type = socket.SOCK_STREAM
+    proto_num = socket.IPPROTO_TCP
+elif protocol == 'ICMP':
+    sock_type = socket.SOCK_RAW
+    proto_num = socket.IPPROTO_ICMP
+
 try:
-    s = socket.socket(socket.AF_INET, sock_type)
+    s = socket.socket(socket.AF_INET, sock_type, proto_num)
     s.settimeout(5)
     if protocol == 'TCP':
         s.connect((target_ip, port))
-        s.sendall(decoded_data)
-    else:
-        s.sendto(decoded_data, (target_ip, port))
+
+    for i in range(count):
+        if protocol == 'TCP':
+            s.sendall(decoded_data)
+        elif protocol == 'ICMP':
+            s.sendto(decoded_data, (target_ip, 0))
+        else:
+            s.sendto(decoded_data, (target_ip, port))
+        if i < count - 1:
+            time.sleep(0.1)
     s.close()
-    print("SUCCESS: Packet injected")
+    print(f"SUCCESS: Injected {{count}} packet(s)")
 except Exception as e:
-    print(f"ERROR: {e}")
+    print(f"ERROR: {{e}}")
 """
-    encoded_script = base64.b64encode(script.encode('utf-8')).decode('utf-8')
+    encoded_script = base64.b64encode(script.encode("utf-8")).decode("utf-8")
     remote_cmd = f"echo {encoded_script} | base64 -d | python3 - 2>&1"
-    
+
     node = await _get_node_with_creds(nid, nodes)
     results, err = await session_manager.run(nid, node, [remote_cmd])
     if err:
         raise HTTPException(500, err)
-    
+
     output = results[0].get("output", "") if results else ""
     return {"status": "success", "output": output}
+
+@router.post("/nodes/{nid}/capture/{cap_id}/replay")
+async def api_capture_replay(nid: str, cap_id: str, body: dict):
+    nodes = await load_nodes()
+    if nid not in nodes:
+        raise HTTPException(404, "Not found")
+    meta = _captures.get(f"{nid}:{cap_id}")
+    if not meta:
+        raise HTTPException(404, "Capture not found")
+
+    iface = (body.get("interface") or "eth0").strip()
+    paths = meta["paths"]
+
+    node = await _get_node_with_creds(nid, nodes)
+    check_results, check_err = await session_manager.run(
+        nid, node, ["command -v tcpreplay || echo '__MISSING__'"]
+    )
+    if check_err:
+        raise HTTPException(500, check_err)
+    if "__MISSING__" in (check_results[0].get("output", "") if check_results else ""):
+        raise HTTPException(
+            400,
+            "tcpreplay is not installed on this node. Please install it to use replay features (e.g. apk add tcpreplay).",
+        )
+
+    replay_cmd = f"tcpreplay -i {shlex.quote(iface)} {shlex.quote(paths['pcap'])} 2>&1"
+    results, err = await session_manager.run(nid, node, [replay_cmd])
+    if err:
+        raise HTTPException(500, err)
+
+    output = results[0].get("output", "") if results else ""
+    return {"ok": True, "output": output}
+
+
 # ---------------------------------------------------------------------------
 # Metrics / Dashboards
 # ---------------------------------------------------------------------------
@@ -1354,6 +1672,7 @@ import time
 
 _metrics_cache: dict[str, list[dict]] = {}
 
+
 @router.get("/nodes/{nid}/metrics/history")
 async def api_node_metrics_history(nid: str):
     """Real time-series vitals (CPU, RAM, Net) collected over SSH by the
@@ -1362,32 +1681,36 @@ async def api_node_metrics_history(nid: str):
     if nid not in nodes:
         raise HTTPException(404, "Node not found")
 
-    from ..core.telemetry import vitals_history
+    from ..core.telemetry import vitals_history, active_monitoring
+    import time
+    active_monitoring[nid] = time.time()
+
     return {"status": "success", "history": list(vitals_history.get(nid, []))}
+
 
 @router.post("/{id}/inject")
 async def inject_agent(id: str):
     import json
     import os
     from .nodes import load_nodes
+
     nodes = await load_nodes()
     node = nodes.get(id)
     if not node:
         raise HTTPException(status_code=404, detail="Node not found")
-    
+
     redis_host = os.getenv("REDIS_HOST", "127.0.0.1")
     redis_port = int(os.getenv("REDIS_PORT", "6379"))
-    
+
     r = redis.Redis(host=redis_host, port=redis_port, db=0, decode_responses=True)
     task = {
         "type": "inject_agent",
         "node_id": id,
         "ip": node.get("host"),
         "username": node.get("username", "root"),
-        "password": node.get("password", "")
+        "password": node.get("password", ""),
     }
     await r.publish("engine_tasks", json.dumps(task))
     await r.aclose()
-    
-    return {"message": "Agent injection task queued"}
 
+    return {"message": "Agent injection task queued"}

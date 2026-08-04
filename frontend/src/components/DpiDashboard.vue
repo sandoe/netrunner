@@ -4,7 +4,12 @@
       <span class="dpi-title">DEEP PACKET INSPECTION</span>
       <span class="dpi-total">{{ data.total_packets }} PACKETS ANALYZED</span>
     </div>
-    
+
+    <div class="cyber-guide" style="margin-bottom: 16px; font-size: 11px; border-left: 2px solid var(--green); padding-left: 8px;">
+      <strong style="color: var(--green);">🎓 Cyber Guide: DPI (Deep Packet Inspection)</strong><br/>
+      <span style="color: #ccc;">DPI kigger dybt ind i netværkstrafikkens indhold (payload), og ikke kun på hvem afsender og modtager er. Det bruges f.eks. i Next-Gen Firewalls til at opdage malware eller ulovlige protokoller (f.eks. BitTorrent på et virksomhedsnetværk).</span>
+    </div>
+
     <div class="dpi-grid">
       <!-- Protocols -->
       <div class="dpi-card">
@@ -20,7 +25,7 @@
           <div v-if="!data.protocols?.length" class="empty-msg">NO PROTOCOLS</div>
         </div>
       </div>
-      
+
       <!-- Top Sources -->
       <div class="dpi-card">
         <div class="card-title">TOP SOURCES</div>
@@ -35,7 +40,7 @@
           <div v-if="!data.top_sources?.length" class="empty-msg">NO DATA</div>
         </div>
       </div>
-      
+
       <!-- Top Destinations -->
       <div class="dpi-card">
         <div class="card-title">TOP DESTINATIONS</div>

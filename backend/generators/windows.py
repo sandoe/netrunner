@@ -1,6 +1,8 @@
 """Windows PowerShell configuration generators — generate PowerShell commands for Windows node configurations."""
+
 from __future__ import annotations
 import re
+
 
 def _split_csvish(val) -> list[str]:
     if not val:
@@ -11,6 +13,7 @@ def _split_csvish(val) -> list[str]:
         parts = re.split(r"[,\s;]+", val)
         return [p.strip() for p in parts if p.strip()]
     return [str(val).strip()]
+
 
 def gen_win_ip(cfg: dict) -> list[str]:
     """Configure Windows network interface IP addresses, gateway and DNS server settings."""
@@ -25,7 +28,7 @@ def gen_win_ip(cfg: dict) -> list[str]:
     if dhcp:
         cmds += [
             f'Set-NetIPInterface -InterfaceAlias "{iface}" -Dhcp Enabled -ErrorAction SilentlyContinue',
-            f'Set-DnsClientServerAddress -InterfaceAlias "{iface}" -ResetServerAddresses -ErrorAction SilentlyContinue'
+            f'Set-DnsClientServerAddress -InterfaceAlias "{iface}" -ResetServerAddresses -ErrorAction SilentlyContinue',
         ]
         return cmds
 
@@ -53,16 +56,21 @@ def gen_win_ip(cfg: dict) -> list[str]:
         cmds += [
             f'Remove-NetIPAddress -InterfaceAlias "{iface}" -Confirm:$false -ErrorAction SilentlyContinue',
             f'Remove-NetRoute -InterfaceAlias "{iface}" -Confirm:$false -ErrorAction SilentlyContinue',
-            f'New-NetIPAddress -InterfaceAlias "{iface}" -IPAddress "{ip}" -PrefixLength {prefix}' + (f' -DefaultGateway "{gateway}"' if gateway else '') + ' -ErrorAction SilentlyContinue'
+            f'New-NetIPAddress -InterfaceAlias "{iface}" -IPAddress "{ip}" -PrefixLength {prefix}'
+            + (f' -DefaultGateway "{gateway}"' if gateway else "")
+            + " -ErrorAction SilentlyContinue",
         ]
 
     # DNS configuration
     if dns:
         dns_servers = _split_csvish(dns)
         dns_list = ", ".join(f'"{d}"' for d in dns_servers)
-        cmds.append(f'Set-DnsClientServerAddress -InterfaceAlias "{iface}" -ServerAddresses @({dns_list}) -ErrorAction SilentlyContinue')
+        cmds.append(
+            f'Set-DnsClientServerAddress -InterfaceAlias "{iface}" -ServerAddresses @({dns_list}) -ErrorAction SilentlyContinue'
+        )
 
     return cmds
+
 
 def gen_win_route(cfg: dict) -> list[str]:
     """Manage persistent static routing entries on Windows."""
@@ -75,10 +83,14 @@ def gen_win_route(cfg: dict) -> list[str]:
     if not destination:
         raise ValueError("destination is required for routing")
 
-    cmds = [f"# ── Windows Route: {action.upper()} {destination} ──────────────────────────"]
+    cmds = [
+        f"# ── Windows Route: {action.upper()} {destination} ──────────────────────────"
+    ]
 
     if action == "remove" or action == "del":
-        cmds.append(f'Remove-NetRoute -DestinationPrefix "{destination}" -Confirm:$false -ErrorAction SilentlyContinue')
+        cmds.append(
+            f'Remove-NetRoute -DestinationPrefix "{destination}" -Confirm:$false -ErrorAction SilentlyContinue'
+        )
     else:
         # Action is add
         if not gateway:
@@ -87,11 +99,12 @@ def gen_win_route(cfg: dict) -> list[str]:
         if iface:
             cmd += f' -InterfaceAlias "{iface}"'
         if metric:
-            cmd += f' -RouteMetric {metric}'
-        cmd += ' -ErrorAction SilentlyContinue'
+            cmd += f" -RouteMetric {metric}"
+        cmd += " -ErrorAction SilentlyContinue"
         cmds.append(cmd)
 
     return cmds
+
 
 def gen_win_service(cfg: dict) -> list[str]:
     """Start, stop, restart or configure Windows system services."""
@@ -101,46 +114,66 @@ def gen_win_service(cfg: dict) -> list[str]:
     if not name:
         raise ValueError("service name is required")
 
-    cmds = [f"# ── Windows Service: {name} ({action.upper()}) ──────────────────────────"]
+    cmds = [
+        f"# ── Windows Service: {name} ({action.upper()}) ──────────────────────────"
+    ]
 
     if action == "start":
         cmds.append(f'Start-Service -Name "{name}" -ErrorAction SilentlyContinue')
     elif action == "stop":
-        cmds.append(f'Stop-Service -Name "{name}" -Confirm:$false -ErrorAction SilentlyContinue')
+        cmds.append(
+            f'Stop-Service -Name "{name}" -Confirm:$false -ErrorAction SilentlyContinue'
+        )
     elif action == "restart":
         cmds.append(f'Restart-Service -Name "{name}" -ErrorAction SilentlyContinue')
     elif action == "enable":
-        cmds.append(f'Set-Service -Name "{name}" -StartupType Automatic -ErrorAction SilentlyContinue')
+        cmds.append(
+            f'Set-Service -Name "{name}" -StartupType Automatic -ErrorAction SilentlyContinue'
+        )
     elif action == "disable":
-        cmds.append(f'Set-Service -Name "{name}" -StartupType Disabled -ErrorAction SilentlyContinue')
-    else: # status
+        cmds.append(
+            f'Set-Service -Name "{name}" -StartupType Disabled -ErrorAction SilentlyContinue'
+        )
+    else:  # status
         cmds.append(f'Get-Service -Name "{name}"')
 
     return cmds
+
 
 def gen_win_feature(cfg: dict) -> list[str]:
     """Install or enable Windows Features or packages via winget."""
     name = cfg.get("name", "").strip()
     action = cfg.get("action", "install").strip().lower()
-    manager = cfg.get("manager", "feature").strip().lower() # 'feature' or 'winget'
+    manager = cfg.get("manager", "feature").strip().lower()  # 'feature' or 'winget'
 
     if not name:
         raise ValueError("feature or package name is required")
 
-    cmds = [f"# ── Windows Package/Feature: {action.upper()} {name} via {manager.upper()} ──────────────────────────"]
+    cmds = [
+        f"# ── Windows Package/Feature: {action.upper()} {name} via {manager.upper()} ──────────────────────────"
+    ]
 
     if manager == "winget":
         if action == "uninstall" or action == "remove":
-            cmds.append(f'winget uninstall --id "{name}" --silent --accept-source-agreements')
+            cmds.append(
+                f'winget uninstall --id "{name}" --silent --accept-source-agreements'
+            )
         else:
-            cmds.append(f'winget install --id "{name}" --silent --accept-package-agreements --accept-source-agreements')
-    else: # default to Windows Optional Features (DISM)
+            cmds.append(
+                f'winget install --id "{name}" --silent --accept-package-agreements --accept-source-agreements'
+            )
+    else:  # default to Windows Optional Features (DISM)
         if action == "uninstall" or action == "disable" or action == "remove":
-            cmds.append(f'Disable-WindowsOptionalFeature -Online -FeatureName "{name}" -NoRestart -ErrorAction SilentlyContinue')
+            cmds.append(
+                f'Disable-WindowsOptionalFeature -Online -FeatureName "{name}" -NoRestart -ErrorAction SilentlyContinue'
+            )
         else:
-            cmds.append(f'Enable-WindowsOptionalFeature -Online -FeatureName "{name}" -All -NoRestart -ErrorAction SilentlyContinue')
+            cmds.append(
+                f'Enable-WindowsOptionalFeature -Online -FeatureName "{name}" -All -NoRestart -ErrorAction SilentlyContinue'
+            )
 
     return cmds
+
 
 def gen_win_hostname(cfg: dict) -> list[str]:
     """Rename computer hostname on Windows."""
@@ -151,8 +184,9 @@ def gen_win_hostname(cfg: dict) -> list[str]:
     return [
         f"# ── Windows Hostname: Rename to {hostname} ──────────────────────────",
         f'Rename-Computer -NewName "{hostname}" -Force -ErrorAction SilentlyContinue',
-        '# Note: A system reboot is required for hostname change to take effect.'
+        "# Note: A system reboot is required for hostname change to take effect.",
     ]
+
 
 def gen_win_file(cfg: dict) -> list[str]:
     """Write text file on Windows using PowerShell Here-Strings."""
@@ -166,22 +200,24 @@ def gen_win_file(cfg: dict) -> list[str]:
     cmds = [f"# ── Windows File Write: {path} ──────────────────────────"]
 
     # Escape Here-String end markers inside content to prevent syntax errors
-    safe_content = content.replace("@'", "@\"").replace("'@", "\"@")
+    safe_content = content.replace("@'", '@"').replace("'@", '"@')
 
     cmds += [
-        '$content = @\'',
+        "$content = @'",
         safe_content,
-        '\'@',
-        '# Ensure parent directory exists',
+        "'@",
+        "# Ensure parent directory exists",
         f'$dir = Split-Path -Path "{path}"',
-        'if ($dir -and -not (Test-Path -Path $dir)) {',
-        '    New-Item -ItemType Directory -Force -Path $dir -ErrorAction SilentlyContinue',
-        '}'
+        "if ($dir -and -not (Test-Path -Path $dir)) {",
+        "    New-Item -ItemType Directory -Force -Path $dir -ErrorAction SilentlyContinue",
+        "}",
     ]
 
     if overwrite:
         cmds.append(f'$content | Out-File -FilePath "{path}" -Encoding utf8 -Force')
     else:
-        cmds.append(f'if (-not (Test-Path -Path "{path}")) {{ $content | Out-File -FilePath "{path}" -Encoding utf8 }}')
+        cmds.append(
+            f'if (-not (Test-Path -Path "{path}")) {{ $content | Out-File -FilePath "{path}" -Encoding utf8 }}'
+        )
 
     return cmds

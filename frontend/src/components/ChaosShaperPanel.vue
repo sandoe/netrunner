@@ -5,6 +5,10 @@
       <div class="shaper-controls">
         <div class="section-title">TRAFFIC SHAPING (LINUX TC & NETEM)</div>
         <div class="control-group">
+          <div class="cyber-guide" style="margin-bottom: 12px; font-size: 13px; border-left: 3px solid var(--pink); padding-left: 8px; background: rgba(255, 45, 110, 0.05);">
+            <strong style="color: var(--pink);">🎓 Cyber Guide: Traffic Shaping (QoS)</strong><br/>
+            <span style="color: #ccc;">Linux `tc` (Traffic Control) bruges normalt til Quality of Service (f.eks. sikre båndbredde til VoIP-telefoni). Med <em>Netem</em>-modulet kan vi bruge det offensivt/diagnostisk til at simulere et elendigt netværk med høj forsinkelse (Latency), svingende svartider (Jitter) eller tabte pakker (Packet Loss).</span>
+          </div>
           <p class="desc text-red">
             Advarsel: Dette manipulerer Linux-kernen (`tc qdisc`) og vil forringe netværksforbindelsen til denne node i realtid. Sætter du Packet Loss for højt, kan du miste SSH/Dashboard-adgang!
           </p>

@@ -3,6 +3,7 @@ Netrunner Defense — Real network isolation and zero-trust enforcement.
 
 Executes iptables rules via SSH on managed nodes for actual network isolation.
 """
+
 import asyncio
 import json
 from .db import load_nodes_db
@@ -10,6 +11,7 @@ from .logger import log as logger
 
 try:
     import paramiko
+
     PARAMIKO_AVAILABLE = True
 except ImportError:
     PARAMIKO_AVAILABLE = False
@@ -20,7 +22,9 @@ except ImportError:
     get_credential = None
 
 
-async def _ssh_exec(host: str, username: str, password: str, command: str, port: int = 22) -> tuple[int, str, str]:
+async def _ssh_exec(
+    host: str, username: str, password: str, command: str, port: int = 22
+) -> tuple[int, str, str]:
     """Execute a command over SSH. Returns (exit_code, stdout, stderr)."""
     if not PARAMIKO_AVAILABLE:
         return -1, "", "paramiko not installed"
@@ -110,7 +114,9 @@ Please set the password in the credential vault (Vault → Node Credentials → 
         "iptables -A OUTPUT -d 127.0.0.0/8 -j ACCEPT",
     ]
 
-    exit_code, out, err = await _ssh_exec(host, username, password, " && ".join(rules), port)
+    exit_code, out, err = await _ssh_exec(
+        host, username, password, " && ".join(rules), port
+    )
 
     if exit_code != 0:
         logger.error(f"[DEFENSE] SSH iptables failed for {name}: {err}")
@@ -119,7 +125,9 @@ SSH Error: {err}
 Manual intervention required."""
 
     # Verify rules applied
-    verify_code, verify_out, _ = await _ssh_exec(host, username, password, "iptables -L -n --line-numbers", port)
+    verify_code, verify_out, _ = await _ssh_exec(
+        host, username, password, "iptables -L -n --line-numbers", port
+    )
 
     return f"""[ACTIVE DEFENSE] Isolation protocol executed for {name} ({host}).
 - Connected via SSH ({username}@{host}:{port})... OK.
@@ -200,13 +208,17 @@ async def enforce_zero_trust(node_id: str) -> str:
         "iptables -A OUTPUT -p icmp -j ACCEPT",
     ]
 
-    exit_code, out, err = await _ssh_exec(host, username, password, " && ".join(rules), port)
+    exit_code, out, err = await _ssh_exec(
+        host, username, password, " && ".join(rules), port
+    )
 
     if exit_code != 0:
         return f"""[ZERO TRUST] FAILED for {name} ({host}).
 SSH Error: {err}"""
 
-    verify_code, verify_out, _ = await _ssh_exec(host, username, password, "iptables -L -n --line-numbers", port)
+    verify_code, verify_out, _ = await _ssh_exec(
+        host, username, password, "iptables -L -n --line-numbers", port
+    )
 
     return f"""[ZERO TRUST ENFORCER] Micro-Segmentation enforced on {name} ({host}).
 - Connected via SSH ({username}@{host}:{port})... OK.

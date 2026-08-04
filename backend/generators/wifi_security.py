@@ -1,4 +1,5 @@
 """WiFi Security configuration generators — WPA3-SAE, OWE, 802.1X/EAP-TLS."""
+
 from __future__ import annotations
 
 
@@ -20,12 +21,12 @@ def gen_wpa3_sae(cfg: dict) -> list[str]:
         ap_channel  – AP channel (ap mode only), default 6
         sae_groups  – DH groups for SAE, default "19 20 21" (P-256, P-384, P-521)
     """
-    ssid      = str(cfg.get("ssid", "")).strip()
-    password  = str(cfg.get("password", "")).strip()
-    iface     = str(cfg.get("interface", "wlan0")).strip() or "wlan0"
-    mode      = str(cfg.get("mode", "client")).strip().lower()
-    country   = str(cfg.get("country", "DK")).strip().upper()
-    hidden    = bool(cfg.get("hidden", False))
+    ssid = str(cfg.get("ssid", "")).strip()
+    password = str(cfg.get("password", "")).strip()
+    iface = str(cfg.get("interface", "wlan0")).strip() or "wlan0"
+    mode = str(cfg.get("mode", "client")).strip().lower()
+    country = str(cfg.get("country", "DK")).strip().upper()
+    hidden = bool(cfg.get("hidden", False))
     ap_channel = int(cfg.get("ap_channel", 6))
     sae_groups = str(cfg.get("sae_groups", "19 20 21")).strip()
 
@@ -161,10 +162,10 @@ def gen_owe(cfg: dict) -> list[str]:
         ap_channel  – AP channel (ap mode only), default 6
         owe_groups  – DH groups for OWE, default "19 20" (P-256, P-384)
     """
-    ssid      = str(cfg.get("ssid", "")).strip()
-    iface     = str(cfg.get("interface", "wlan0")).strip() or "wlan0"
-    mode      = str(cfg.get("mode", "client")).strip().lower()
-    country   = str(cfg.get("country", "DK")).strip().upper()
+    ssid = str(cfg.get("ssid", "")).strip()
+    iface = str(cfg.get("interface", "wlan0")).strip() or "wlan0"
+    mode = str(cfg.get("mode", "client")).strip().lower()
+    country = str(cfg.get("country", "DK")).strip().upper()
     ap_channel = int(cfg.get("ap_channel", 6))
     owe_groups = str(cfg.get("owe_groups", "19 20")).strip()
 
@@ -290,19 +291,21 @@ def gen_eaptls(cfg: dict) -> list[str]:
         identity        – EAP identity string (client mode)
         bridge          – bridge interface for RADIUS (AP mode), default "br0"
     """
-    ssid        = str(cfg.get("ssid", "")).strip()
-    iface       = str(cfg.get("interface", "wlan0")).strip() or "wlan0"
-    mode        = str(cfg.get("mode", "client")).strip().lower()
-    country     = str(cfg.get("country", "DK")).strip().upper()
-    hidden      = bool(cfg.get("hidden", False))
-    ap_channel  = int(cfg.get("ap_channel", 6))
+    ssid = str(cfg.get("ssid", "")).strip()
+    iface = str(cfg.get("interface", "wlan0")).strip() or "wlan0"
+    mode = str(cfg.get("mode", "client")).strip().lower()
+    country = str(cfg.get("country", "DK")).strip().upper()
+    hidden = bool(cfg.get("hidden", False))
+    ap_channel = int(cfg.get("ap_channel", 6))
     server_cert = str(cfg.get("server_cert", "/etc/ssl/certs/hostapd.pem")).strip()
-    server_key  = str(cfg.get("server_key", "/etc/ssl/private/hostapd.key")).strip()
-    ca_cert     = str(cfg.get("ca_cert", "/etc/ssl/certs/ca.pem")).strip()
+    server_key = str(cfg.get("server_key", "/etc/ssl/private/hostapd.key")).strip()
+    ca_cert = str(cfg.get("ca_cert", "/etc/ssl/certs/ca.pem")).strip()
     client_cert = str(cfg.get("client_cert", "/etc/ssl/certs/client.pem")).strip()
-    client_key  = str(cfg.get("client_key", "/etc/ssl/private/client.key")).strip()
-    identity    = str(cfg.get("identity, '')")).strip() or str(cfg.get("identity", "")).strip()
-    bridge      = str(cfg.get("bridge", "br0")).strip() or "br0"
+    client_key = str(cfg.get("client_key", "/etc/ssl/private/client.key")).strip()
+    identity = (
+        str(cfg.get("identity, '')")).strip() or str(cfg.get("identity", "")).strip()
+    )
+    bridge = str(cfg.get("bridge", "br0")).strip() or "br0"
 
     if not ssid:
         raise ValueError("ssid is required for 802.1X/EAP-TLS configuration")
@@ -412,7 +415,7 @@ def gen_eaptls(cfg: dict) -> list[str]:
             "",
             "# ── EAP users file ────────────────────────────────────",
             f"cat > /etc/hostapd/eap_user << '{marker}_EAP'",
-            f'"{identity or "*"}\tTLS\t\"\"\n',
+            f'"{identity or "*"}\tTLS\t""\n',
             f'"{marker}_EAP',
             "",
             "# ── FreeRADIUS reference configuration ────────────────",

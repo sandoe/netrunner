@@ -9,6 +9,7 @@ Provides:
 - Capabilities detection
 - Kernel exploit suggestions
 """
+
 import asyncio
 import json
 import os
@@ -18,6 +19,7 @@ from backend.core.logger import log as logger
 
 try:
     import paramiko
+
     PARAMIKO_AVAILABLE = True
 except ImportError:
     PARAMIKO_AVAILABLE = False
@@ -29,7 +31,9 @@ def _ensure_privesc_dir():
     os.makedirs(PRIVESC_DIR, exist_ok=True)
 
 
-async def _ssh_exec(host: str, username: str, password: str, command: str, port: int = 22) -> tuple[int, str, str]:
+async def _ssh_exec(
+    host: str, username: str, password: str, command: str, port: int = 22
+) -> tuple[int, str, str]:
     """Execute a command over SSH."""
     if not PARAMIKO_AVAILABLE:
         return -1, "", "paramiko not installed"
@@ -39,10 +43,17 @@ async def _ssh_exec(host: str, username: str, password: str, command: str, port:
     try:
         await asyncio.to_thread(
             client.connect,
-            hostname=host, port=port, username=username, password=password,
-            timeout=10, look_for_keys=False, allow_agent=False,
+            hostname=host,
+            port=port,
+            username=username,
+            password=password,
+            timeout=10,
+            look_for_keys=False,
+            allow_agent=False,
         )
-        _, stdout, stderr = await asyncio.to_thread(client.exec_command, command, timeout=60)
+        _, stdout, stderr = await asyncio.to_thread(
+            client.exec_command, command, timeout=60
+        )
         exit_code = await asyncio.to_thread(stdout.channel.recv_exit_status)
         out = await asyncio.to_thread(stdout.read().decode, errors="replace")
         err = await asyncio.to_thread(stderr.read().decode, errors="replace")
@@ -175,8 +186,8 @@ SUID_EXPLOITS = {
     "mv": "GTFOBins - mv /etc/passwd /tmp/passwd",
     "awk": "GTFOBins - awk 'BEGIN {system(\"/bin/sh\")}'",
     "perl": "GTFOBins - perl -e 'exec \"/bin/sh\";'",
-    "python": "GTFOBins - python -c 'import os; os.execl(\"/bin/sh\", \"sh\", \"-p\")'",
-    "python3": "GTFOBins - python3 -c 'import os; os.execl(\"/bin/sh\", \"sh\", \"-p\")'",
+    "python": 'GTFOBins - python -c \'import os; os.execl("/bin/sh", "sh", "-p")\'',
+    "python3": 'GTFOBins - python3 -c \'import os; os.execl("/bin/sh", "sh", "-p")\'',
     "ruby": "GTFOBins - ruby -e 'exec \"/bin/sh\"'",
     "lua": "GTFOBins - lua -e 'os.execute(\"/bin/sh\")'",
     "php": "GTFOBins - php -r 'pcntl_exec(\"/bin/sh\");'",
@@ -214,7 +225,9 @@ async def run_privesc_scan(
     findings = []
 
     for check in LINUX_CHECKS:
-        exit_code, out, err = await _ssh_exec(host, username, password, check["command"])
+        exit_code, out, err = await _ssh_exec(
+            host, username, password, check["command"]
+        )
 
         result = {
             "id": check["id"],
@@ -230,40 +243,48 @@ async def run_privesc_scan(
             for line in out.strip().splitlines():
                 binary = os.path.basename(line.strip())
                 if binary in SUID_EXPLOITS:
-                    findings.append({
-                        "type": "suid_exploit",
-                        "severity": "critical",
-                        "binary": binary,
-                        "path": line.strip(),
-                        "exploit": SUID_EXPLOITS[binary],
-                        "recommendation": f"Remove SUID bit: chmod u-s {line.strip()}",
-                    })
+                    findings.append(
+                        {
+                            "type": "suid_exploit",
+                            "severity": "critical",
+                            "binary": binary,
+                            "path": line.strip(),
+                            "exploit": SUID_EXPLOITS[binary],
+                            "recommendation": f"Remove SUID bit: chmod u-s {line.strip()}",
+                        }
+                    )
 
         if check["id"] == "sudo_check" and "ALL" in (out or ""):
-            findings.append({
-                "type": "sudo_all",
-                "severity": "critical",
-                "description": "User has full sudo access (sudo ALL)",
-                "recommendation": "Restrict sudo permissions",
-            })
+            findings.append(
+                {
+                    "type": "sudo_all",
+                    "severity": "critical",
+                    "description": "User has full sudo access (sudo ALL)",
+                    "recommendation": "Restrict sudo permissions",
+                }
+            )
 
         if check["id"] == "docker_group" and "IN_DOCKER_GROUP" in (out or ""):
-            findings.append({
-                "type": "docker_escape",
-                "severity": "critical",
-                "description": "User is in docker group - can escape to root",
-                "exploit": "docker run -v /:/mnt --rm -it alpine chroot /mnt sh",
-                "recommendation": "Remove user from docker group",
-            })
+            findings.append(
+                {
+                    "type": "docker_escape",
+                    "severity": "critical",
+                    "description": "User is in docker group - can escape to root",
+                    "exploit": "docker run -v /:/mnt --rm -it alpine chroot /mnt sh",
+                    "recommendation": "Remove user from docker group",
+                }
+            )
 
         if check["id"] == "env_secrets" and out and "NOT_AVAILABLE" not in out:
-            findings.append({
-                "type": "env_secrets",
-                "severity": "critical",
-                "description": "Secrets found in environment variables",
-                "output": out.strip(),
-                "recommendation": "Remove secrets from environment",
-            })
+            findings.append(
+                {
+                    "type": "env_secrets",
+                    "severity": "critical",
+                    "description": "Secrets found in environment variables",
+                    "output": out.strip(),
+                    "recommendation": "Remove secrets from environment",
+                }
+            )
 
         results.append(result)
 
@@ -295,7 +316,9 @@ async def run_privesc_scan(
     with open(scan_path, "w") as f:
         json.dump(scan_result, f, indent=2)
 
-    logger.info(f"[PRIVESC] Scan {scan_id} complete: risk={risk_score}%, findings={len(findings)}")
+    logger.info(
+        f"[PRIVESC] Scan {scan_id} complete: risk={risk_score}%, findings={len(findings)}"
+    )
 
     return scan_result
 
@@ -309,14 +332,16 @@ def list_scans() -> list[dict]:
             try:
                 with open(os.path.join(PRIVESC_DIR, f)) as fh:
                     data = json.load(fh)
-                    scans.append({
-                        "scan_id": data["scan_id"],
-                        "node_id": data["node_id"],
-                        "host": data["host"],
-                        "risk_score": data["risk_score"],
-                        "findings_count": data["findings_count"],
-                        "timestamp": data["timestamp"],
-                    })
+                    scans.append(
+                        {
+                            "scan_id": data["scan_id"],
+                            "node_id": data["node_id"],
+                            "host": data["host"],
+                            "risk_score": data["risk_score"],
+                            "findings_count": data["findings_count"],
+                            "timestamp": data["timestamp"],
+                        }
+                    )
             except Exception:
                 pass
     return scans

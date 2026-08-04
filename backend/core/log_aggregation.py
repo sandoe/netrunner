@@ -8,6 +8,7 @@ Provides:
 - Alert correlation with logs
 - Log storage and retention
 """
+
 import asyncio
 import json
 import os
@@ -18,6 +19,7 @@ from backend.core.logger import log as logger
 
 try:
     import paramiko
+
     PARAMIKO_AVAILABLE = True
 except ImportError:
     PARAMIKO_AVAILABLE = False
@@ -34,7 +36,9 @@ LogStore: list[dict] = []
 MAX_LOG_ENTRIES = 50000
 
 
-async def _ssh_exec(host: str, username: str, password: str, command: str, port: int = 22) -> tuple[int, str, str]:
+async def _ssh_exec(
+    host: str, username: str, password: str, command: str, port: int = 22
+) -> tuple[int, str, str]:
     """Execute a command over SSH."""
     if not PARAMIKO_AVAILABLE:
         return -1, "", "paramiko not installed"
@@ -44,10 +48,17 @@ async def _ssh_exec(host: str, username: str, password: str, command: str, port:
     try:
         await asyncio.to_thread(
             client.connect,
-            hostname=host, port=port, username=username, password=password,
-            timeout=10, look_for_keys=False, allow_agent=False,
+            hostname=host,
+            port=port,
+            username=username,
+            password=password,
+            timeout=10,
+            look_for_keys=False,
+            allow_agent=False,
         )
-        _, stdout, stderr = await asyncio.to_thread(client.exec_command, command, timeout=30)
+        _, stdout, stderr = await asyncio.to_thread(
+            client.exec_command, command, timeout=30
+        )
         exit_code = await asyncio.to_thread(stdout.channel.recv_exit_status)
         out = await asyncio.to_thread(stdout.read().decode, errors="replace")
         err = await asyncio.to_thread(stderr.read().decode, errors="replace")
@@ -160,8 +171,8 @@ def _parse_log_line(line: str, node_id: str, log_type: str) -> dict:
     # Try to extract timestamp
     ts_patterns = [
         r"^(\w{3}\s+\d{1,2}\s+\d{2}:\d{2}:\d{2})",  # Jan  1 12:00:00
-        r"^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})",    # 2024-01-01T12:00:00
-        r"^\[(\d+\.\d+)\]",                              # [1234567890.123]
+        r"^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})",  # 2024-01-01T12:00:00
+        r"^\[(\d+\.\d+)\]",  # [1234567890.123]
     ]
     for pattern in ts_patterns:
         match = re.match(pattern, line)
@@ -171,10 +182,16 @@ def _parse_log_line(line: str, node_id: str, log_type: str) -> dict:
 
     # Try to extract priority/severity
     priority_map = {
-        "emerg": "critical", "alert": "critical", "crit": "critical",
-        "err": "high", "error": "high",
-        "warning": "medium", "warn": "medium",
-        "notice": "info", "info": "info", "debug": "debug",
+        "emerg": "critical",
+        "alert": "critical",
+        "crit": "critical",
+        "err": "high",
+        "error": "high",
+        "warning": "medium",
+        "warn": "medium",
+        "notice": "info",
+        "info": "info",
+        "debug": "debug",
     }
     line_lower = line.lower()
     for keyword, severity in priority_map.items():
@@ -281,6 +298,7 @@ async def aggregate_all_nodes(nodes: dict) -> dict:
 
         try:
             from ..core.vault import get_credential
+
             cred = await get_credential(node_id, "ssh")
             if cred:
                 username = cred.get("username", username)
@@ -299,11 +317,13 @@ async def aggregate_all_nodes(nodes: dict) -> dict:
             log_type="journalctl",
             lines=50,
         )
-        results.append({
-            "node_id": node_id,
-            "success": result["success"],
-            "count": result.get("count", 0),
-        })
+        results.append(
+            {
+                "node_id": node_id,
+                "success": result["success"],
+                "count": result.get("count", 0),
+            }
+        )
 
     return {
         "nodes_aggregated": len(results),

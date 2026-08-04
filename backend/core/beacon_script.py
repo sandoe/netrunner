@@ -30,12 +30,12 @@ import glob
 
 TARGET_IP = "{{TARGET_IP}}"
 TARGET_PORT = {{TARGET_PORT}}
-CSI_MODE = "{{CSI_MODE}}"        # AUTO | RAW_NEXMON | SYNTHETIC
+CSI_MODE = "{{CSI_MODE}}"  # AUTO | RAW_NEXMON | SYNTHETIC
 SAMPLE_RATE = {{SAMPLE_RATE}}
 NODE_ID = "{{NODE_ID}}"
 
-NEXMON_UDP_PORT = 5500           # port Nexmon CSI broadcasts on
-NUM_SUBCARRIERS = 64             # 20 MHz
+NEXMON_UDP_PORT = 5500  # port Nexmon CSI broadcasts on
+NUM_SUBCARRIERS = 64  # 20 MHz
 
 sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
@@ -45,7 +45,9 @@ sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 # --------------------------------------------------------------------------- #
 def _run(cmd):
     try:
-        return subprocess.check_output(cmd, stderr=subprocess.DEVNULL, timeout=5).decode(errors="ignore")
+        return subprocess.check_output(
+            cmd, stderr=subprocess.DEVNULL, timeout=5
+        ).decode(errors="ignore")
     except Exception:
         return ""
 
@@ -92,7 +94,9 @@ def detect_capabilities():
     if intel_paths:
         caps["iwlwifi_csi"] = True
         caps["wifi_chip"] = "intel"
-        caps["notes"].append("Intel iwlwifi CSI debugfs present (extraction not implemented in beacon)")
+        caps["notes"].append(
+            "Intel iwlwifi CSI debugfs present (extraction not implemented in beacon)"
+        )
 
     return caps
 
@@ -110,12 +114,22 @@ def try_setup_nexmon(caps):
         # adjust on the node if you need a specific channel).
         params = _run(["makecsiparams", "-c", "36/80", "-C", "1", "-N", "1"]).strip()
         if params:
-            subprocess.run(["ifconfig", iface, "up"], stderr=subprocess.DEVNULL, timeout=5)
-            subprocess.run(["nexutil", "-I" + iface, "-s500", "-b", "-l34", "-v" + params],
-                           stderr=subprocess.DEVNULL, timeout=5)
-            subprocess.run(["iw", "dev", iface, "interface", "add", "mon0", "type", "monitor"],
-                           stderr=subprocess.DEVNULL, timeout=5)
-            subprocess.run(["ifconfig", "mon0", "up"], stderr=subprocess.DEVNULL, timeout=5)
+            subprocess.run(
+                ["ifconfig", iface, "up"], stderr=subprocess.DEVNULL, timeout=5
+            )
+            subprocess.run(
+                ["nexutil", "-I" + iface, "-s500", "-b", "-l34", "-v" + params],
+                stderr=subprocess.DEVNULL,
+                timeout=5,
+            )
+            subprocess.run(
+                ["iw", "dev", iface, "interface", "add", "mon0", "type", "monitor"],
+                stderr=subprocess.DEVNULL,
+                timeout=5,
+            )
+            subprocess.run(
+                ["ifconfig", "mon0", "up"], stderr=subprocess.DEVNULL, timeout=5
+            )
             return True
     except Exception:
         pass
@@ -213,8 +227,10 @@ def main():
         if not nexmon.open():
             nexmon = None
 
-    print(f"Netrunner Beacon up. node={NODE_ID} target={TARGET_IP}:{TARGET_PORT} "
-          f"mode={CSI_MODE} caps={json.dumps(caps)}")
+    print(
+        f"Netrunner Beacon up. node={NODE_ID} target={TARGET_IP}:{TARGET_PORT} "
+        f"mode={CSI_MODE} caps={json.dumps(caps)}"
+    )
 
     last_real_ts = 0.0
     while True:
@@ -243,13 +259,46 @@ def main():
         else:
             status = "REAL_CSI_STREAMING"
 
+        current_time = time.time()
+        if current_time - caps.get("_last_bt_check", 0) > 2.0:
+            caps["_last_bt_check"] = current_time
+            try:
+                btctl_out = _run(["bluetoothctl", "show"])
+                if "Controller" in btctl_out:
+                    caps["bluetooth"] = True
+                    caps["bluetooth_state"] = (
+                        "UP" if "Powered: yes" in btctl_out else "DOWN"
+                    )
+                else:
+                    hciconfig_out = _run(["hciconfig"])
+                    if "hci" in hciconfig_out:
+                        caps["bluetooth"] = True
+                        caps["bluetooth_state"] = (
+                            "UP" if "UP RUNNING" in hciconfig_out else "DOWN"
+                        )
+                    else:
+                        rfkill_out = _run(["rfkill", "list", "bluetooth"])
+                        if "Bluetooth" in rfkill_out:
+                            caps["bluetooth"] = True
+                            caps["bluetooth_state"] = (
+                                "DOWN"
+                                if "Soft blocked: yes" in rfkill_out
+                                or "Hard blocked: yes" in rfkill_out
+                                else "UP"
+                            )
+                        else:
+                            caps["bluetooth"] = False
+                            caps["bluetooth_state"] = "UNKNOWN"
+            except Exception:
+                pass
+
         payload = {
             "node_id": NODE_ID,
             "timestamp": time.time(),
             "amplitudes": amps,
-            "csi_source": source,                 # "nexmon" | "synthetic"
-            "capabilities": caps,                 # what this node supports
-            "status": status,                     # honest, machine-readable
+            "csi_source": source,  # "nexmon" | "synthetic"
+            "capabilities": caps,  # what this node supports
+            "status": status,  # honest, machine-readable
             "sample_rate": SAMPLE_RATE,
             "subcarriers": len(amps),
             # research-grade decoders are NOT real here:

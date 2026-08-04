@@ -25,15 +25,21 @@ _alert_state: Dict[str, dict] = {}
 CPU_ALERT = 90.0
 RAM_ALERT = 90.0
 
+# Tracks the last time a node's telemetry was explicitly requested by the frontend
+active_monitoring: Dict[str, float] = {}
+
 
 def _check_threshold(nid, name, metric, value, limit):
     st = _alert_state.setdefault(nid, {})
     over = value is not None and value >= limit
     if over and not st.get(metric):
         st[metric] = True
-        record_event("warning", nid, name, metric, f"{name} {metric.upper()} high: {value}%")
+        record_event(
+            "warning", nid, name, metric, f"{name} {metric.upper()} high: {value}%"
+        )
     elif not over and st.get(metric):
         st[metric] = False
+
 
 HISTORY_LEN = 60
 
@@ -45,7 +51,7 @@ def _parse_cpu(stat_out: str, nid: str) -> float | None:
             parts = [int(x) for x in line.split()[1:] if x.isdigit()]
             if len(parts) < 5:
                 return None
-            idle = parts[3] + parts[4]              # idle + iowait
+            idle = parts[3] + parts[4]  # idle + iowait
             total = sum(parts)
             busy = total - idle
             prev = _prev_cpu.get(nid)
@@ -78,22 +84,30 @@ async def poll_telemetry_loop():
     while True:
         try:
             nodes = await load_nodes_db()
+            logger.warning(f"Telemetry loop polling {len(nodes)} nodes")
 
             async def poll_node(nid, node):
                 try:
                     # Real vitals over SSH only: a separate exec channel that
-                    # doesn't disturb an interactive session. Telnet (e.g. GNS3
-                    # consoles) is a single shared stream, so we skip it.
                     if (node.get("transport") or "telnet").lower() != "ssh":
+                        logger.warning(
+                            f"POLL_NODE {nid}: returning early due to transport {node.get('transport')}"
+                        )
                         return
-                    # Only poll nodes with a live session — don't auto-open.
-                    if not session_manager.is_connected(nid):
+
+                    # Only poll if the node is actively being monitored by the frontend (within last 15s)
+                    if time.time() - active_monitoring.get(nid, 0) > 15.0:
                         return
 
                     res, err = await session_manager.run(
-                        nid, node, ["cat /proc/stat", "cat /proc/meminfo", "cat /proc/net/dev"]
+                        nid,
+                        node,
+                        ["cat /proc/stat", "cat /proc/meminfo", "cat /proc/net/dev"],
                     )
                     if err or not res or len(res) < 3:
+                        logger.warning(
+                            f"POLL FAILED FOR {nid}: err={err}, res_len={len(res) if res else 0}"
+                        )
                         return
                     stat_out = res[0].get("output", "")
                     mem_out = res[1].get("output", "")
@@ -110,56 +124,78 @@ async def poll_telemetry_loop():
                     if nid not in telemetry_cache:
                         telemetry_cache[nid] = {}
                     total_rx = total_tx = 0.0
-                    for line in net_out.split('\n')[2:]:  # skip headers
-                        if ':' not in line:
+                    node_iface_updates = []
+                    print(f"NET_OUT for {nid}: {repr(net_out)}")
+                    for line in net_out.splitlines()[2:]:  # skip headers
+                        if ":" not in line:
                             continue
-                        iface = line.split(':')[0].strip()
-                        stats = line.split(':')[1].split()
-                        if iface == 'lo' or len(stats) < 16:
+                        iface = line.split(":")[0].strip()
+                        stats = line.split(":")[1].split()
+                        if len(stats) < 16:
                             continue
                         rx_bytes = int(stats[0])
                         tx_bytes = int(stats[8])
                         prev = telemetry_cache[nid].get(iface)
                         mbps_rx = mbps_tx = 0.0
                         if prev:
-                            dt = current_time - prev['timestamp']
+                            dt = current_time - prev["timestamp"]
                             if dt > 0:
-                                mbps_rx = max(0.0, (rx_bytes - prev['rx_bytes']) * 8 / 1e6 / dt)
-                                mbps_tx = max(0.0, (tx_bytes - prev['tx_bytes']) * 8 / 1e6 / dt)
+                                mbps_rx = max(
+                                    0.0, (rx_bytes - prev["rx_bytes"]) * 8 / 1e6 / dt
+                                )
+                                mbps_tx = max(
+                                    0.0, (tx_bytes - prev["tx_bytes"]) * 8 / 1e6 / dt
+                                )
                         data = {
-                            "rx_bytes": rx_bytes, "tx_bytes": tx_bytes,
+                            "rx_bytes": rx_bytes,
+                            "tx_bytes": tx_bytes,
                             "timestamp": current_time,
-                            "mbps_rx": round(mbps_rx, 2), "mbps_tx": round(mbps_tx, 2),
+                            "mbps_rx": round(mbps_rx, 4),
+                            "mbps_tx": round(mbps_tx, 4),
                         }
                         telemetry_cache[nid][iface] = data
                         total_rx += mbps_rx
                         total_tx += mbps_tx
-                        await telemetry_queue.put({
-                            "type": "update", "node_id": nid, "interface": iface, **data
-                        })
+                        node_iface_updates.append({"interface": iface, **data})
+                    logger.warning(f"Telemetry {nid} -> tx={total_tx}, rx={total_rx}")
+
+                    if node_iface_updates:
+                        await telemetry_queue.put(
+                            {
+                                "type": "bulk_update",
+                                "node_id": nid,
+                                "updates": node_iface_updates,
+                            }
+                        )
 
                     # --- node-level vitals + history ---
                     vit = {
                         "cpu": round(cpu, 1) if cpu is not None else None,
                         "ram": round(ram, 1) if ram is not None else None,
-                        "net_tx": round(total_tx, 2),
-                        "net_rx": round(total_rx, 2),
+                        "net_tx": round(total_tx, 4),
+                        "net_rx": round(total_rx, 4),
                         "timestamp": current_time,
                     }
                     node_vitals[nid] = vit
                     hist = vitals_history.setdefault(nid, [])
-                    hist.append({
-                        "time": int(current_time),
-                        "cpu": vit["cpu"] or 0.0,
-                        "ram": vit["ram"] or 0.0,
-                        "net_tx": total_tx * 1e6 / 8,   # back to bytes/s-ish for the chart
-                        "net_rx": total_rx * 1e6 / 8,
-                    })
+                    hist.append(
+                        {
+                            "time": int(current_time),
+                            "cpu": vit["cpu"] or 0.0,
+                            "ram": vit["ram"] or 0.0,
+                            "net_tx": round(total_tx, 4),
+                            "net_rx": round(total_rx, 4),
+                        }
+                    )
                     if len(hist) > HISTORY_LEN:
                         del hist[:-HISTORY_LEN]
                     await telemetry_queue.put({"type": "vitals", "node_id": nid, **vit})
-                except Exception:
-                    pass
+                except Exception as e:
+                    import traceback
+
+                    logger.error(
+                        f"Error in poll_node for {nid}: {e}\n{traceback.format_exc()}"
+                    )
 
             tasks = [poll_node(nid, n) for nid, n in nodes.items()]
             if tasks:

@@ -1,4 +1,5 @@
 """Link CRUD and Discovery API endpoints."""
+
 from __future__ import annotations
 
 import json
@@ -23,6 +24,7 @@ DATA_DIR = Path("data")
 # Data helpers
 # ---------------------------------------------------------------------------
 
+
 async def load_links() -> dict:
     return await load_links_db()
 
@@ -32,16 +34,17 @@ async def save_links(links: dict) -> None:
         await save_link_db(l)
 
 
-
 # ---------------------------------------------------------------------------
 # Pydantic models
 # ---------------------------------------------------------------------------
+
 
 class LinkCreate(BaseModel):
     source: str  # Node ID
     target: str  # Node ID
     auto_discovered: bool = False
     metadata: dict = {}
+
 
 class Link(LinkCreate):
     id: str
@@ -51,6 +54,7 @@ class Link(LinkCreate):
 # Routes
 # ---------------------------------------------------------------------------
 
+
 @router.get("/links/auto-discover")
 async def auto_discover_links():
     try:
@@ -58,6 +62,7 @@ async def auto_discover_links():
         return {"status": "ok", "new_links": new_count}
     except Exception as e:
         raise HTTPException(500, f"Auto-discovery failed: {e}")
+
 
 @router.get("/links", response_model=List[Link])
 async def get_links():
@@ -68,11 +73,12 @@ async def get_links():
 @router.post("/links", response_model=Link)
 async def create_link(link_in: LinkCreate):
     links = await load_links()
-    
+
     # Simple check for duplicates
     for l in links.values():
-        if (l["source"] == link_in.source and l["target"] == link_in.target) or \
-           (l["source"] == link_in.target and l["target"] == link_in.source):
+        if (l["source"] == link_in.source and l["target"] == link_in.target) or (
+            l["source"] == link_in.target and l["target"] == link_in.source
+        ):
             # Return existing if same pair
             return Link(id=l["id"], **l)
 
@@ -88,7 +94,7 @@ async def delete_link(link_id: str):
     links = await load_links()
     if link_id not in links:
         raise HTTPException(status_code=404, detail="Link not found")
-    
+
     await delete_link_db(link_id)
     return {"status": "deleted"}
 
@@ -97,28 +103,36 @@ async def delete_link(link_id: str):
 # Discovery Logic
 # ---------------------------------------------------------------------------
 
+
 @router.post("/links/discover")
 async def discover_links():
     nodes = await load_nodes()
     links = await load_links()
     active_ids = session_manager.active_ids()
-    
+
     if not active_ids:
-        return {"status": "error", "message": "No active sessions. Please connect nodes first."}
+        return {
+            "status": "error",
+            "message": "No active sessions. Please connect nodes first.",
+        }
 
     new_links_count = 0
     unknown_neighbors = []
-    
+
     # 1. Build a comprehensive IP map (Management IP + Interface IPs)
     ip_to_node = {}
     for nid, n in nodes.items():
         ip_to_node[n["host"]] = nid
-        
+
         # Try to get more IPs if node is active
         try:
             node_creds = await _get_node_with_creds(nid, nodes)
             # This is a bit slow but robust: fetch all IPs for this node
-            ip_results, _ = await session_manager.run(nid, node_creds, ["ip -4 addr show | grep inet | awk '{print $2}' | cut -d/ -f1"])
+            ip_results, _ = await session_manager.run(
+                nid,
+                node_creds,
+                ["ip -4 addr show | grep inet | awk '{print $2}' | cut -d/ -f1"],
+            )
             if ip_results:
                 for ip in ip_results[0].get("output", "").splitlines():
                     if ip.strip():
@@ -128,41 +142,45 @@ async def discover_links():
 
     for nid in active_ids:
         node_data = await _get_node_with_creds(nid, nodes)
-        
+
         cmds = [
             "ip -4 neigh show",
             "lldpcli show neighbors -f json 2>/dev/null || echo '{}'",
-            "bridge vlan show 2>/dev/null || echo ''" # Helper for switches
+            "bridge vlan show 2>/dev/null || echo ''",  # Helper for switches
         ]
-        
+
         results, err = await session_manager.run(nid, node_data, cmds)
         if not results:
             continue
-            
+
         # Parse ARP
         neigh_output = results[0].get("output", "")
         for line in neigh_output.splitlines():
             parts = line.split()
-            if not parts: continue
+            if not parts:
+                continue
             neighbor_ip = parts[0]
-            
+
             if neighbor_ip in ip_to_node:
                 target_id = ip_to_node[neighbor_ip]
                 if target_id != nid:
                     if _add_link_if_new(links, nid, target_id, "arp"):
                         new_links_count += 1
             elif neighbor_ip not in ("127.0.0.1", "::1"):
-                unknown_neighbors.append({
-                    "ip": neighbor_ip,
-                    "source_node": nodes[nid]["name"],
-                    "method": "arp"
-                })
+                unknown_neighbors.append(
+                    {
+                        "ip": neighbor_ip,
+                        "source_node": nodes[nid]["name"],
+                        "method": "arp",
+                    }
+                )
 
         # Parse LLDP
         lldp_raw = results[1].get("output", "{}")
         if lldp_raw.strip() and lldp_raw != "{}":
             try:
                 lldp_data = json.loads(lldp_raw)
+
                 # LLDP structure can be complex, recursively look for chassis names
                 def find_neighbors(obj):
                     if isinstance(obj, dict):
@@ -171,10 +189,12 @@ async def discover_links():
                             if isinstance(c, list):
                                 for item in c:
                                     name = item.get("name", [{}])[0].get("value")
-                                    if name: yield name
+                                    if name:
+                                        yield name
                             elif isinstance(c, dict):
                                 name = c.get("name", [{}])[0].get("value")
-                                if name: yield name
+                                if name:
+                                    yield name
                         for v in obj.values():
                             yield from find_neighbors(v)
                     elif isinstance(obj, list):
@@ -184,45 +204,51 @@ async def discover_links():
                 for remote_name in find_neighbors(lldp_data):
                     found_in_db = False
                     for t_id, t_node in nodes.items():
-                        if t_node["name"].lower() == remote_name.lower() and t_id != nid:
+                        if (
+                            t_node["name"].lower() == remote_name.lower()
+                            and t_id != nid
+                        ):
                             found_in_db = True
                             if _add_link_if_new(links, nid, t_id, "lldp"):
                                 new_links_count += 1
-                    
+
                     if not found_in_db:
-                        unknown_neighbors.append({
-                            "name": remote_name,
-                            "source_node": nodes[nid]["name"],
-                            "method": "lldp"
-                        })
+                        unknown_neighbors.append(
+                            {
+                                "name": remote_name,
+                                "source_node": nodes[nid]["name"],
+                                "method": "lldp",
+                            }
+                        )
             except:
                 pass
 
     await save_links(links)
     return {
-        "status": "success", 
-        "discovered": new_links_count, 
-        "unknown_neighbors": unknown_neighbors
+        "status": "success",
+        "discovered": new_links_count,
+        "unknown_neighbors": unknown_neighbors,
     }
     return {
-        "status": "success", 
-        "discovered": new_links_count, 
-        "unknown_neighbors": unknown_neighbors
+        "status": "success",
+        "discovered": new_links_count,
+        "unknown_neighbors": unknown_neighbors,
     }
 
 
 def _add_link_if_new(links: dict, s: str, t: str, method: str) -> bool:
     for l in links.values():
-        if (l["source"] == s and l["target"] == t) or \
-           (l["source"] == t and l["target"] == s):
+        if (l["source"] == s and l["target"] == t) or (
+            l["source"] == t and l["target"] == s
+        ):
             return False
-            
+
     lid = str(uuid.uuid4())
     links[lid] = {
         "id": lid,
         "source": s,
         "target": t,
         "auto_discovered": True,
-        "metadata": {"method": method}
+        "metadata": {"method": method},
     }
     return True

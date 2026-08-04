@@ -5,14 +5,20 @@ Netrunner WiFi Attack Router — API endpoints for WiFi penetration testing.
     Unauthorized access to computer networks is illegal. Always obtain
     written authorization before performing any security testing.
 """
+
 from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 from typing import Optional
 from .auth import require_admin
 from ..core.wifi_attack import (
-    scan_networks, deauth_attack, evil_twin_attack,
-    capture_handshake, crack_handshake, probe_clients,
-    get_active_attacks, get_wireless_interfaces,
+    scan_networks,
+    deauth_attack,
+    evil_twin_attack,
+    capture_handshake,
+    crack_handshake,
+    probe_clients,
+    get_active_attacks,
+    get_wireless_interfaces,
 )
 
 router = APIRouter()
@@ -143,7 +149,9 @@ async def api_wifi_attack_crack(req: CrackRequest):
         wordlist=req.wordlist,
     )
     if not result["success"]:
-        raise HTTPException(400, result.get("error", result.get("message", "Crack failed")))
+        raise HTTPException(
+            400, result.get("error", result.get("message", "Crack failed"))
+        )
     return result
 
 

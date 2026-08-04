@@ -8,6 +8,7 @@ Provides:
 - Timeline generation
 - Evidence chain of custody tracking
 """
+
 import asyncio
 import os
 import json
@@ -24,6 +25,7 @@ except ImportError:
 
 try:
     import paramiko
+
     PARAMIKO_AVAILABLE = True
 except ImportError:
     PARAMIKO_AVAILABLE = False
@@ -41,7 +43,9 @@ def _ensure_forensics_dir():
     os.makedirs(os.path.join(FORENSICS_DIR, "timeline"), exist_ok=True)
 
 
-async def _ssh_exec(host: str, username: str, password: str, command: str, port: int = 22) -> tuple[int, str, str]:
+async def _ssh_exec(
+    host: str, username: str, password: str, command: str, port: int = 22
+) -> tuple[int, str, str]:
     """Execute a command over SSH."""
     if not PARAMIKO_AVAILABLE:
         return -1, "", "paramiko not installed"
@@ -51,10 +55,17 @@ async def _ssh_exec(host: str, username: str, password: str, command: str, port:
     try:
         await asyncio.to_thread(
             client.connect,
-            hostname=host, port=port, username=username, password=password,
-            timeout=10, look_for_keys=False, allow_agent=False,
+            hostname=host,
+            port=port,
+            username=username,
+            password=password,
+            timeout=10,
+            look_for_keys=False,
+            allow_agent=False,
         )
-        _, stdout, stderr = await asyncio.to_thread(client.exec_command, command, timeout=300)
+        _, stdout, stderr = await asyncio.to_thread(
+            client.exec_command, command, timeout=300
+        )
         exit_code = await asyncio.to_thread(stdout.channel.recv_exit_status)
         out = await asyncio.to_thread(stdout.read().decode, errors="replace")
         err = await asyncio.to_thread(stderr.read().decode, errors="replace")
@@ -65,7 +76,9 @@ async def _ssh_exec(host: str, username: str, password: str, command: str, port:
         client.close()
 
 
-async def acquire_memory_dump(node_id: str, host: str, username: str, password: str, method: str = "lime") -> dict:
+async def acquire_memory_dump(
+    node_id: str, host: str, username: str, password: str, method: str = "lime"
+) -> dict:
     """
     Acquire a memory dump from a remote node.
 
@@ -117,8 +130,14 @@ async def acquire_memory_dump(node_id: str, host: str, username: str, password: 
         client = paramiko.SSHClient()
         client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
         await asyncio.to_thread(
-            client.connect, hostname=host, port=22, username=username, password=password,
-            timeout=30, look_for_keys=False, allow_agent=False,
+            client.connect,
+            hostname=host,
+            port=22,
+            username=username,
+            password=password,
+            timeout=30,
+            look_for_keys=False,
+            allow_agent=False,
         )
 
         sftp = await asyncio.to_thread(client.open_sftp)
@@ -159,7 +178,9 @@ async def acquire_memory_dump(node_id: str, host: str, username: str, password: 
         return {"success": False, "error": f"Transfer failed: {str(e)}"}
 
 
-async def run_volatility_plugin(evidence_id: str, plugin: str, extra_args: str = "") -> dict:
+async def run_volatility_plugin(
+    evidence_id: str, plugin: str, extra_args: str = ""
+) -> dict:
     """
     Run a Volatility3 plugin against a memory dump.
 
@@ -211,14 +232,20 @@ async def run_volatility_plugin(evidence_id: str, plugin: str, extra_args: str =
         parsed = _parse_volatility_output(plugin, output)
 
         # Generate timeline
-        timeline_path = os.path.join(FORENSICS_DIR, "timeline", f"{evidence_id}_{plugin.replace('.', '_')}.json")
-        await asyncio.to_thread(_write_json, timeline_path, {
-            "evidence_id": evidence_id,
-            "plugin": plugin,
-            "output": output,
-            "parsed": parsed,
-            "timestamp": time.time(),
-        })
+        timeline_path = os.path.join(
+            FORENSICS_DIR, "timeline", f"{evidence_id}_{plugin.replace('.', '_')}.json"
+        )
+        await asyncio.to_thread(
+            _write_json,
+            timeline_path,
+            {
+                "evidence_id": evidence_id,
+                "plugin": plugin,
+                "output": output,
+                "parsed": parsed,
+                "timestamp": time.time(),
+            },
+        )
 
         return {
             "success": True,
@@ -264,7 +291,7 @@ def _parse_volatility_output(plugin: str, output: str) -> list[dict]:
 
     headers = [h.strip() for h in lines[header_idx].split() if h.strip()]
 
-    for line in lines[header_idx + 1:]:
+    for line in lines[header_idx + 1 :]:
         if not line.strip() or line.startswith("---"):
             continue
         values = line.split()
@@ -293,7 +320,9 @@ async def analyze_disk_image(image_path: str) -> dict:
         result = await asyncio.to_thread(
             subprocess.run,
             ["fls", "-r", "-d", image_path],
-            capture_output=True, text=True, timeout=60,
+            capture_output=True,
+            text=True,
+            timeout=60,
         )
         if result.returncode == 0:
             results["file_system"] = _parse_flst_output(result.stdout)
@@ -305,7 +334,9 @@ async def analyze_disk_image(image_path: str) -> dict:
         result = await asyncio.to_thread(
             subprocess.run,
             ["mmls", image_path],
-            capture_output=True, text=True, timeout=30,
+            capture_output=True,
+            text=True,
+            timeout=30,
         )
         if result.returncode == 0:
             results["disk_layout"] = result.stdout
@@ -317,7 +348,9 @@ async def analyze_disk_image(image_path: str) -> dict:
         result = await asyncio.to_thread(
             subprocess.run,
             ["img_stat", image_path],
-            capture_output=True, text=True, timeout=30,
+            capture_output=True,
+            text=True,
+            timeout=30,
         )
         if result.returncode == 0:
             results["image_info"] = result.stdout
@@ -357,12 +390,14 @@ async def generate_timeline(evidence_ids: list[str]) -> dict:
     for eid in evidence_ids:
         if eid in EvidenceDB:
             ev = EvidenceDB[evidence_id]
-            events.append({
-                "timestamp": ev["acquired_at"],
-                "type": ev["type"],
-                "source": ev.get("source_host", "unknown"),
-                "evidence_id": eid,
-            })
+            events.append(
+                {
+                    "timestamp": ev["acquired_at"],
+                    "type": ev["type"],
+                    "source": ev.get("source_host", "unknown"),
+                    "evidence_id": eid,
+                }
+            )
 
         # Check for timeline files
         timeline_dir = os.path.join(FORENSICS_DIR, "timeline")
@@ -374,12 +409,16 @@ async def generate_timeline(evidence_ids: list[str]) -> dict:
                         tl_data = await asyncio.to_thread(_read_json, tl_path)
                         for entry in tl_data.get("parsed", []):
                             if "timestamp" in entry or "Date" in entry:
-                                events.append({
-                                    "timestamp": entry.get("timestamp", entry.get("Date", "")),
-                                    "type": "volatility_result",
-                                    "source": eid,
-                                    "data": entry,
-                                })
+                                events.append(
+                                    {
+                                        "timestamp": entry.get(
+                                            "timestamp", entry.get("Date", "")
+                                        ),
+                                        "type": "volatility_result",
+                                        "source": eid,
+                                        "data": entry,
+                                    }
+                                )
                     except Exception:
                         pass
 

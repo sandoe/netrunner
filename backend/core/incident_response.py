@@ -10,6 +10,7 @@ Provides:
 - Post-incident reporting
 - Chain of custody tracking
 """
+
 import asyncio
 import json
 import os
@@ -29,11 +30,31 @@ def _ensure_ir_dir():
 
 # IR Phases
 IR_PHASES = [
-    {"id": "detection", "name": "Detection & Analysis", "description": "Identify and validate the incident"},
-    {"id": "containment", "name": "Containment", "description": "Limit the damage of the incident"},
-    {"id": "eradication", "name": "Eradication", "description": "Remove the threat from the environment"},
-    {"id": "recovery", "name": "Recovery", "description": "Restore systems to normal operation"},
-    {"id": "post_incident", "name": "Post-Incident", "description": "Lessons learned and documentation"},
+    {
+        "id": "detection",
+        "name": "Detection & Analysis",
+        "description": "Identify and validate the incident",
+    },
+    {
+        "id": "containment",
+        "name": "Containment",
+        "description": "Limit the damage of the incident",
+    },
+    {
+        "id": "eradication",
+        "name": "Eradication",
+        "description": "Remove the threat from the environment",
+    },
+    {
+        "id": "recovery",
+        "name": "Recovery",
+        "description": "Restore systems to normal operation",
+    },
+    {
+        "id": "post_incident",
+        "name": "Post-Incident",
+        "description": "Lessons learned and documentation",
+    },
 ]
 
 # Common IR playbooks
@@ -273,12 +294,14 @@ async def update_incident_phase(incident_id: str, phase: str) -> dict:
 
     incident["current_phase"] = phase
     incident["updated_at"] = time.time()
-    incident["timeline"].append({
-        "timestamp": time.time(),
-        "action": "phase_changed",
-        "user": "system",
-        "details": f"Phase changed to {phase}",
-    })
+    incident["timeline"].append(
+        {
+            "timestamp": time.time(),
+            "action": "phase_changed",
+            "user": "system",
+            "details": f"Phase changed to {phase}",
+        }
+    )
 
     if phase == "post_incident":
         incident["status"] = "resolved"
@@ -288,7 +311,9 @@ async def update_incident_phase(incident_id: str, phase: str) -> dict:
     return {"success": True, "incident_id": incident_id, "new_phase": phase}
 
 
-async def add_evidence(incident_id: str, evidence_type: str, description: str, file_path: str = "") -> dict:
+async def add_evidence(
+    incident_id: str, evidence_type: str, description: str, file_path: str = ""
+) -> dict:
     """Add evidence to an incident."""
     incident = await get_incident(incident_id)
     if not incident:
@@ -305,19 +330,23 @@ async def add_evidence(incident_id: str, evidence_type: str, description: str, f
     }
 
     incident["evidence"].append(evidence)
-    incident["timeline"].append({
-        "timestamp": time.time(),
-        "action": "evidence_added",
-        "user": "system",
-        "details": f"Evidence added: {evidence_type} - {description}",
-    })
+    incident["timeline"].append(
+        {
+            "timestamp": time.time(),
+            "action": "evidence_added",
+            "user": "system",
+            "details": f"Evidence added: {evidence_type} - {description}",
+        }
+    )
 
     await _save_incident(incident)
 
     return {"success": True, "evidence_id": evidence_id}
 
 
-async def add_action(incident_id: str, phase: str, action_type: str, description: str, result: str = "") -> dict:
+async def add_action(
+    incident_id: str, phase: str, action_type: str, description: str, result: str = ""
+) -> dict:
     """Add an action to the incident (containment, eradication, recovery)."""
     incident = await get_incident(incident_id)
     if not incident:
@@ -337,12 +366,14 @@ async def add_action(incident_id: str, phase: str, action_type: str, description
         incident[key] = []
     incident[key].append(action)
 
-    incident["timeline"].append({
-        "timestamp": time.time(),
-        "action": f"{phase}_action",
-        "user": "system",
-        "details": f"{phase.title()} action: {description}",
-    })
+    incident["timeline"].append(
+        {
+            "timestamp": time.time(),
+            "action": f"{phase}_action",
+            "user": "system",
+            "details": f"{phase.title()} action: {description}",
+        }
+    )
 
     await _save_incident(incident)
 
@@ -360,12 +391,14 @@ async def close_incident(incident_id: str, lessons_learned: str = "") -> dict:
     incident["lessons_learned"] = lessons_learned
     incident["closed_at"] = time.time()
     incident["updated_at"] = time.time()
-    incident["timeline"].append({
-        "timestamp": time.time(),
-        "action": "incident_closed",
-        "user": "system",
-        "details": "Incident closed",
-    })
+    incident["timeline"].append(
+        {
+            "timestamp": time.time(),
+            "action": "incident_closed",
+            "user": "system",
+            "details": "Incident closed",
+        }
+    )
 
     await _save_incident(incident)
 
@@ -394,16 +427,18 @@ def list_incidents(status: str = "", severity: str = "") -> list[dict]:
                         continue
                     if severity and data.get("severity") != severity:
                         continue
-                    incidents.append({
-                        "id": data["id"],
-                        "title": data["title"],
-                        "severity": data["severity"],
-                        "type": data["type"],
-                        "status": data["status"],
-                        "current_phase": data.get("current_phase", ""),
-                        "created_at": data["created_at"],
-                        "updated_at": data["updated_at"],
-                    })
+                    incidents.append(
+                        {
+                            "id": data["id"],
+                            "title": data["title"],
+                            "severity": data["severity"],
+                            "type": data["type"],
+                            "status": data["status"],
+                            "current_phase": data.get("current_phase", ""),
+                            "created_at": data["created_at"],
+                            "updated_at": data["updated_at"],
+                        }
+                    )
             except Exception:
                 pass
     return incidents

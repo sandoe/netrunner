@@ -51,6 +51,7 @@ export const api = {
     return { data: await req<T>('GET', url) }
   },
   post: async <T = any>(path: string, body?: unknown) => ({ data: await req<T>('POST', path, body) }),
+  delete: async <T = any>(path: string) => ({ data: await req<T>('DELETE', path) }),
 
   // Auth
   login: (creds: any) => req<any>('POST', '/auth/login', creds),
@@ -88,6 +89,8 @@ export const api = {
   removeMonitoring: (id: string) =>
     req<{ status: string, message: string }>('POST', `/nodes/${id}/monitoring/remove`),
 
+  generateReconReport: (nid: string, modules: string[]) => req<{ status: string; report: string }>('POST', `/recon/${nid}/report`, { modules }),
+
   // Links
   listLinks: () => req<NrLink[]>('GET', '/links'),
   createLink: (source: string, target: string) => req<NrLink>('POST', '/links', { source, target }),
@@ -106,18 +109,27 @@ export const api = {
 
   // Settings
   getSettings: () => req<{ 
-    ai_provider: string;
-    ai_api_key_set: boolean;
-    ai_masked_key: string;
-    ai_base_url: string;
-    ai_model: string;
-    openai_api_key_set: boolean; 
-    masked_key: string; 
-    alienvault_api_key_set: boolean;
-    masked_alienvault_key: string;
-    gns3_server_url: string;
-    database_url: string;
+    ai_execution_mode: string,
+    ai_cli_type: string,
+    ai_cli_path: string,
+    ai_provider: string,
+    ai_model: string,
+    ai_base_url: string,
+    ai_api_key_set: boolean,
+    ai_masked_key: string,
+    openai_api_key_set: boolean,
+    masked_key: string,
+    alienvault_api_key_set: boolean,
+    masked_alienvault_key: string,
+    gns3_server_url: string,
+    database_url: string
   }>('GET', '/settings'),
+  getNetworkInterfaces: () => req<any[]>('GET', '/network/interfaces'),
+  getNetworkRoutes: () => req<any[]>('GET', '/network/routes'),
+  addNetworkRoute: (body: any) => req<any>('POST', '/network/routes', body),
+  deleteNetworkRoute: (body: any) => req<any>('DELETE', '/network/routes', body),
+  addVlan: (body: any) => req<any>('POST', '/network/vlans', body),
+  deleteVlan: (ifaceName: string) => req<any>('DELETE', `/network/vlans/${ifaceName}`),
   updateSettings: (body: { 
     ai_provider?: string;
     ai_api_key?: string;
@@ -137,6 +149,8 @@ export const api = {
   listLocalGns3Projects: () => req<{ name: string; path: string; id: string }[]>('GET', '/gns3/local-projects'),
   syncLocalGns3Project: (path: string) => req<{ status: string; nodes: number; links: number }>('POST', '/gns3/local-sync', { path }),
 
+  getPhysicalInterfaces: (nid: string) => req<{ interfaces: any[] }>('GET', `/nodes/${nid}/interfaces/physical`),
+
   readNode: (id: string, type: string) => req<{ results: CommandResult[] }>('GET', `/nodes/${id}/read/${type}`),
   executeNode: (id: string, commands: string[]) => req<{ results: CommandResult[] }>('POST', `/nodes/${id}/execute`, { commands }),
   installTool: (id: string, tool: string, sudo_pass?: string) => req<{ status: string; results: CommandResult[] }>('POST', `/nodes/${id}/install`, { tool, sudo_pass }),
@@ -144,6 +158,10 @@ export const api = {
   // Backup
   backupNode: (id: string) => req<{ ok: boolean }>('POST', `/nodes/${id}/backup`),
   rollbackNode: (id: string) => req<{ ok: boolean; results: CommandResult[] }>('POST', `/nodes/${id}/rollback`),
+
+  // Persistent Configs
+  persistList: (id: string) => req<{ persists: { name: string; path: string }[] }>('GET', `/nodes/${id}/persist`),
+  persistDelete: (id: string, name: string) => req<{ ok: boolean }>('DELETE', `/nodes/${id}/persist/${name}`),
 
   // Recon
   runRecon: (id: string, target: string, profile: string, sudo_pass?: string) => req<any>('POST', `/recon/${id}/scan`, { target, profile, sudo_pass }),
@@ -175,8 +193,10 @@ export const api = {
     }
     return r.json()
   },
-  captureInject: (id: string, body: { target_ip: string; port: number; protocol: string; payload: string }) =>
+  captureInject: (id: string, body: { target_ip: string; port: number; protocol: string; payload: string; count?: number }) =>
     req<{ status: string; output: string }>('POST', `/nodes/${id}/capture/inject`, body),
+  captureReplay: (id: string, capId: string, body: { interface: string }) =>
+    req<{ ok: boolean; output: string }>('POST', `/nodes/${id}/capture/${capId}/replay`, body),
 
   // System
   systemState: () => req<{ autopilot: boolean, chaos: boolean }>('GET', '/system/state'),
@@ -259,6 +279,10 @@ export const api = {
   kismetDatasources: () => req<{ datasources: any[] }>('GET', '/kismet/datasources'),
   kismetInterfaces: () => req<{ interfaces: { name: string; driver: string; monitor_mode: boolean }[] }>('GET', '/kismet/interfaces'),
   kismetSetChannel: (source_uuid: string, channel?: number) => req<{ status: string }>('POST', '/kismet/channel', { source_uuid, channel }),
+
+  // AI Storylines & Log Parsing
+  getStorylines: () => req<any[]>('GET', '/ai/storylines'),
+  parseLog: (log_entry: string, selection: string) => req<{ pattern: string; extracted_fields: any; explanation: string }>('POST', '/ai/parse-log', { log_entry, selection }),
 }
 
 /** Query-param suffix carrying the JWT for WebSocket handshakes (browsers
@@ -279,7 +303,8 @@ export function wsBase(): string {
 export function wsTerminalUrl(nodeId: string): string {
   const proto = location.protocol === 'https:' ? 'wss' : 'ws'
   const hostname = location.hostname
-  return `${proto}://${hostname}:8081/ws/terminal?nodeId=${nodeId}`
+  const token = localStorage.getItem('nr_token') || ''
+  return `${proto}://${hostname}:8081/ws/terminal?nodeId=${encodeURIComponent(nodeId)}&token=${encodeURIComponent(token)}`
 }
 
 export async function sendUiEvent(type: string, path: string, element?: string, data?: any) {
@@ -304,4 +329,3 @@ export async function sendUiEvent(type: string, path: string, element?: string, 
     console.error('Failed to send UI telemetry', e)
   }
 }
-

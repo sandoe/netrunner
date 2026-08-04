@@ -5,16 +5,39 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"net/http"
+	"net/url"
 	"os"
+	"strings"
+	"time"
 
 	"github.com/gorilla/websocket"
 )
 
 var upgrader = websocket.Upgrader{
 	CheckOrigin: func(r *http.Request) bool {
-		return true // Allow cross-origin for dashboard
+		origin := r.Header.Get("Origin")
+		if origin == "" {
+			return true
+		}
+		parsed, err := url.Parse(origin)
+		if err != nil {
+			return false
+		}
+		requestHost := r.Host
+		if host, _, err := net.SplitHostPort(requestHost); err == nil {
+			requestHost = host
+		}
+		return strings.EqualFold(parsed.Hostname(), requestHost)
 	},
+}
+
+var backendClient = &http.Client{Timeout: 5 * time.Second}
+
+type AuthUser struct {
+	Username string `json:"username"`
+	Role     string `json:"role"`
 }
 
 type NodeCreds struct {
@@ -45,7 +68,18 @@ func fetchCredentials(nodeID string) (*NodeCreds, error) {
 	}
 	url := fmt.Sprintf("%s/api/internal/node/%s", backendHost, nodeID)
 
-	resp, err := http.Get(url)
+	internalToken := os.Getenv("NETRUNNER_INTERNAL_TOKEN")
+	if internalToken == "" {
+		return nil, fmt.Errorf("NETRUNNER_INTERNAL_TOKEN is not configured")
+	}
+
+	req, err := http.NewRequest(http.MethodGet, url, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("X-Netrunner-Internal-Token", internalToken)
+
+	resp, err := backendClient.Do(req)
 	if err != nil {
 		return nil, err
 	}
@@ -62,7 +96,42 @@ func fetchCredentials(nodeID string) (*NodeCreds, error) {
 	return &creds, nil
 }
 
+func authenticate(token string) (*AuthUser, error) {
+	if token == "" {
+		return nil, fmt.Errorf("missing access token")
+	}
+	backendHost := os.Getenv("BACKEND_HOST")
+	if backendHost == "" {
+		backendHost = "http://backend:8000"
+	}
+	req, err := http.NewRequest(http.MethodGet, backendHost+"/api/auth/me", nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err := backendClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("authentication failed")
+	}
+	var user AuthUser
+	if err := json.NewDecoder(resp.Body).Decode(&user); err != nil {
+		return nil, err
+	}
+	if user.Username == "" || (user.Role != "admin" && user.Role != "analyst") {
+		return nil, fmt.Errorf("terminal access is not permitted")
+	}
+	return &user, nil
+}
+
 func handleTerminal(w http.ResponseWriter, r *http.Request) {
+	if _, err := authenticate(r.URL.Query().Get("token")); err != nil {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
 	nodeID := r.URL.Query().Get("nodeId")
 	if nodeID == "" {
 		http.Error(w, "nodeId required", http.StatusBadRequest)
@@ -95,7 +164,9 @@ func handleTerminal(w http.ResponseWriter, r *http.Request) {
 	if creds.Transport == "ssh" {
 		session, err = handleSSH(creds)
 	} else if creds.Transport == "telnet" {
-		session, err = handleTelnet(creds)
+		cols := r.URL.Query().Get("cols")
+		rows := r.URL.Query().Get("rows")
+		session, err = handleTelnet(creds, cols, rows)
 	} else {
 		sendError(fmt.Sprintf("Unsupported transport: %s", creds.Transport))
 		return
@@ -141,6 +212,18 @@ func handleTerminal(w http.ResponseWriter, r *http.Request) {
 			}
 			if msg.Type == "data" || msg.Type == "input" {
 				session.Write([]byte(msg.Data))
+
+				// Handle local echo if the telnet session says the remote isn't echoing
+				if telnetSess, ok := session.(*TelnetSession); ok {
+					if telnetSess.NeedsLocalEcho() {
+						ws.WriteJSON(WsMsg{Type: "output", Data: msg.Data})
+						// Also ensure Enter key moves the cursor to next line
+						if msg.Data == "\r" {
+							ws.WriteJSON(WsMsg{Type: "output", Data: "\n"})
+						}
+					}
+				}
+
 			} else if msg.Type == "resize" {
 				// Resize is supported in SSH PTY; telnet ignores it for now.
 				if sshSession, ok := session.(*SSHSession); ok {

@@ -3,9 +3,10 @@ import os
 import sys
 import subprocess
 
+
 def get_node_stats():
     stats = {}
-    
+
     # Established connections
     try:
         established = os.popen("netstat -ant | grep ESTABLISHED | wc -l").read().strip()
@@ -15,7 +16,9 @@ def get_node_stats():
 
     # Docker containers
     try:
-        res = subprocess.run(["docker", "ps", "--format", "{{json .}}"], capture_output=True, text=True)
+        res = subprocess.run(
+            ["docker", "ps", "--format", "{{json .}}"], capture_output=True, text=True
+        )
         lines = res.stdout.strip().split("\n")
         stats["docker_containers"] = len([l for l in lines if l])
     except Exception:
@@ -29,6 +32,7 @@ def get_node_stats():
         stats["uptime"] = "Unknown"
 
     print(json.dumps(stats))
+
 
 if __name__ == "__main__":
     get_node_stats()

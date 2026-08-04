@@ -4,6 +4,7 @@ Manages a local Kismet subprocess and exposes its REST API data
 for the Netrunner backend. Handles subprocess lifecycle, REST proxying,
 and real-time data streaming via asyncio queues.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -35,8 +36,10 @@ kismet_event_queue: asyncio.Queue = asyncio.Queue()
 # REST helpers
 # ---------------------------------------------------------------------------
 
+
 def _auth_header() -> str:
     import base64
+
     creds = f"{KISMET_USER}:{KISMET_PASS}"
     return "Basic " + base64.b64encode(creds.encode()).decode()
 
@@ -87,6 +90,7 @@ def kismet_is_running() -> bool:
 # ---------------------------------------------------------------------------
 # Kismet subprocess manager
 # ---------------------------------------------------------------------------
+
 
 class KismetManager:
     """Manages a Kismet subprocess and provides data accessors."""
@@ -202,45 +206,49 @@ class KismetManager:
         try:
             raw = _kismet_post(
                 "/devices/views/phydot11_accesspoints/devices.json",
-                {"fields": [
-                    "kismet.device.base.macaddr",
-                    "kismet.device.base.name",
-                    "kismet.device.base.commonname",
-                    "kismet.device.base.type",
-                    "kismet.device.base.channel",
-                    "kismet.device.base.frequency",
-                    "kismet.device.base.signal",
-                    "kismet.device.base.crypt",
-                    "kismet.device.base.crypt_string",
-                    "kismet.device.base.manuf",
-                    "kismet.device.base.first_time",
-                    "kismet.device.base.last_time",
-                    "kismet.device.base.packets.total",
-                    "kismet.device.base.num_alerts",
-                    "kismet.device.base.key",
-                    "kismet.device.base_datasize",
-                ]},
+                {
+                    "fields": [
+                        "kismet.device.base.macaddr",
+                        "kismet.device.base.name",
+                        "kismet.device.base.commonname",
+                        "kismet.device.base.type",
+                        "kismet.device.base.channel",
+                        "kismet.device.base.frequency",
+                        "kismet.device.base.signal",
+                        "kismet.device.base.crypt",
+                        "kismet.device.base.crypt_string",
+                        "kismet.device.base.manuf",
+                        "kismet.device.base.first_time",
+                        "kismet.device.base.last_time",
+                        "kismet.device.base.packets.total",
+                        "kismet.device.base.num_alerts",
+                        "kismet.device.base.key",
+                        "kismet.device.base_datasize",
+                    ]
+                },
             )
             devices = raw.get("devices", [])
             networks = []
             for d in devices:
                 signal_info = d.get("kismet.device.base.signal", {})
-                networks.append({
-                    "mac": d.get("kismet.device.base.macaddr", ""),
-                    "ssid": d.get("kismet.device.base.name", "")
-                            or d.get("kismet.device.base.commonname", ""),
-                    "channel": d.get("kismet.device.base.channel", ""),
-                    "frequency": d.get("kismet.device.base.frequency", 0),
-                    "signal_dbm": signal_info.get("last_signal", 0),
-                    "signal_max": signal_info.get("max_signal", 0),
-                    "crypt": d.get("kismet.device.base.crypt_string", ""),
-                    "manufacturer": d.get("kismet.device.base.manuf", ""),
-                    "first_seen": d.get("kismet.device.base.first_time", 0),
-                    "last_seen": d.get("kismet.device.base.last_time", 0),
-                    "packets": d.get("kismet.device.base.packets.total", 0),
-                    "alerts": d.get("kismet.device.base.num_alerts", 0),
-                    "key": d.get("kismet.device.base.key", ""),
-                })
+                networks.append(
+                    {
+                        "mac": d.get("kismet.device.base.macaddr", ""),
+                        "ssid": d.get("kismet.device.base.name", "")
+                        or d.get("kismet.device.base.commonname", ""),
+                        "channel": d.get("kismet.device.base.channel", ""),
+                        "frequency": d.get("kismet.device.base.frequency", 0),
+                        "signal_dbm": signal_info.get("last_signal", 0),
+                        "signal_max": signal_info.get("max_signal", 0),
+                        "crypt": d.get("kismet.device.base.crypt_string", ""),
+                        "manufacturer": d.get("kismet.device.base.manuf", ""),
+                        "first_seen": d.get("kismet.device.base.first_time", 0),
+                        "last_seen": d.get("kismet.device.base.last_time", 0),
+                        "packets": d.get("kismet.device.base.packets.total", 0),
+                        "alerts": d.get("kismet.device.base.num_alerts", 0),
+                        "key": d.get("kismet.device.base.key", ""),
+                    }
+                )
             self._last_networks = networks
             return networks
         except Exception:
@@ -254,18 +262,20 @@ class KismetManager:
         try:
             raw = _kismet_post(
                 "/devices/views/all_devices/devices.json",
-                {"fields": [
-                    "kismet.device.base.macaddr",
-                    "kismet.device.base.name",
-                    "kismet.device.base.type",
-                    "kismet.device.base.channel",
-                    "kismet.device.base.signal",
-                    "kismet.device.base.manuf",
-                    "kismet.device.base.first_time",
-                    "kismet.device.base.last_time",
-                    "kismet.device.base.packets.total",
-                    "kismet.device.base.key",
-                ]},
+                {
+                    "fields": [
+                        "kismet.device.base.macaddr",
+                        "kismet.device.base.name",
+                        "kismet.device.base.type",
+                        "kismet.device.base.channel",
+                        "kismet.device.base.signal",
+                        "kismet.device.base.manuf",
+                        "kismet.device.base.first_time",
+                        "kismet.device.base.last_time",
+                        "kismet.device.base.packets.total",
+                        "kismet.device.base.key",
+                    ]
+                },
             )
             devices = raw.get("devices", [])
             clients = []
@@ -274,18 +284,20 @@ class KismetManager:
                 # Filter: only Wi-Fi client devices (not APs)
                 if "Wi-Fi" in dev_type and "Client" in dev_type:
                     signal_info = d.get("kismet.device.base.signal", {})
-                    clients.append({
-                        "mac": d.get("kismet.device.base.macaddr", ""),
-                        "name": d.get("kismet.device.base.name", ""),
-                        "type": dev_type,
-                        "channel": d.get("kismet.device.base.channel", ""),
-                        "signal_dbm": signal_info.get("last_signal", 0),
-                        "manufacturer": d.get("kismet.device.base.manuf", ""),
-                        "first_seen": d.get("kismet.device.base.first_time", 0),
-                        "last_seen": d.get("kismet.device.base.last_time", 0),
-                        "packets": d.get("kismet.device.base.packets.total", 0),
-                        "key": d.get("kismet.device.base.key", ""),
-                    })
+                    clients.append(
+                        {
+                            "mac": d.get("kismet.device.base.macaddr", ""),
+                            "name": d.get("kismet.device.base.name", ""),
+                            "type": dev_type,
+                            "channel": d.get("kismet.device.base.channel", ""),
+                            "signal_dbm": signal_info.get("last_signal", 0),
+                            "manufacturer": d.get("kismet.device.base.manuf", ""),
+                            "first_seen": d.get("kismet.device.base.first_time", 0),
+                            "last_seen": d.get("kismet.device.base.last_time", 0),
+                            "packets": d.get("kismet.device.base.packets.total", 0),
+                            "key": d.get("kismet.device.base.key", ""),
+                        }
+                    )
             self._last_clients = clients
             return clients
         except Exception:
@@ -309,15 +321,17 @@ class KismetManager:
 
             alerts = []
             for a in alerts_raw:
-                alerts.append({
-                    "type": a.get("kismet.alert.type", ""),
-                    "severity": a.get("kismet.alert.severity", 0),
-                    "message": a.get("kismet.alert.message", ""),
-                    "timestamp": a.get("kismet.alert.timestamp", 0),
-                    "mac": a.get("kismet.alert.mac", ""),
-                    "phy": a.get("kismet.alert.phyname", ""),
-                    "json": a.get("kismet.alert.json", ""),
-                })
+                alerts.append(
+                    {
+                        "type": a.get("kismet.alert.type", ""),
+                        "severity": a.get("kismet.alert.severity", 0),
+                        "message": a.get("kismet.alert.message", ""),
+                        "timestamp": a.get("kismet.alert.timestamp", 0),
+                        "mac": a.get("kismet.alert.mac", ""),
+                        "phy": a.get("kismet.alert.phyname", ""),
+                        "json": a.get("kismet.alert.json", ""),
+                    }
+                )
             self._last_alerts = alerts
             return alerts
         except Exception:
@@ -358,17 +372,19 @@ class KismetManager:
             sources_raw = raw.get("datasources", []) if isinstance(raw, dict) else []
             sources = []
             for s in sources_raw:
-                sources.append({
-                    "uuid": s.get("kismet.datasource.uuid", ""),
-                    "name": s.get("kismet.datasource.name", ""),
-                    "interface": s.get("kismet.datasource.interface", ""),
-                    "type": s.get("kismet.datasource.type", ""),
-                    "channel": s.get("kismet.datasource.channel", ""),
-                    "hop_channels": s.get("kismet.datasource.hop_channels", []),
-                    "running": s.get("kismet.datasource.running", False),
-                    "error": s.get("kismet.datasource.error", ""),
-                    "packets": s.get("kismet.datasource.packets.total", 0),
-                })
+                sources.append(
+                    {
+                        "uuid": s.get("kismet.datasource.uuid", ""),
+                        "name": s.get("kismet.datasource.name", ""),
+                        "interface": s.get("kismet.datasource.interface", ""),
+                        "type": s.get("kismet.datasource.type", ""),
+                        "channel": s.get("kismet.datasource.channel", ""),
+                        "hop_channels": s.get("kismet.datasource.hop_channels", []),
+                        "running": s.get("kismet.datasource.running", False),
+                        "error": s.get("kismet.datasource.error", ""),
+                        "packets": s.get("kismet.datasource.packets.total", 0),
+                    }
+                )
             self._last_datasources = sources
             return sources
         except Exception:

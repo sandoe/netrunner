@@ -3,6 +3,7 @@
 Provides REST endpoints for managing a local Kismet instance and
 querying its wireless detection data.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -19,11 +20,19 @@ router = APIRouter(tags=["kismet"])
 # Background broadcast task
 # ---------------------------------------------------------------------------
 
-_kismet_broadcast_task = None
+from typing import Optional
+import asyncio
+_kismet_broadcast_task: Optional[asyncio.Task] = None
+
+
+_last_networks_state = {}
+_last_alerts_ts = 0
 
 
 async def broadcast_kismet():
     """Background task: poll Kismet data and push to WebSocket clients."""
+    global _last_networks_state, _last_alerts_ts
+    loops = 0
     while True:
         try:
             if kismet_manager.process and kismet_manager.process.poll() is None:
@@ -31,13 +40,53 @@ async def broadcast_kismet():
                 alerts = kismet_manager.get_alerts()
                 channels = kismet_manager.get_channels()
 
+                loops += 1
+                is_full_sync = loops % 5 == 1
+
                 payload = {
                     "type": "kismet_update",
-                    "networks": networks,
-                    "alerts": alerts,
                     "channels": channels,
                     "timestamp": asyncio.get_event_loop().time(),
                 }
+
+                if is_full_sync:
+                    payload["networks"] = networks
+                    payload["alerts"] = alerts
+                    # Reset state tracking for deltas
+                    _last_networks_state = {n.get("mac"): n for n in networks}
+                    _last_alerts_ts = max(
+                        [a.get("timestamp", 0) for a in alerts] + [_last_alerts_ts]
+                    )
+                else:
+                    # Compute Deltas
+                    networks_delta = []
+                    new_state = {}
+                    for net in networks:
+                        mac = net.get("mac")
+                        new_state[mac] = net
+                        prev = _last_networks_state.get(mac)
+                        # Send if new or properties changed
+                        if (
+                            not prev
+                            or prev.get("packets") != net.get("packets")
+                            or prev.get("signal_dbm") != net.get("signal_dbm")
+                        ):
+                            networks_delta.append(net)
+
+                    alerts_delta = []
+                    for alt in alerts:
+                        ts = alt.get("timestamp", 0)
+                        if ts > _last_alerts_ts:
+                            alerts_delta.append(alt)
+
+                    if alerts_delta:
+                        _last_alerts_ts = max(
+                            a.get("timestamp", 0) for a in alerts_delta
+                        )
+
+                    _last_networks_state = new_state
+                    payload["networks_delta"] = networks_delta
+                    payload["alerts_delta"] = alerts_delta
 
                 if not kismet_event_queue.empty():
                     # Drain old events
@@ -195,6 +244,7 @@ async def kismet_set_channel(
 # WIPS — Rogue AP Detection
 # ---------------------------------------------------------------------------
 
+
 @router.get("/api/kismet/rogue-aps")
 async def kismet_rogue_aps(user: dict = Depends(get_current_user)):
     """Detect potential rogue access points using WIPS heuristics.
@@ -237,7 +287,11 @@ async def kismet_rogue_aps(user: dict = Depends(get_current_user)):
                 bssids.add(bssid)
             ch = net.get("channel")
             if ch:
-                channels.add(int(ch) if isinstance(ch, (int, float, str)) and str(ch).isdigit() else ch)
+                channels.add(
+                    int(ch)
+                    if isinstance(ch, (int, float, str)) and str(ch).isdigit()
+                    else ch
+                )
             sig = net.get("signal")
             if sig and isinstance(sig, (int, float)):
                 signals.append(sig)
@@ -255,16 +309,22 @@ async def kismet_rogue_aps(user: dict = Depends(get_current_user)):
 
         # 3. Unencrypted AP for a SSID that also has encrypted APs
         has_open = any("none" in e or "open" in e for e in encryptions)
-        has_secured = any("wpa" in e or "owe" in e or "sae" in e or "wep" in e for e in encryptions)
+        has_secured = any(
+            "wpa" in e or "owe" in e or "sae" in e or "wep" in e for e in encryptions
+        )
         if has_open and has_secured:
-            reasons.append("Open (unencrypted) AP detected alongside encrypted APs — possible evil twin")
+            reasons.append(
+                "Open (unencrypted) AP detected alongside encrypted APs — possible evil twin"
+            )
 
         # 4. Unusual signal strength (very strong = possible close rogue)
         if signals:
             avg_sig = sum(signals) / len(signals)
             max_sig = max(signals)
             if max_sig > -20 and len(signals) > 1:
-                reasons.append(f"Abnormally strong signal ({max_sig} dBm) vs avg ({avg_sig:.0f} dBm)")
+                reasons.append(
+                    f"Abnormally strong signal ({max_sig} dBm) vs avg ({avg_sig:.0f} dBm)"
+                )
 
         # 5. Channel spread (APs on many different channels is unusual)
         if len(channels) > 4:
@@ -278,15 +338,17 @@ async def kismet_rogue_aps(user: dict = Depends(get_current_user)):
             elif len(bssids) > 3:
                 severity = "critical"
 
-            rogues.append({
-                "ssid": ssid,
-                "severity": severity,
-                "reasons": reasons,
-                "bssids": list(bssids),
-                "channels": list(channels),
-                "encryption_types": list(encryptions),
-                "ap_count": len(nets),
-            })
+            rogues.append(
+                {
+                    "ssid": ssid,
+                    "severity": severity,
+                    "reasons": reasons,
+                    "bssids": list(bssids),
+                    "channels": list(channels),
+                    "encryption_types": list(encryptions),
+                    "ap_count": len(nets),
+                }
+            )
 
     # Sort by severity (critical first)
     rogues.sort(key=lambda r: 0 if r["severity"] == "critical" else 1)

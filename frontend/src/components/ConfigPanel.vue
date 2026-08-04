@@ -36,6 +36,11 @@
           </div>
         </div>
 
+        <div v-if="persistMode" class="cyber-guide" style="margin: 12px 16px 0; font-size: 11px; border-left: 2px solid var(--pink); padding-left: 8px; background: rgba(255, 45, 110, 0.05);">
+          <strong style="color: var(--pink);">🎓 Cyber Guide: Persistence (Overlevelse efter genstart)</strong><br/>
+          <span style="color: #ccc;">Når "persist" er slået til, gemmes konfigurationen i systemets opstarts-sekvens (f.eks. via <code>/usr/local/sbin/</code> scripts, frem for de normale filer som <code>/etc/nftables.conf</code>). Dette sikrer, at vores "Network as Code" script køres friskt hver gang routeren starter. Man fjerner konfigurationen igen ved at slette scriptet under fanen "Persistent Configs".</span>
+        </div>
+
         <div class="editor-body">
           <!-- Live Telemetry Reference Panel -->
           <div class="live-ref-panel">
@@ -60,7 +65,7 @@
                 <div class="cyber-pulse-loader"></div>
                 <span>Fetching live network telemetry from target node...</span>
               </div>
-              
+
               <div v-else-if="detectingState === 'error'" class="live-ref-error">
                 <span class="err-icon">⚠️</span>
                 <div class="err-details">
@@ -101,7 +106,7 @@
                 <div class="live-ref-tree">
                   <div class="tree-header">
                     <span>INTERFACES & VLAN HIERARCHY</span>
-                    <button 
+                    <button
                       class="btn-live-monitor"
                       :class="{ 'monitor-active': liveMonitorActive }"
                       @click.stop="toggleLiveMonitor"
@@ -113,7 +118,7 @@
                   </div>
                   <div v-for="node in interfaceTree" :key="node.parent.name" class="tree-node">
                     <!-- Parent Interface Row -->
-                    <div 
+                    <div
                       class="tree-parent-row"
                       :class="{ 'iface-up': node.parent.status === 'UP', 'iface-down': node.parent.status === 'DOWN' }"
                     >
@@ -123,10 +128,10 @@
                         </span>
                         <span v-else class="tree-bullet">•</span>
                       </div>
-                      
+
                       <div class="tree-info">
-                        <span 
-                          class="ref-iface-name" 
+                        <span
+                          class="ref-iface-name"
                           title="Click to copy interface name / Select in form"
                           @click="selectPort(node.parent.name)"
                         >
@@ -136,7 +141,7 @@
                           {{ node.parent.status }}
                         </span>
                       </div>
-                      
+
                       <!-- Live Traffic Monitor Column -->
                       <div v-if="liveMonitorActive && interfaceTrafficData[node.parent.name]" class="tree-traffic">
                         <div class="traffic-rates">
@@ -144,13 +149,13 @@
                           <span class="rate-up">↑ {{ formatRate(interfaceTrafficData[node.parent.name].txRate) }}</span>
                         </div>
                         <svg class="traffic-sparkline" width="60" height="16">
-                          <path 
-                            :d="getSparklinePath(interfaceTrafficData[node.parent.name].rxHistory)" 
-                            class="sparkpath-rx" 
+                          <path
+                            :d="getSparklinePath(interfaceTrafficData[node.parent.name].rxHistory)"
+                            class="sparkpath-rx"
                           />
-                          <path 
-                            :d="getSparklinePath(interfaceTrafficData[node.parent.name].txHistory)" 
-                            class="sparkpath-tx" 
+                          <path
+                            :d="getSparklinePath(interfaceTrafficData[node.parent.name].txHistory)"
+                            class="sparkpath-tx"
                           />
                         </svg>
                       </div>
@@ -158,24 +163,24 @@
                         <span class="traffic-dot-pulse"></span>
                         <span class="traffic-loading-lbl">MONITORING...</span>
                       </div>
-                      
+
                       <div class="tree-ips">
                         <div v-if="node.parent.ips.length === 0" class="ref-no-ips">No IP address assigned</div>
-                        <div 
-                          v-for="ip in node.parent.ips" 
-                          :key="ip" 
+                        <div
+                          v-for="ip in node.parent.ips"
+                          :key="ip"
                           class="ref-ip-badge-container"
                         >
-                          <span 
-                            class="ref-ip-badge" 
+                          <span
+                            class="ref-ip-badge"
                             title="Click to copy IP address"
                             @click="copyToClipboard(ip)"
                           >
                             {{ ip }}
                           </span>
-                          
+
                           <!-- Inline Quick Ping Button -->
-                          <button 
+                          <button
                             class="btn-quick-ping"
                             :disabled="pingLoading[`${node.parent.name}-${ip}`]"
                             @click.stop="triggerInlinePing(node.parent.name, ip)"
@@ -184,12 +189,12 @@
                             <span v-if="pingLoading[`${node.parent.name}-${ip}`]" class="ping-spinner"></span>
                             <span v-else>⚡</span>
                           </button>
-                          
+
                           <!-- Inline Quick Ping Badge -->
-                          <span 
-                            v-if="pingResults[`${node.parent.name}-${ip}`]" 
+                          <span
+                            v-if="pingResults[`${node.parent.name}-${ip}`]"
                             class="ping-latency-badge"
-                            :class="{ 
+                            :class="{
                               'ping-success': pingResults[`${node.parent.name}-${ip}`].success,
                               'ping-fail': !pingResults[`${node.parent.name}-${ip}`].success
                             }"
@@ -199,14 +204,14 @@
                         </div>
                       </div>
                     </div>
-                    
+
                     <!-- Children VLAN interfaces -->
-                    <div 
-                      v-if="node.children.length > 0 && !collapsedTreeParents.has(node.parent.name)" 
+                    <div
+                      v-if="node.children.length > 0 && !collapsedTreeParents.has(node.parent.name)"
                       class="tree-children"
                     >
-                      <div 
-                        v-for="(child, childIdx) in node.children" 
+                      <div
+                        v-for="(child, childIdx) in node.children"
                         :key="child.name"
                         class="tree-child-row"
                         :class="{ 'iface-up': child.status === 'UP', 'iface-down': child.status === 'DOWN' }"
@@ -214,10 +219,10 @@
                         <span class="tree-branch">
                           {{ childIdx === node.children.length - 1 ? '└──' : '├──' }}
                         </span>
-                        
+
                         <div class="tree-info">
-                          <span 
-                            class="ref-iface-name" 
+                          <span
+                            class="ref-iface-name"
                             title="Click to copy interface name / Select in form"
                             @click="selectPort(child.name)"
                           >
@@ -227,7 +232,7 @@
                             {{ child.status }}
                           </span>
                         </div>
-                        
+
                         <!-- Live Traffic Monitor Column -->
                         <div v-if="liveMonitorActive && interfaceTrafficData[child.name]" class="tree-traffic">
                           <div class="traffic-rates">
@@ -235,13 +240,13 @@
                             <span class="rate-up">↑ {{ formatRate(interfaceTrafficData[child.name].txRate) }}</span>
                           </div>
                           <svg class="traffic-sparkline" width="60" height="16">
-                            <path 
-                              :d="getSparklinePath(interfaceTrafficData[child.name].rxHistory)" 
-                              class="sparkpath-rx" 
+                            <path
+                              :d="getSparklinePath(interfaceTrafficData[child.name].rxHistory)"
+                              class="sparkpath-rx"
                             />
-                            <path 
-                              :d="getSparklinePath(interfaceTrafficData[child.name].txHistory)" 
-                              class="sparkpath-tx" 
+                            <path
+                              :d="getSparklinePath(interfaceTrafficData[child.name].txHistory)"
+                              class="sparkpath-tx"
                             />
                           </svg>
                         </div>
@@ -249,24 +254,24 @@
                           <span class="traffic-dot-pulse"></span>
                           <span class="traffic-loading-lbl">MONITORING...</span>
                         </div>
-                        
+
                         <div class="tree-ips">
                           <div v-if="child.ips.length === 0" class="ref-no-ips">No IP address assigned</div>
-                          <div 
-                            v-for="ip in child.ips" 
-                            :key="ip" 
+                          <div
+                            v-for="ip in child.ips"
+                            :key="ip"
                             class="ref-ip-badge-container"
                           >
-                            <span 
-                              class="ref-ip-badge" 
+                            <span
+                              class="ref-ip-badge"
                               title="Click to copy IP address"
                               @click="copyToClipboard(ip)"
                             >
                               {{ ip }}
                             </span>
-                            
+
                             <!-- Inline Quick Ping Button -->
-                            <button 
+                            <button
                               class="btn-quick-ping"
                               :disabled="pingLoading[`${child.name}-${ip}`]"
                               @click.stop="triggerInlinePing(child.name, ip)"
@@ -275,12 +280,12 @@
                               <span v-if="pingLoading[`${child.name}-${ip}`]" class="ping-spinner"></span>
                               <span v-else>⚡</span>
                             </button>
-                            
+
                             <!-- Inline Quick Ping Badge -->
-                            <span 
-                              v-if="pingResults[`${child.name}-${ip}`]" 
+                            <span
+                              v-if="pingResults[`${child.name}-${ip}`]"
                               class="ping-latency-badge"
-                              :class="{ 
+                              :class="{
                                 'ping-success': pingResults[`${child.name}-${ip}`].success,
                                 'ping-fail': !pingResults[`${child.name}-${ip}`].success
                               }"
@@ -330,6 +335,10 @@
 
           <!-- Specialized Interface Form -->
           <div v-if="activeType === 'interface'" class="specialized-form">
+            <div class="cyber-guide" style="margin-bottom: 12px; font-size: 13px; border-left: 3px solid var(--purple); padding-left: 8px; background: rgba(187, 134, 252, 0.05);">
+              <strong style="color: var(--purple);">🎓 Cyber Guide: Interface Setup (OSI Lag 3)</strong><br/>
+              <span style="color: #ccc;"><b>Netværkskort (Interfaces)</b> forbinder enheden med omverdenen. Hvert netværkskort skal have en <strong style="color: var(--text);">IP-adresse</strong> for at kunne deltage i et netværk. CIDR-notation (f.eks. /24) angiver, hvor stor en del af adressen, der identificerer netværket (Subnet Mask). Du kan også bruge DHCP til at lade en server tildele IP'en automatisk.</span>
+            </div>
             <div class="form-row">
               <label>Interface
                 <input v-model="interfaceForm.interface" placeholder="eth0" list="detected-interfaces" />
@@ -404,15 +413,19 @@
 
           <!-- Specialized Routes Form -->
           <div v-if="activeType === 'routes'" class="specialized-form">
+            <div class="cyber-guide" style="margin-bottom: 12px; font-size: 13px; border-left: 3px solid var(--purple); padding-left: 8px; background: rgba(187, 134, 252, 0.05);">
+              <strong style="color: var(--purple);">🎓 Cyber Guide: Routing (Vejvisning)</strong><br/>
+              <span style="color: #ccc;"><b>Routing</b> fortæller computeren/routeren, hvor den skal sende netværkspakker hen. En <strong style="color: var(--text);">Statisk Rute</strong> siger f.eks. "for at nå netværket 10.0.0.0/24, send pakken til gateway 192.168.1.1". Den vigtigste rute er <strong style="color: var(--text);">Default Route</strong> (0.0.0.0/0), som håndterer alt trafik, der ikke har en specifik rute – typisk til din Internet-router.</span>
+            </div>
             <div v-for="(route, idx) in routeForm.routes" :key="idx" class="form-row multi-row">
               <label>Destination
-                <input v-model="route.dst" placeholder="10.1.0.0/24" />
+                <input v-model="route.dst" placeholder="f.eks. 10.1.0.0/24" />
               </label>
-              <label>Gateway (via)
-                <input v-model="route.via" placeholder="10.0.0.254" />
+              <label>Gateway (Next Hop)
+                <input v-model="route.via" placeholder="f.eks. 10.0.0.254" />
               </label>
-              <label>Device
-                <input v-model="route.dev" placeholder="eth0" list="detected-interfaces" />
+              <label>Interface (Valgfri)
+                <input v-model="route.dev" placeholder="f.eks. eth0" list="detected-interfaces" />
               </label>
               <label>Metric
                 <input v-model.number="route.metric" type="number" placeholder="100" />
@@ -421,14 +434,22 @@
             </div>
             <div class="form-actions">
               <button class="btn-add-sub" @click="routeForm.routes.push({ dst: '', via: '', dev: '', metric: 0 })">+ Add Route</button>
-              <label class="check-label">
-                <input type="checkbox" v-model="routeForm.isDelete" /> Delete instead of Add
+              <label>Action
+                <select v-model="routeForm.action" class="cyber-select">
+                  <option value="add">Add Only</option>
+                  <option value="del">Remove Routes</option>
+                  <option value="flush">Flush & Add</option>
+                </select>
               </label>
             </div>
           </div>
 
           <!-- DNS Form -->
           <div v-if="activeType === 'dns'" class="specialized-form">
+            <div class="cyber-guide" style="margin-bottom: 12px; font-size: 13px; border-left: 3px solid var(--purple); padding-left: 8px; background: rgba(187, 134, 252, 0.05);">
+              <strong style="color: var(--purple);">🎓 Cyber Guide: DNS (Domain Name System)</strong><br/>
+              <span style="color: #ccc;"><b>DNS</b> er internettets telefonbog. Det oversætter menneskelæselige domæner (som google.com) til maskinlæselige IP-adresser. På Linux gemmes DNS-klientens konfiguration ofte i <strong style="color: var(--text);">/etc/resolv.conf</strong>. Hvis DNS fejler, kan du pinge en IP direkte (f.eks. 8.8.8.8), men domænenavne vil ikke virke.</span>
+            </div>
             <div class="form-row">
               <label>Nameservers (CSV) <input v-model="dnsForm.nameservers" /></label>
               <label>Search Domains (CSV) <input v-model="dnsForm.search" /></label>
@@ -449,16 +470,16 @@
           <!-- NAT Form -->
           <div v-if="activeType === 'nat'" class="specialized-form">
             <div class="form-row">
-              <label>WAN (Outbound) <input v-model="natForm.outbound_iface" list="detected-interfaces" /></label>
-              <label>LAN (Inbound) <input v-model="natForm.inbound_iface" list="detected-interfaces" /></label>
-              <label>Source Subnet <input v-model="natForm.source_subnet" /></label>
+              <label>WAN (Outbound) <input v-model="natForm.outbound_iface" list="detected-interfaces" placeholder="f.eks. eth0" /></label>
+              <label>LAN (Inbound) <input v-model="natForm.inbound_iface" list="detected-interfaces" placeholder="f.eks. eth1" /></label>
+              <label>Source Subnet <input v-model="natForm.source_subnet" placeholder="f.eks. 10.0.10.0/24" /></label>
             </div>
-            <label class="check-label"><input type="checkbox" v-model="natForm.masquerade" /> Enable Masquerade</label>
-            <div class="section-label-sub">Port Forwards</div>
+            <label class="check-label"><input type="checkbox" v-model="natForm.masquerade" /> Enable Masquerade (Kilde-NAT)</label>
+            <div class="section-label-sub">Port Forwards (DNAT)</div>
             <div v-for="(f, i) in natForm.port_forwards" :key="i" class="form-row multi-row">
-              <label>Ext Port <input v-model="f.external_port" /></label>
-              <label>Target IP <input v-model="f.target_ip" /></label>
-              <label>Int Port <input v-model="f.target_port" /></label>
+              <label>Ext Port <input v-model="f.external_port" placeholder="f.eks. 80" /></label>
+              <label>Target IP <input v-model="f.target_ip" placeholder="f.eks. 10.0.10.10" /></label>
+              <label>Int Port <input v-model="f.target_port" placeholder="f.eks. 8080" /></label>
               <label>Proto
                 <select v-model="f.proto">
                   <option value="tcp">TCP</option>
@@ -473,13 +494,13 @@
           <!-- VLAN Router Form -->
           <div v-if="activeType === 'vlan-router'" class="specialized-form">
             <div class="form-row">
-              <label>Base Interface <input v-model="vlanRouterForm.interface" list="detected-interfaces" /></label>
+              <label>Base Interface <input v-model="vlanRouterForm.interface" list="detected-interfaces" placeholder="f.eks. eth1 (Trunk mod switch)" /></label>
             </div>
-            <div class="section-label-sub">VLAN Interfaces</div>
+            <div class="section-label-sub">VLAN Interfaces (Sub-interfaces)</div>
             <div v-for="(v, i) in vlanRouterForm.vlans" :key="i" class="form-row multi-row" :class="{ 'vlan-to-delete': v.action === 'del' }">
-              <label>VLAN ID <input v-model="v.id" :disabled="v.action === 'del'" /></label>
-              <label>Address <input v-model="v.address" :disabled="v.action === 'del'" /></label>
-              <label>Description <input v-model="v.description" :disabled="v.action === 'del'" /></label>
+              <label>VLAN ID <input v-model="v.id" :disabled="v.action === 'del'" placeholder="f.eks. 10" /></label>
+              <label>Gateway IP <input v-model="v.address" :disabled="v.action === 'del'" placeholder="f.eks. 10.0.10.1/24" /></label>
+              <label>Description <input v-model="v.description" :disabled="v.action === 'del'" placeholder="f.eks. Salgsafdeling" /></label>
               <label>Action
                 <select v-model="v.action" class="cyber-select">
                   <option value="add">Create / Update</option>
@@ -494,34 +515,40 @@
           <!-- VLAN Switch Form -->
           <div v-if="activeType === 'vlan-switch'" class="specialized-form">
             <div class="form-row">
-              <label>Bridge Name <input v-model="vlanSwitchForm.bridge" /></label>
+              <label>Bridge Name <input v-model="vlanSwitchForm.bridge" placeholder="br0" /></label>
             </div>
             <div class="section-label-sub">VLAN Definitions</div>
-            <div v-for="(v, i) in vlanSwitchForm.vlans" :key="i" class="form-row">
-              <input v-model="v.id" placeholder="ID" />
-              <input v-model="v.name" placeholder="Name" />
+            <div v-for="(v, i) in vlanSwitchForm.vlans" :key="i" class="form-row multi-row">
+              <label>VLAN ID <input v-model="v.id" placeholder="ID" /></label>
+              <label>Name <input v-model="v.name" placeholder="Name" /></label>
+              <label>SVI IP (CIDR) <input v-model="v.address" placeholder="e.g. 10.0.10.1/24" /></label>
               <button class="btn-remove" @click="vlanSwitchForm.vlans.splice(i, 1)">✕</button>
             </div>
-            <button class="btn-add-sub" @click="vlanSwitchForm.vlans.push({ id: '', name: '' })">+ Add VLAN</button>
-            
+            <button class="btn-add-sub" @click="vlanSwitchForm.vlans.push({ id: '', name: '', address: '' })">+ Add VLAN</button>
+
             <div class="section-label-sub">Port Assignments</div>
             <div v-for="(p, i) in vlanSwitchForm.ports" :key="i" class="form-row multi-row">
-              <label>Iface <input v-model="p.iface" list="detected-interfaces" /></label>
+              <label>Iface <input v-model="p.iface" list="detected-interfaces" placeholder="eth0" /></label>
               <label>Mode
                 <select v-model="p.mode">
                   <option value="access">Access</option>
                   <option value="trunk">Trunk</option>
                 </select>
               </label>
-              <label v-if="p.mode === 'access'">VLAN <input v-model="p.vlan" /></label>
-              <label v-if="p.mode === 'trunk'">Allowed (CSV) <input v-model="p.allowed" /></label>
+              <label v-if="p.mode === 'access'">VLAN <input v-model="p.vlan" placeholder="10" /></label>
+              <label v-if="p.mode === 'trunk'">Allowed (CSV) <input v-model="p.allowed" placeholder="e.g. 10,20" /></label>
+              <label v-if="p.mode === 'trunk'">Native (PVID) <input v-model="p.pvid" placeholder="e.g. 99" /></label>
               <button class="btn-remove" @click="vlanSwitchForm.ports.splice(i, 1)">✕</button>
             </div>
-            <button class="btn-add-sub" @click="vlanSwitchForm.ports.push({ iface: '', mode: 'access', vlan: '1', allowed: '' })">+ Add Port</button>
+            <button class="btn-add-sub" @click="vlanSwitchForm.ports.push({ iface: '', mode: 'access', vlan: '1', allowed: '', pvid: '' })">+ Add Port</button>
           </div>
 
           <!-- WireGuard Form -->
           <div v-if="activeType === 'wireguard'" class="specialized-form wireguard-form-container" :class="{ 'wg-deletion-mode': wireguardForm.action === 'delete' }">
+            <div class="cyber-guide" style="margin-bottom: 12px; font-size: 13px; border-left: 3px solid var(--purple); padding-left: 8px; background: rgba(187, 134, 252, 0.05);">
+              <strong style="color: var(--purple);">🎓 Cyber Guide: WireGuard VPN</strong><br/>
+              <span style="color: #ccc;"><b>WireGuard</b> opretter en sikker tunnel over internettet. Det fungerer ved hjælp af et nøglepar (Privat + Offentlig). For at to noder kan tale sammen (Peers), skal Node A have Node B's offentlige nøgle, og Node B skal have Node A's. <b>AllowedIPs</b> styrer <em>både</em> kryptografisk routing (hvilke IP'er vi sender ind i tunnellen) og adgangskontrol (hvilke IP'er vi accepterer ind gennem tunnellen).</span>
+            </div>
             <!-- Action Selector -->
             <div class="form-row action-selector-row">
               <label>Configuration Action
@@ -574,36 +601,36 @@
               </div>
 
               <div class="form-row">
-                <label>Interface <input v-model="wireguardForm.interface" placeholder="wg0" autocomplete="off" data-lpignore="true" /></label>
-                <label>IP Address <input v-model="wireguardForm.address" placeholder="10.0.0.1/24" autocomplete="off" data-lpignore="true" /></label>
-                <label>Listen Port <input v-model.number="wireguardForm.listen_port" type="number" placeholder="51820" autocomplete="off" data-lpignore="true" /></label>
+                <label>Interface <input v-model="wireguardForm.interface" placeholder="f.eks. wg0" autocomplete="off" data-lpignore="true" /></label>
+                <label>IP Address <input v-model="wireguardForm.address" placeholder="f.eks. 10.99.0.1/24" autocomplete="off" data-lpignore="true" /></label>
+                <label>Listen Port <input v-model.number="wireguardForm.listen_port" type="number" placeholder="f.eks. 51820" autocomplete="off" data-lpignore="true" /></label>
               </div>
-              
+
               <!-- Key Generation Row -->
               <div class="form-row key-gen-row">
                 <div class="input-with-actions-container">
                   <label class="private-key-label">
                     <span>Private Key</span>
                     <div class="input-actions-wrapper">
-                      <input 
-                        v-model="wireguardForm.private_key" 
-                        :type="hidePrivateKey ? 'password' : 'text'" 
+                      <input
+                        v-model="wireguardForm.private_key"
+                        :type="hidePrivateKey ? 'password' : 'text'"
                         placeholder="Local private key..."
                         class="private-key-input"
                         autocomplete="new-password"
                         data-lpignore="true"
                       />
-                      <button 
-                        type="button" 
-                        class="btn-input-action" 
+                      <button
+                        type="button"
+                        class="btn-input-action"
                         @click="hidePrivateKey = !hidePrivateKey"
                         :title="hidePrivateKey ? 'Reveal Private Key' : 'Hide Private Key'"
                       >
                         {{ hidePrivateKey ? '👁️' : '🔒' }}
                       </button>
-                      <button 
-                        type="button" 
-                        class="btn-input-action" 
+                      <button
+                        type="button"
+                        class="btn-input-action"
                         @click="copyToClipboard(wireguardForm.private_key)"
                         :disabled="!wireguardForm.private_key"
                         title="Copy Private Key to clipboard"
@@ -614,10 +641,10 @@
                   </label>
                 </div>
                 <div class="gen-keys-button-wrapper">
-                  <button 
-                    type="button" 
-                    class="btn-wg-generate" 
-                    @click="generateWireguardKeys" 
+                  <button
+                    type="button"
+                    class="btn-wg-generate"
+                    @click="generateWireguardKeys"
                     :disabled="generatingKeys"
                   >
                     <span v-if="generatingKeys">⏳ Generating...</span>
@@ -630,9 +657,9 @@
               <div v-if="generatedPublicKey" class="derived-pubkey-panel">
                 <div class="derived-pubkey-header">
                   <span class="pubkey-title-glow">📡 LOCAL PUBLIC KEY (Share with Peer)</span>
-                  <button 
-                    type="button" 
-                    class="btn-pubkey-copy" 
+                  <button
+                    type="button"
+                    class="btn-pubkey-copy"
                     @click="copyToClipboard(generatedPublicKey)"
                   >
                     📋 Copy Key
@@ -684,7 +711,7 @@
                 <span class="advanced-toggle-title">⚙️ Advanced Interface Options</span>
                 <span class="guide-chevron">{{ wgAdvancedExpanded ? '▲' : '▼' }}</span>
               </div>
-              
+
               <!-- Advanced Fields -->
               <div v-if="wgAdvancedExpanded" class="wg-advanced-fields">
                 <div class="form-row">
@@ -854,7 +881,7 @@
                 </select>
               </label>
             </div>
-            
+
             <div class="form-row" v-if="remoteDesktopForm.action === 'install' && remoteDesktopForm.protocol !== 'remmina'">
               <label>Brugernavn <input v-model="remoteDesktopForm.username" placeholder="F.eks. root" /></label>
               <label>Password <input v-model="remoteDesktopForm.password" type="password" placeholder="Skriv adgangskode til fjernforbindelse" /></label>
@@ -878,7 +905,7 @@
               </label>
               <label>Port <input type="number" v-model="remoteDesktopForm.port" /></label>
             </div>
-            
+
             <div class="form-row" v-if="remoteDesktopForm.action === 'uninstall' && remoteDesktopForm.protocol !== 'remmina'">
               <label>Port der skal lukkes <input type="number" v-model="remoteDesktopForm.port" /></label>
               <label>Brugernavn til oprydning <input v-model="remoteDesktopForm.username" /></label>
@@ -890,13 +917,32 @@
                 🖥️ Remmina Fjernskrivebordsklient
               </h4>
               <p style="margin: 0; color: var(--text-muted, #94a3b8);" v-if="remoteDesktopForm.action === 'install'">
-                Du installerer nu <strong>Remmina</strong> på denne node. 
-                Da Remmina er en <em>klientapplikation</em> (forbindelsesmanager) og ikke en server, kræves der ingen porte, passwords eller skrivebordsopsætning her. 
+                Du installerer nu <strong>Remmina</strong> på denne node.
+                Da Remmina er en <em>klientapplikation</em> (forbindelsesmanager) og ikke en server, kræves der ingen porte, passwords eller skrivebordsopsætning her.
                 Programmet installeres automatisk med understøttelse af RDP og VNC, så noden kan forbinde ud til andre fjernskriveborde i netværket.
               </p>
               <p style="margin: 0; color: var(--text-muted, #94a3b8);" v-else>
                 Dette vil afinstallere <strong>Remmina</strong> samt dets RDP- og VNC-forbindelsesplugins fuldstændigt fra noden. No yderligere serverindstillinger vil blive påvirket.
               </p>
+            </div>
+          </div>
+
+          <div v-if="activeType === 'persist'" class="specialized-form">
+            <div style="display: flex; gap: 8px; margin-bottom: 12px; align-items: center;">
+              <button @click="loadPersists" class="btn-tiny" :disabled="loadingPersists">🔄 REFRESH</button>
+              <span v-if="loadingPersists" style="color: var(--pink)">Loading...</span>
+            </div>
+
+            <div v-if="persists.length === 0 && !loadingPersists" style="color: var(--cyan); padding: 8px; border: 1px dashed var(--cyan);">
+              No persistent configurations found on this node.
+            </div>
+
+            <div v-for="p in persists" :key="p.name" style="display: flex; justify-content: space-between; align-items: center; padding: 8px; border: 1px solid var(--border); margin-bottom: 8px; background: rgba(0,0,0,0.2);">
+              <div>
+                <strong style="color: var(--pink)">{{ p.name }}</strong>
+                <div style="font-size: 0.8em; color: var(--text-dim)">{{ p.path }}</div>
+              </div>
+              <button @click="deletePersist(p.name)" class="btn-tiny btn-del" style="border-color: red; color: red;" :disabled="loadingPersists">✕ DELETE</button>
             </div>
           </div>
 
@@ -910,7 +956,7 @@
                 <input type="checkbox" v-model="winIpForm.dhcp" /> Aktiver DHCP (Dynamisk IP)
               </label>
             </div>
-            
+
             <div class="form-row" v-if="!winIpForm.dhcp">
               <label>IP-adresse / CIDR
                 <input v-model="winIpForm.address" placeholder="192.168.1.100/24" />
@@ -932,7 +978,7 @@
                 🪟 Windows Netværkskort Info
               </h4>
               <p style="margin: 0; color: var(--text-muted, #94a3b8);">
-                Standard netværkskortnavnet i Windows er normalt <code>Ethernet</code> eller <code>Wi-Fi</code>. 
+                Standard netværkskortnavnet i Windows er normalt <code>Ethernet</code> eller <code>Wi-Fi</code>.
                 Når du tildeler en statisk IP, vil eksisterende ikke-link-local IP-adresser og ruter på kortet automatisk blive ryddet for at undgå konflikter.
               </p>
             </div>
@@ -1012,7 +1058,7 @@
 
             <div style="margin-top: 12px; padding: 12px 16px; background: rgba(56, 189, 248, 0.05); border: 1px dashed var(--accent, #38bdf8); border-radius: var(--r, 6px); font-family: var(--font-ui); font-size: 0.9rem; line-height: 1.5;">
               <p style="margin: 0; color: var(--text-muted, #94a3b8);">
-                For Windows Features bruges <code>Enable-WindowsOptionalFeature</code> / <code>Disable-WindowsOptionalFeature</code> med <code>-NoRestart</code>. 
+                For Windows Features bruges <code>Enable-WindowsOptionalFeature</code> / <code>Disable-WindowsOptionalFeature</code> med <code>-NoRestart</code>.
                 For winget installeres pakker lydløst med <code>--silent</code>.
               </p>
             </div>
@@ -1066,10 +1112,10 @@
             </div>
             <div class="input-section">
               <div class="section-label">File Content (Direct Editor)</div>
-              <textarea 
-                v-model="directFileContent" 
-                class="json-textarea" 
-                style="height: 350px; font-family: var(--font-co); font-size: 12px; line-height: 1.5;" 
+              <textarea
+                v-model="directFileContent"
+                class="json-textarea"
+                style="height: 350px; font-family: var(--font-co); font-size: 12px; line-height: 1.5;"
                 placeholder="# Paste or type your file contents directly here..."
               ></textarea>
             </div>
@@ -1107,6 +1153,10 @@
 
           <!-- iptables Form -->
           <div v-if="activeType === 'iptables'" class="specialized-form">
+            <div class="cyber-guide" style="margin-bottom: 12px; font-size: 13px; border-left: 3px solid var(--purple); padding-left: 8px; background: rgba(187, 134, 252, 0.05);">
+              <strong style="color: var(--purple);">🎓 Cyber Guide: iptables (Legacy Firewall)</strong><br/>
+              <span style="color: #ccc;"><b>iptables</b> læser regler top-til-bund i tre indbyggede kæder: <strong style="color: var(--text);">INPUT</strong> (til routeren selv), <strong style="color: var(--text);">FORWARD</strong> (routing igennem) og <strong style="color: var(--text);">OUTPUT</strong>. Rækkefølgen er afgørende – den første regel, der matcher (ACCEPT eller DROP), anvendes. Sæt standard-policy til DROP for at sikre, at kun eksplicit tilladt trafik slipper igennem.</span>
+            </div>
             <div class="section-label-sub">Default Policies</div>
             <div class="form-row">
               <label>INPUT
@@ -1179,6 +1229,20 @@
 
           <!-- nftables Form -->
           <div v-if="activeType === 'nftables'" class="specialized-form">
+            <div class="cyber-guide" style="margin-bottom: 12px; font-size: 13px; border-left: 3px solid var(--purple); padding-left: 8px; background: rgba(187, 134, 252, 0.05);">
+              <strong style="color: var(--purple);">🎓 Cyber Guide: nftables (Linux Firewall)</strong><br/>
+              <span style="color: #ccc;"><b>nftables</b> er arvtageren til iptables. Opret en <strong style="color: var(--text);">Table</strong> (f.eks. 'inet filter'), som indeholder <strong style="color: var(--text);">Chains</strong> (kæder af regler). Hver Chain binder sig til et <strong style="color: var(--text);">Hook</strong> (f.eks. 'input' for modtaget trafik eller 'forward' for trafik der routes igennem). Sæt <b>Policy</b> til "drop" (Zero Trust) eller "accept". Det er Best Practice altid at "accept" trafik fra loopback interfacet (`lo`).</span>
+            </div>
+            <div class="form-row">
+              <label>Operation
+                <select v-model="nftablesForm.operation">
+                  <option value="overwrite">Overwrite (Flush All)</option>
+                  <option value="append">Append / Merge</option>
+                  <option value="delete">Delete Rules</option>
+                  <option value="flush">Flush Entire Ruleset</option>
+                </select>
+              </label>
+            </div>
             <div class="form-row">
               <label>Family
                 <select v-model="nftablesForm.family">
@@ -1263,6 +1327,10 @@
 
           <!-- UFW Form -->
           <div v-if="activeType === 'ufw'" class="specialized-form">
+            <div class="cyber-guide" style="margin-bottom: 12px; font-size: 13px; border-left: 3px solid var(--purple); padding-left: 8px; background: rgba(187, 134, 252, 0.05);">
+              <strong style="color: var(--purple);">🎓 Cyber Guide: UFW (Uncomplicated Firewall)</strong><br/>
+              <span style="color: #ccc;"><b>UFW</b> er en frontend til iptables, der gør firewall-regler meget nemmere at læse. Den blokerer som standard alt indgående trafik og tillader udgående. Den bruges ofte på Ubuntu-baserede slut-enheder og webservere frem for på rigtige netværks-routere.</span>
+            </div>
             <div class="section-label-sub">Defaults</div>
             <div class="form-row">
               <label>Incoming
@@ -1596,10 +1664,10 @@
                 <span v-if="activeType === 'direct-json'" class="auto-label" style="color: var(--accent-light, #00f0ff); font-weight: bold;"> — DIRECT EDIT MODE</span>
                 <span v-else-if="activeType" class="auto-label"> — auto-generated</span>
               </span>
-              <button 
-                v-if="activeType && activeType !== 'direct-json'" 
-                type="button" 
-                class="btn-rebuild-json" 
+              <button
+                v-if="activeType && activeType !== 'direct-json'"
+                type="button"
+                class="btn-rebuild-json"
                 @click="rebuildJsonFromFields"
                 title="Genopbyg JSON-konfigurationen ud fra formularen ovenfor"
                 style="background: transparent; border: 1px solid var(--border); border-radius: 4px; color: var(--text); padding: 2px 8px; font-size: 10px; cursor: pointer; transition: all 0.2s;"
@@ -1629,7 +1697,7 @@
               <span>⚡ Telemetry Output & Execution Logs</span>
               <button class="btn-clear-results" @click="results = []">🗑️ Clear Logs</button>
             </div>
-            
+
             <div v-for="(r, i) in results" :key="i" class="result-card" :class="{ 'card-err': r.error, 'card-ok': !r.error }">
               <div class="result-card-header" @click="toggleResult(i)">
                 <div class="result-status-indicator">
@@ -1639,11 +1707,11 @@
                 <div class="result-cmd-preview"><code>$ {{ r.command }}</code></div>
                 <span class="card-chevron">{{ collapsedResults[i] ? '▼' : '▲' }}</span>
               </div>
-              
+
               <div v-if="!collapsedResults[i]" class="result-card-body">
                 <pre v-if="r.output" class="result-out">{{ r.output }}</pre>
                 <pre v-if="r.error" class="result-err">{{ r.error }}</pre>
-                
+
                 <!-- Fix button if command not found -->
                 <div v-if="(r.output + r.error).toLowerCase().includes('not found') || (r.output + r.error).toLowerCase().includes('not installed')" class="result-fix">
                   <div class="fix-alert">⚡ Missing dependency detected on the target node.</div>
@@ -1682,10 +1750,10 @@
       <div class="modal-content cyber-panel">
         <h3 class="modal-title">Authentication Required</h3>
         <p class="modal-text">Enter sudo password for this node (leave blank if NOPASSWD):</p>
-        <input 
-          v-model="sudoInput" 
-          type="password" 
-          class="cyber-input" 
+        <input
+          v-model="sudoInput"
+          type="password"
+          class="cyber-input"
           placeholder="Password..."
           @keyup.enter="submitSudo"
         />
@@ -1751,6 +1819,7 @@ const CONFIG_CATEGORIES = {
       { type: 'sysctl', label: 'Sysctl' },
       { type: 'file-write', label: 'Write File' },
       { type: 'remote-desktop', label: '💻 Remote Desktop' },
+      { type: 'persist', label: '💾 Persistent Configs' },
     ]
   },
   windows: {
@@ -1802,7 +1871,41 @@ const CONFIG_CATEGORIES = {
   }
 }
 
-const activeType      = ref<string | null>(null)
+const activeType      = ref<string>('interface')
+const persists = ref<{ name: string; path: string }[]>([])
+const loadingPersists = ref(false)
+
+async function loadPersists() {
+  loadingPersists.value = true
+  try {
+    const res = await api.persistList(props.nodeId)
+    persists.value = res.persists || []
+  } catch(e: any) {
+    alert("Failed to load persistent configs: " + e)
+  } finally {
+    loadingPersists.value = false
+  }
+}
+
+async function deletePersist(name: string) {
+  if (!confirm(`Are you sure you want to delete the persistent config '${name}'?`)) return
+  loadingPersists.value = true
+  try {
+    await api.persistDelete(props.nodeId, name)
+    await loadPersists()
+  } catch(e: any) {
+    alert("Failed to delete persistent config: " + e)
+  } finally {
+    loadingPersists.value = false
+  }
+}
+
+// Ensure persists are loaded when tab is opened
+watch(activeType, (val) => {
+  if (val === 'persist') {
+    loadPersists()
+  }
+})
 
 interface GuideData {
   title: string
@@ -1813,112 +1916,118 @@ interface GuideData {
 
 const CYBER_GUIDES: Record<string, GuideData> = {
   interface: {
-    title: 'Network Interfaces',
-    description: 'Configure network interface IP addresses, subnets, and state.',
+    title: 'Netværkskort (Interfaces)',
+    description: 'Konfigurer IP-adresser, undernet (subnets) og administrativ tilstand (op/ned) for netværkskort.',
     files: ['/etc/network/interfaces', '/etc/dhcpcd.conf'],
-    tips: ['Double-check CIDR notation (e.g. /24).', 'Applying this might temporarily disrupt SSH connections if configured on the active interface.']
+    tips: ['Husk altid at angive præfiks (f.eks. /24 for 255.255.255.0).', 'Advarsel: Ændrer du IP\'en på det interface du er forbundet til, kan du miste SSH/netværksforbindelsen!']
   },
   routes: {
-    title: 'Static Routing',
-    description: 'Add static route configurations to target remote subnets through a specific gateway.',
-    files: ['Active routing table', '/etc/network/interfaces'],
-    tips: ['Ensure the gateway IP is reachable in your local subnet.', 'Use 0.0.0.0/0 to change the default gateway.']
+    title: 'Statisk Routing',
+    description: 'Lær routeren, hvordan den finder vej til fjerne netværk ved at angive næste hop (gateway).',
+    files: ['Aktiv routing tabel', '/etc/network/interfaces'],
+    tips: ['Gateway-IP\'en skal være direkte tilgængelig i dit eget lokale netværk.', 'Brug 0.0.0.0/0 som destination for at opsætte en Default Gateway (Standardgateway).']
   },
   dns: {
-    title: 'DNS Resolution',
-    description: 'Set DNS servers and domain search paths for name resolution.',
+    title: 'DNS / Navneopløsning',
+    description: 'Opsæt DNS-servere (Domain Name System) så maskinen kan oversætte domænenavne (f.eks. dr.dk) til IP-adresser.',
     files: ['/etc/resolv.conf'],
-    tips: ['Set primary DNS to 1.1.1.1 or 8.8.8.8 for public internet access.', 'Add a search domain if you are using a local DNS zone.']
+    tips: ['Brug offentlige servere som 1.1.1.1 (Cloudflare) eller 8.8.8.8 (Google) til internetadgang.', 'Tilføj et search domain, hvis du bruger lokale zoner som "mit-net.local".']
   },
   nat: {
     title: 'NAT & Port Forwarding',
-    description: 'Establish IP masquerading (NAT) and port forward ingress traffic to private hosts.',
+    description: 'Skjul lokale IP-adresser bag én offentlig IP (Masquerading), eller videresend port-trafik ind til interne servere.',
     files: ['iptables rules', '/etc/sysctl.conf'],
-    tips: ['Masquerading requires IP forwarding to be enabled in sysctl.', 'Port forwarding is perfect for making internal services public.']
+    tips: ['Husk: Masquerading kræver, at IP Forwarding (routing) er slået til i Sysctl.', 'Port Forwarding (DNAT) er essentielt for at gøre interne webservere tilgængelige udefra.']
   },
   'vlan-router': {
-    title: 'VLAN Router',
-    description: 'Configure VLAN tagged sub-interfaces on routers for 802.1Q routing.',
+    title: 'VLAN Router (Router-on-a-Stick)',
+    description: 'Opsæt VLAN-taggede sub-interfaces på routeren, så den kan route trafik mellem forskellige VLANs (802.1Q).',
     files: ['/etc/network/interfaces', 'kernel 8021q module'],
-    tips: ['Ensure your physical interfaces support VLAN tag encapsulation.', 'Always specify both a parent interface (e.g., eth0) and a VLAN ID.']
+    tips: ['Din switch-port op mod routeren skal konfigureres som en Trunk-port.', 'Hvert VLAN skal have et unikt interface, f.eks. eth1.10 for VLAN 10.']
   },
   'vlan-switch': {
     title: 'VLAN Switch (Bridge)',
-    description: 'Configure bridge and switch ports for vlan filtering and member ports.',
+    description: 'Opret logiske bridges for at adskille trafik i separate VLAN-netværk (Broadcast domæner) på Layer 2.',
     files: ['/etc/network/interfaces', 'bridge-utils'],
-    tips: ['Define trunk ports to carry multiple VLAN tags.', 'Assign access ports for individual tag untagging.']
+    tips: ['Trunk-porte bevarer VLAN-tags mellem switche.', 'Access-porte fjerner tags, så almindelige PC\'er kan forstå trafikken.']
   },
   wireguard: {
     title: 'WireGuard VPN',
-    description: 'Deploy peer-to-peer secure VPN tunnels utilizing private/public key cryptography.',
+    description: 'Etabler sikre peer-to-peer krypterede VPN-tunneler ved hjælp af public/private nøglepar.',
     files: ['/etc/wireguard/wg0.conf'],
-    tips: ['Ensure UDP port 51820 (or your configured port) is open in the firewall.', 'Generate new private/public keys for security.']
+    tips: ['WireGuard bruger normalt UDP port 51820. Husk at åbne porten i din firewall (f.eks. via UFW).', 'Både klient og server skal kende hinandens public keys (offentlige nøgler).']
   },
   forwarding: {
-    title: 'IP Forwarding',
-    description: 'Allow network packets to traverse between different interfaces on this node.',
+    title: 'IP Forwarding (Kerne Routing)',
+    description: 'Tillad Linux-kernen at flytte datapakker fra et netværkskort til et andet (gør maskinen til en router).',
     files: ['/etc/sysctl.conf', '/proc/sys/net/ipv4/ip_forward'],
-    tips: ['Essential for routers, NAT boxes, and WireGuard gateways.', 'Changes will take effect instantly and persist across reboots.']
+    tips: ['Strengt nødvendigt for Routere, NAT-gateways og VPN-servere.', 'Ændringen sker i Linux-kernen med det samme.']
   },
   service: {
-    title: 'System Services',
-    description: 'Manage initialization and state (start/stop/enable) of system daemons.',
+    title: 'System Services (Daemons)',
+    description: 'Administrer baggrundsprogrammer og tjenester (start/stop/enable) via init-systemet.',
     files: ['systemd system init', 'sysvinit / openrc'],
-    tips: ['Enable services so they start automatically on boot.', 'Restarting a service like sshd can drop existing active sessions.']
+    tips: ['Brug "Enable" for at sikre, at tjenesten automatisk starter op efter et genstart (boot).', 'Genstarter du SSH, mens du bruger SSH, kan du opleve udfald.']
   },
   package: {
-    title: 'Package Manager',
-    description: 'Install or update binary applications on the remote node.',
-    files: ['apk, apt, or pacman configurations'],
-    tips: ['Verify package names match exactly.', 'Use diagnostic console to verify if the binary is installed.']
+    title: 'Pakkehåndtering (Install)',
+    description: 'Hent og installer ny software direkte på noden fra internet-repositories.',
+    files: ['apk, apt, or pacman'],
+    tips: ['Sørg for, at maskinen har DNS og adgang til internettet, før du forsøger at installere pakker.', 'Søg altid på det præcise pakkenavn.']
   },
   ufw: {
-    title: 'UFW Firewall',
-    description: 'Manage uncomplicated firewall rules, policies, and ports.',
+    title: 'UFW Firewall (Uncomplicated Firewall)',
+    description: 'Opsæt simple firewall-regler til at blokere eller tillade specifik port- og IP-trafik.',
     files: ['/etc/ufw/before.rules', '/lib/ufw/user.rules'],
-    tips: ['Ensure port 22/SSH is allowed BEFORE enabling UFW to prevent lockout!', 'Always default-deny incoming and default-allow outgoing.']
+    tips: ['Kritisk: Tillad ALTID port 22 (SSH) inden du aktiverer UFW, ellers låser du dig selv ude!', 'God praksis: Blokér indgående trafik (Deny), og tillad udgående trafik (Allow) som standard.']
   },
   sysctl: {
-    title: 'Sysctl Parameters',
-    description: 'Fine-tune Linux kernel parameters dynamically or persistently.',
+    title: 'Sysctl (Kernel Parameters)',
+    description: 'Finjuster kernens adfærd, f.eks. for sikkerhed mod DDoS eller netværksoptimering.',
     files: ['/etc/sysctl.conf'],
-    tips: ['Changing sysctl values can alter system security and network behavior instantly.', 'Run sysctl -p to reload.']
+    tips: ['Kan påvirke sikkerheden drastisk (f.eks. TCP SYN Cookies mod floods).', 'Ændringer tilføjes /etc/sysctl.d/ for at overleve et genstart.']
+  },
+  persist: {
+    title: '💾 Persistent Configs (Fjern Opstart-scripts)',
+    description: 'Se alle konfigurationer i Netrunner der er markeret som persistente, og slet dem permanent.',
+    files: ['/usr/local/sbin/netrunner-*.sh', '/etc/systemd/system/'],
+    tips: ['Scripts der er oprettet med Netrunner, aktiveres tidligt under boot.', 'Slet scripts her, i stedet for at slette selve GNS3-noden, hvis du har lavet fejl.']
   },
   'win-ip': {
     title: 'Windows IP Setup',
     description: 'Konfigurer IP-adresser, gateway og DNS-servere på Windows-netværkskort.',
     files: ['NetIPAddress', 'DnsClientServerAddress'],
-    tips: ['Brug DHCP for dynamisk opsætning.', 'Static IP fjerner gamle adresser automatisk for at forhindre konflikter.']
+    tips: ['Brug DHCP for dynamisk opsætning af lab-maskiner.', 'Static IP overskriver automatisk gamle adresser for at forhindre konflikter i Windows.']
   },
   'win-route': {
     title: 'Windows Routing',
-    description: 'Administrer statiske og persistente ruter i Windows-routingtabellen.',
+    description: 'Administrer statiske ruter i Windows-routingtabellen.',
     files: ['NetRoute'],
-    tips: ['Statiske ruter tilføjes som persistente som standard.', 'NextHop (gateway) er påkrævet for at tilføje en rute.']
+    tips: ['Statiske ruter tilføjes som persistente som standard i PowerShell (-PolicyStore PersistentStore).', 'NextHop (gateway) er påkrævet for at rutens pakker ved hvor de skal hen.']
   },
   'win-service': {
     title: 'Windows Services',
-    description: 'Administrer systemtjenester (status, start, stop, restart, startup type).',
+    description: 'Administrer Windows-systemtjenester (status, start, stop, restart, startup type).',
     files: ['Get-Service / Set-Service'],
-    tips: ['Kræver administratorrettigheder på Windows-noden.', 'Stop ikke kritiske systemtjenester som f.eks. WinRM eller RPC.']
+    tips: ['Nogle handlinger kræver dybe rettigheder. Vi kører altid PowerShell som systemadministrator.', 'Stop ikke kritiske systemtjenester som f.eks. WinRM eller RPC.']
   },
   'win-feature': {
     title: 'Windows Features & Packages',
-    description: 'Aktiver/deaktiver valgfrie komponenter (DISM) eller installer programmer via winget.',
+    description: 'Aktiver Windows Features (fx Telnet Client) via DISM, eller installer værktøjer via Winget.',
     files: ['WindowsOptionalFeature', 'winget'],
-    tips: ['winget kræver at pakke-manageren er installeret på maskinen.', 'Standardfunktioner installeres lydløst uden genstart.']
+    tips: ['Winget er det tætteste man kommer på Linux "apt install" i Windows.', 'Features aktiveres direkte i OS-kernen.']
   },
   'win-hostname': {
     title: 'Windows Hostname omdøb',
-    description: 'Omdøb computerens navn (computername / hostname) i Windows.',
+    description: 'Omdøb computerens navn (computername) i Windows miljøet.',
     files: ['Rename-Computer'],
-    tips: ['En fuld genstart af maskinen er påkrævet, før det nye computernavn træder i kraft.']
+    tips: ['Vigtigt: En fuld genstart af maskinen er påkrævet (reboot), før et nyt computernavn kan anvendes.']
   },
   'win-file': {
     title: 'Windows Filskrivning',
-    description: 'Skriv tekstfiler og konfigurationsfiler direkte på Windows-noden.',
+    description: 'Skriv tekstfiler og PowerShell-scripts direkte på Windows-nodens C-drev.',
     files: ['Out-File / Here-Strings'],
-    tips: ['Alle overordnede mapper oprettes automatisk, hvis de ikke findes.', 'Here-Strings bevarer formatering og linjeskift fejlfrit.']
+    tips: ['Alle overordnede mapper oprettes automatisk, hvis de ikke allerede findes.', 'PowerShell Here-Strings bevarer linjeskift og tegn præcis som du skriver dem.']
   }
 }
 
@@ -1944,18 +2053,18 @@ function escapeHtml(unsafe: string) {
 
 function highlightPreviewCommands(text: string): string {
   let highlighted = escapeHtml(text)
-  
+
   const sysCmds = /\b(ip|rc-update|sysctl|systemctl|cat|chmod|wg-quick|wg|apk|apt|ufw|iptables|mkdir|echo|tee|touch|Set-NetIPInterface|Set-DnsClientServerAddress|Remove-NetIPAddress|Remove-NetRoute|New-NetIPAddress|New-NetRoute|Start-Service|Stop-Service|Restart-Service|Set-Service|Get-Service|Disable-WindowsOptionalFeature|Enable-WindowsOptionalFeature|Rename-Computer|Split-Path|Test-Path|New-Item|Out-File|winget)\b/g
   const heredoc = /(&lt;&lt;\s*&#039;?EOF&#039;?|EOF|__NETRUNNER_EOF__)/g
   const ipAddr = /\b(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}(?:\/\d{1,2})?)\b/g
   const strings = /(&quot;[^&]*&quot;|&#039;[^&]*&#039;)/g
-  
+
   highlighted = highlighted.replace(strings, '<span class="shell-str">$1</span>')
   highlighted = highlighted.replace(heredoc, '<span class="shell-heredoc">$1</span>')
   highlighted = highlighted.replace(sysCmds, '<span class="shell-cmd">$1</span>')
   highlighted = highlighted.replace(ipAddr, '<span class="shell-ip">$1</span>')
   highlighted = highlighted.replace(/(#[^\n&]*)/g, '<span class="shell-comment">$1</span>')
-  
+
   return highlighted
 }
 
@@ -1981,11 +2090,11 @@ const installingTool  = ref(false)
 const persistMode     = ref(false)
 
 const defaultInterfaceForm    = () => ({ interface: 'eth0', addresses: [''] as string[], dhcp: false, action: 'add', state: 'none', vlanParent: '', vlanId: undefined })
-const defaultRouteForm        = () => ({ routes: [{ dst: '10.1.0.0/24', via: '10.0.0.254', dev: '', metric: 0 }], isDelete: false })
+const defaultRouteForm        = () => ({ routes: [{ dst: '10.1.0.0/24', via: '10.0.0.254', dev: '', metric: 0 }], action: 'add' })
 const defaultDnsForm          = () => ({ nameservers: ['8.8.8.8'], search: ['local'], hostname: '', domain: '', records: [{ name: '', value: '' }] })
 const defaultNatForm          = () => ({ outbound_iface: 'eth0', inbound_iface: 'eth1', source_subnet: '10.0.0.0/24', masquerade: true, port_forwards: [{ proto: 'tcp', external_port: '80', target_ip: '10.0.0.10', target_port: '80' }] })
 const defaultVlanRouterForm   = () => ({ interface: 'eth0', vlans: [{ id: '10', address: '10.0.10.1/24', description: 'Management', action: 'add' }] })
-const defaultVlanSwitchForm   = () => ({ bridge: 'br0', vlans: [{ id: '10', name: 'MGMT' }], ports: [{ iface: 'eth1', mode: 'access', vlan: '10', allowed: '' }] })
+const defaultVlanSwitchForm   = () => ({ bridge: 'br0', vlans: [{ id: '10', name: 'MGMT', address: '10.0.10.1/24' }], ports: [{ iface: 'eth1', mode: 'access', vlan: '10', allowed: '', pvid: '' }] })
 const defaultWireguardForm    = () => ({ action: 'add', interface: 'wg0', private_key: '', address: '', listen_port: 51820, dns: '', mtu: '', post_up: '', post_down: '', peers: [{ public_key: '', preshared_key: '', endpoint: '', allowed_ips: '0.0.0.0/0', persistent_keepalive: '' }] })
 const defaultForwardingForm   = () => ({ ipv4: true, ipv6: false })
 const defaultServiceForm      = () => ({ name: '', action: 'status' })
@@ -2010,6 +2119,7 @@ const defaultUfwForm          = () => ({
   ],
 })
 const defaultNftablesForm     = () => ({
+  operation: 'overwrite',
   family: 'inet',
   table_name: 'filter',
   chain_name: 'input',
@@ -2048,7 +2158,7 @@ const defaultWinFileForm = () => ({ path: 'C:\\temp\\test.txt', content: '', ove
 function resetForm() {
   if (!activeType.value) return
   if (!confirm(`Clear current ${activeType.value} configuration form?`)) return
-  
+
   if (activeType.value === 'direct-file') {
     directFileContent.value = ''
     directFilePath.value = '/etc/wireguard/wg0.conf'
@@ -2058,14 +2168,14 @@ function resetForm() {
     previewError.value = ''
     return
   }
-  
+
   if (activeType.value === 'direct-json') {
     inputJson.value = JSON_BOILERPLATES[directJsonGeneratorType.value] || '{}'
     previewCommands.value = []
     previewError.value = ''
     return
   }
-  
+
   const defaults: Record<string, any> = {
     interface: defaultInterfaceForm, routes: defaultRouteForm, dns: defaultDnsForm,
     nat: defaultNatForm, 'vlan-router': defaultVlanRouterForm, 'vlan-switch': defaultVlanSwitchForm,
@@ -2442,7 +2552,7 @@ function addKeyToHistory(privateKey: string, publicKey: string) {
   const now = new Date()
   const timestamp = now.toLocaleString('da-DK', { hour12: false })
   const iface = wireguardForm.value.interface || 'wg0'
-  
+
   const newItem: WireguardKeyItem = {
     id: Math.random().toString(36).substring(2, 9),
     nodeId: props.nodeId,
@@ -2453,7 +2563,7 @@ function addKeyToHistory(privateKey: string, publicKey: string) {
     label: `Key for ${props.nodeId} ${iface}`,
     hidePrivate: true
   }
-  
+
   keyHistory.value.unshift(newItem)
   saveKeyHistory()
 }
@@ -2558,7 +2668,7 @@ function normalizeRouteForm(parsed: any) {
       dev: r.dev || r.interface || r.iface || '',
       metric: r.metric || 0,
     })),
-    isDelete: (parsed?.action || '').toLowerCase() === 'del' || (parsed?.action || '').toLowerCase() === 'delete',
+    action: parsed?.action || (parsed?.isDelete ? 'del' : 'add'),
   }
 }
 
@@ -2738,7 +2848,7 @@ watch(inputJson, (newVal) => {
   if (!activeType.value) return
   if (isSyncing.value || activeType.value === 'direct-file' || activeType.value === 'direct-json') return
   if (!newVal || newVal.trim() === '{}' || newVal.trim() === '') return
-  
+
   try {
     const parsed = JSON.parse(newVal)
     if (parsed && typeof parsed === 'object') {
@@ -2782,7 +2892,7 @@ const JSON_BOILERPLATES: Record<string, string> = {
 function syncRouteForm() {
   inputJson.value = JSON.stringify({
     routes: routeForm.value.routes.filter(r => r.dst),
-    action: routeForm.value.isDelete ? 'del' : 'add'
+    action: routeForm.value.action
   }, null, 2)
 }
 
@@ -2818,7 +2928,7 @@ function syncVlanSwitchForm() {
 function syncWireguardForm() {
   inputJson.value = JSON.stringify({
     ...wireguardForm.value,
-    peers: wireguardForm.value.peers.filter(p => 
+    peers: wireguardForm.value.peers.filter(p =>
       p.public_key || p.preshared_key || p.endpoint || p.allowed_ips || p.persistent_keepalive
     )
   }, null, 2)
@@ -2946,6 +3056,7 @@ function syncUfwForm() {
 function syncNftablesForm() {
   const f = nftablesForm.value
   inputJson.value = JSON.stringify({
+    operation: f.operation,
     tables: [{
       family: f.family,
       name: f.table_name,
@@ -3060,7 +3171,7 @@ async function getPreview() {
     let cmds = res.commands
     if (persistMode.value && cmds.length) {
       const wrapped = await api.preview('persist', { name: previewType, commands: cmds })
-      cmds = wrapped.commands
+      cmds = [...cmds, ...wrapped.commands]
     }
     previewCommands.value = cmds
   } catch (e) {
@@ -3076,7 +3187,7 @@ async function applyConfig() {
   try {
     const res = await api.executeNode(props.nodeId, previewCommands.value)
     results.value = res.results
-    
+
     // Automatically trigger a refresh of live telemetry if no execution errors occurred
     const hasError = res.results?.some(r => r.error)
     if (!hasError) {
@@ -3100,7 +3211,7 @@ async function applyConfig() {
 async function installMissing(cmd: string) {
     // Extract tool name (first word, e.g. "arp-scan" from "arp-scan localnet")
     const tool = cmd.replace(/^#.*\n/, '').trim().split(' ')[0]
-    
+
     const sudoPass = await promptSudo()
     if (sudoPass === null) return // user cancelled
 
@@ -3118,7 +3229,7 @@ async function installMissing(cmd: string) {
                 if (r.error) installLog.value += r.error + '\n'
             }
         }
-        
+
         // Basic check if it likely succeeded (apt-get returns 0 typically, but we just check if it contains common errors)
         const lowerOut = installLog.value.toLowerCase()
         if (lowerOut.includes('e: unable to locate package') || lowerOut.includes('error:') || lowerOut.includes('command not found')) {
@@ -3215,10 +3326,10 @@ watch(
     const cleanVal = String(newVal).trim()
     const found = (interfaces as DetectedInterface[]).find(i => i.name.toLowerCase() === cleanVal.toLowerCase())
     if (found) {
-      const isAddressesUntouched = 
-      interfaceForm.value.addresses.length === 0 || 
+      const isAddressesUntouched =
+      interfaceForm.value.addresses.length === 0 ||
       (interfaceForm.value.addresses.length === 1 && !interfaceForm.value.addresses[0].trim())
-      
+
       if (isAddressesUntouched) {
         if (found.ips && found.ips.length > 0) {
           interfaceForm.value.addresses = [...found.ips]
@@ -3287,7 +3398,7 @@ watch(directJsonGeneratorType, (newType, oldType) => {
   if (activeType.value === 'direct-json') {
     const oldBoilerplate = oldType ? JSON_BOILERPLATES[oldType] : null
     const isDirty = inputJson.value && inputJson.value.trim() !== '{}' && inputJson.value !== oldBoilerplate
-    
+
     if (isDirty) {
       if (!confirm(`Du har lavet ændringer i JSON. Vil du overskrive og nulstille til standard-skabelonen for "${newType}"?`)) {
         if (oldType) {
@@ -3308,11 +3419,11 @@ watch(persistMode, () => { if (activeType.value && previewCommands.value.length)
 
 watch(() => props.nodeId, () => {
   const currentType = activeType.value
-  
+
   previewCommands.value = []
   previewError.value    = ''
   results.value         = []
-  
+
   interfaceForm.value   = defaultInterfaceForm()
   routeForm.value       = defaultRouteForm()
   dnsForm.value         = defaultDnsForm()
@@ -3344,13 +3455,13 @@ watch(() => props.nodeId, () => {
   wgHistoryExpanded.value = false
   directFileContent.value = ''
   directFileBackup.value  = false
-  
+
   if (currentType && syncFnMap[currentType]) {
     syncFnMap[currentType]()
   } else {
     inputJson.value = '{}'
   }
-  
+
   // Refresh live interfaces telemetry when active node changes
   fetchLiveInterfaces()
 })
@@ -3375,11 +3486,11 @@ const physicalInterfaces = computed(() => {
 const interfaceTree = computed(() => {
   const list = detectedInterfaces.value
   const tree: { parent: DetectedInterface; children: DetectedInterface[] }[] = []
-  
+
   const parents = list.filter(i => !i.name.includes('.'))
   const vlans = list.filter(i => i.name.includes('.'))
   const groupedVlans = new Set<string>()
-  
+
   for (const parent of parents) {
     const children = vlans.filter(v => {
       const parts = v.name.split('.')
@@ -3388,12 +3499,12 @@ const interfaceTree = computed(() => {
     children.forEach(v => groupedVlans.add(v.name))
     tree.push({ parent, children })
   }
-  
+
   const orphanVlans = vlans.filter(v => !groupedVlans.has(v.name))
   for (const orphan of orphanVlans) {
     tree.push({ parent: orphan, children: [] })
   }
-  
+
   return tree
 })
 
@@ -3507,16 +3618,16 @@ async function triggerInlinePing(ifaceName: string, ip: string) {
   const key = `${ifaceName}-${ip}`
   pingLoading.value[key] = true
   delete pingResults.value[key]
-  
+
   const cleanIp = ip.split('/')[0]
   const cmd = `ping -c 2 -W 2 -I ${cleanIp} 8.8.8.8`
-  
+
   try {
     const res = await api.executeNode(props.nodeId, [cmd])
     const result = res.results[0]
     const stdout = result.output || ''
     const stderr = result.error || ''
-    
+
     if (result.error || stderr.toLowerCase().includes('fail') || stderr.toLowerCase().includes('error')) {
       pingResults.value[key] = { success: false, error: 'FAIL' }
     } else {
@@ -3562,24 +3673,24 @@ function calculateSubnet(ipWithCidr: string): SubnetInfo | null {
   const [ipPart, cidrPart] = ipWithCidr.split('/')
   const cidr = parseInt(cidrPart, 10)
   if (isNaN(cidr) || cidr < 0 || cidr > 32) return null
-  
+
   const ipReg = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/
   const match = ipPart.match(ipReg)
   if (!match) return null
-  
+
   const octets = match.slice(1, 5).map(Number)
   if (octets.some(o => o > 255)) return null
-  
+
   const ipLong = ((octets[0] << 24) | (octets[1] << 16) | (octets[2] << 8) | octets[3]) >>> 0
   const maskLong = cidr === 0 ? 0 : (0xFFFFFFFF << (32 - cidr)) >>> 0
   const netmask = longToIp(maskLong)
-  
+
   const netLong = (ipLong & maskLong) >>> 0
   const network = longToIp(netLong)
-  
+
   const broadLong = (netLong | ~maskLong) >>> 0
   const broadcast = longToIp(broadLong)
-  
+
   return {
     ip: ipPart,
     cidr,
@@ -3619,7 +3730,7 @@ async function fetchLiveInterfaces() {
   detectingError.value = ''
   try {
     const data = await api.readNode(props.nodeId, 'ip')
-    
+
     // Check if there was any error in results
     const errResult = data.results?.find(r => r.error)
     if (errResult) {
@@ -3650,7 +3761,7 @@ function parseIpAddr(stdout: string): DetectedInterface[] {
   const lines = stdout.split('\n')
   for (const line of lines) {
     const trimmed = line.trim()
-    
+
     // Match interface start line: e.g. "2: eth0: <BROADCAST,..." or "3: eth0.100@eth0: <..."
     const ifaceMatch = trimmed.match(/^\d+:\s+([^:@]+)(?:@[^\s:]+)?:\s+<([^>]+)>/)
     if (ifaceMatch) {
@@ -3714,15 +3825,15 @@ let monitorInterval: any = null
 function parseIpLinkStats(stdout: string): Record<string, { rxBytes: number; txBytes: number }> {
   const stats: Record<string, { rxBytes: number; txBytes: number }> = {}
   const lines = stdout.split('\n')
-  
+
   let currentIface = ''
   let expectingRx = false
   let expectingTx = false
-  
+
   for (const line of lines) {
     const trimmed = line.trim()
     if (!trimmed) continue
-    
+
     // Match interface start line, e.g. "2: eth0: <BROADCAST..." or "3: eth0.100@eth0: <..."
     const ifaceMatch = trimmed.match(/^\d+:\s+([^:@]+)(?:@[^\s:]+)?:\s+<([^>]+)>/)
     if (ifaceMatch) {
@@ -3731,21 +3842,21 @@ function parseIpLinkStats(stdout: string): Record<string, { rxBytes: number; txB
       expectingTx = false
       continue
     }
-    
+
     if (!currentIface) continue
-    
+
     if (trimmed.startsWith('RX:')) {
       expectingRx = true
       expectingTx = false
       continue
     }
-    
+
     if (trimmed.startsWith('TX:')) {
       expectingTx = true
       expectingRx = false
       continue
     }
-    
+
     if (expectingRx) {
       const tokens = trimmed.split(/\s+/)
       if (tokens.length >= 1) {
@@ -3768,20 +3879,20 @@ function parseIpLinkStats(stdout: string): Record<string, { rxBytes: number; txB
       expectingTx = false
     }
   }
-  
+
   return stats
 }
 
 async function pollTrafficStats() {
   if (!props.nodeId || !liveMonitorActive.value) return
-  
+
   try {
     const data = await api.readNode(props.nodeId, 'if-stats')
     const stdout = data.results.map(r => r.output || '').join('\n')
-    
+
     const parsedStats = parseIpLinkStats(stdout)
     const now = Date.now()
-    
+
     for (const [ifaceName, stats] of Object.entries(parsedStats)) {
       if (!interfaceTrafficData.value[ifaceName]) {
         interfaceTrafficData.value[ifaceName] = {
@@ -3796,23 +3907,23 @@ async function pollTrafficStats() {
       } else {
         const entry = interfaceTrafficData.value[ifaceName]
         const elapsed = (now - entry.lastTime) / 1000
-        
+
         if (elapsed > 0) {
           const rxDiff = stats.rxBytes - entry.lastRxBytes
           const txDiff = stats.txBytes - entry.lastTxBytes
-          
+
           const rxRate = rxDiff >= 0 ? rxDiff / elapsed : 0
           const txRate = txDiff >= 0 ? txDiff / elapsed : 0
-          
+
           entry.rxRate = rxRate
           entry.txRate = txRate
-          
+
           entry.rxHistory.push(rxRate)
           if (entry.rxHistory.length > 10) entry.rxHistory.shift()
-          
+
           entry.txHistory.push(txRate)
           if (entry.txHistory.length > 10) entry.txHistory.shift()
-          
+
           entry.lastRxBytes = stats.rxBytes
           entry.lastTxBytes = stats.txBytes
           entry.lastTime = now
@@ -4382,18 +4493,18 @@ fetchLiveInterfaces()
   font-family: var(--font-ui);
 }
 .type-btn:hover { background: rgba(0, 229, 255, 0.05); color: var(--cyan); }
-.type-btn.active { 
-  background: rgba(0, 229, 255, 0.1); 
-  color: var(--cyan); 
+.type-btn.active {
+  background: rgba(0, 229, 255, 0.1);
+  color: var(--cyan);
   border-left: 2px solid var(--cyan);
   box-shadow: inset 2px 0 8px rgba(0, 229, 255, 0.05);
 }
 
 .config-main { flex: 1; overflow: hidden; display: flex; flex-direction: column; }
-.placeholder { 
-  color: var(--text); 
-  font-size: 14px; 
-  padding: 32px; 
+.placeholder {
+  color: var(--text);
+  font-size: 14px;
+  padding: 32px;
   font-family: var(--font-hd);
   letter-spacing: 1px;
 }
@@ -4403,8 +4514,8 @@ fetchLiveInterfaces()
   padding: 10px 16px; border-bottom: 1px solid var(--border);
   background: var(--bg3);
 }
-.type-name { 
-  font-size: 14px; font-weight: 700; color: var(--cyan); 
+.type-name {
+  font-size: 14px; font-weight: 700; color: var(--cyan);
   font-family: var(--font-hd); letter-spacing: 1px;
   text-shadow: 0 0 8px rgba(0, 229, 255, 0.3);
 }
@@ -4414,26 +4525,26 @@ fetchLiveInterfaces()
   cursor: pointer; border: 1px solid var(--border);
   font-family: var(--font-ui); transition: all 0.2s;
 }
-.btn-preview { 
-  background: var(--bg4); color: var(--textbr); 
+.btn-preview {
+  background: var(--bg4); color: var(--textbr);
 }
 .btn-preview:hover {
   background: var(--border); color: var(--cyan); border-color: var(--cyan);
   box-shadow: 0 0 10px rgba(0, 229, 255, 0.1);
 }
-.btn-clear-form { 
-  background: var(--bg4); color: var(--text); 
+.btn-clear-form {
+  background: var(--bg4); color: var(--text);
 }
-.btn-clear-form:hover { 
-  color: var(--pink); border-color: var(--pink); 
+.btn-clear-form:hover {
+  color: var(--pink); border-color: var(--pink);
   box-shadow: 0 0 10px rgba(255, 45, 110, 0.1);
 }
-.btn-apply { 
+.btn-apply {
   background: var(--green); color: var(--bg); border-color: var(--green);
   font-family: var(--font-hd); font-weight: 600; letter-spacing: 0.5px;
 }
-.btn-apply:hover:not(:disabled) { 
-  box-shadow: var(--shadow-g); 
+.btn-apply:hover:not(:disabled) {
+  box-shadow: var(--shadow-g);
 }
 .btn-apply:disabled { opacity: 0.4; cursor: not-allowed; }
 .persist-toggle {
@@ -4443,9 +4554,9 @@ fetchLiveInterfaces()
   background: var(--bg); user-select: none; transition: all 0.2s;
   font-family: var(--font-ui);
 }
-.persist-toggle:has(input:checked) { 
-  color: var(--yellow); border-color: var(--yellow); 
-  background: rgba(255, 190, 11, 0.05); 
+.persist-toggle:has(input:checked) {
+  color: var(--yellow); border-color: var(--yellow);
+  background: rgba(255, 190, 11, 0.05);
   box-shadow: 0 0 10px rgba(255, 190, 11, 0.1);
 }
 .persist-toggle input { margin: 0; cursor: pointer; }
@@ -4601,9 +4712,9 @@ fetchLiveInterfaces()
 .hint { font-size: 11px; color: var(--text); margin-top: 6px; font-style: italic; }
 
 .editor-body { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 20px; }
-.section-label { 
-  font-size: 11px; font-weight: 700; color: var(--textbr); 
-  text-transform: uppercase; margin-bottom: 8px; 
+.section-label {
+  font-size: 11px; font-weight: 700; color: var(--textbr);
+  text-transform: uppercase; margin-bottom: 8px;
   display: flex; justify-content: space-between; align-items: center;
   font-family: var(--font-hd); letter-spacing: 0.5px;
 }
@@ -4726,12 +4837,12 @@ fetchLiveInterfaces()
 .result-out { background: var(--bg); color: var(--textbr); border: 1px solid var(--border); }
 .result-err { background: rgba(255, 45, 110, 0.05); color: var(--pink); border: 1px solid rgba(255, 45, 110, 0.15); margin-top: 8px; }
 
-.result-fix { 
-  margin-top: 12px; 
-  padding: 10px 14px; 
-  background: rgba(255, 45, 110, 0.03); 
-  border: 1px dashed var(--pink); 
-  border-radius: var(--r); 
+.result-fix {
+  margin-top: 12px;
+  padding: 10px 14px;
+  background: rgba(255, 45, 110, 0.03);
+  border: 1px dashed var(--pink);
+  border-radius: var(--r);
 }
 .fix-alert {
   font-size: 11px;

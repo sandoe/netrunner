@@ -48,7 +48,7 @@
           </select>
           <input v-model="searchQuery" type="text" placeholder="Filter logs..." class="search-input" />
         </div>
-        <div class="log-container" ref="logContainer">
+        <div class="log-container" ref="logContainer" @mouseup="handleTextSelection">
           <div v-for="(entry, idx) in filteredLogs" :key="idx" :class="['log-entry', entry.severity || 'info']">
             <span class="log-node">{{ entry.node_id }}</span>
             <span class="log-type">[{{ entry.log_type }}]</span>
@@ -57,6 +57,61 @@
           </div>
           <div v-if="filteredLogs.length === 0" class="empty-state">
             No logs to display. Click Refresh to fetch from nodes.
+          </div>
+        </div>
+      </div>
+
+      <!-- AI Parse Menu -->
+      <div v-if="showParseMenu" class="parse-menu" :style="{ left: menuPosition.x + 'px', top: menuPosition.y + 'px' }">
+        <button @click="executeAIParse" class="btn-ai-parse">
+          ⚡ AI Parse Selected Field
+        </button>
+      </div>
+
+      <!-- AI Parse Result Modal -->
+      <div v-if="parseResult || parsingLog" class="parse-modal-overlay" @click.self="parseResult = null; parsingLog = false">
+        <div class="parse-modal">
+          <div class="modal-header">
+            <h3>⚡ AI Log Parser</h3>
+            <button class="btn-close" @click="parseResult = null; parsingLog = false">✕</button>
+          </div>
+
+          <div v-if="parsingLog" class="parsing-loader">
+            <span class="spinner">🌀</span> Analyzing log structure...
+          </div>
+
+          <div v-if="parseResult" class="parse-result-content">
+            <div class="result-section">
+              <h4>Generated Regex/Grok Pattern</h4>
+              <div class="code-block">{{ parseResult.pattern }}</div>
+            </div>
+
+            <div class="result-section">
+              <h4>Explanation</h4>
+              <p>{{ parseResult.explanation }}</p>
+            </div>
+
+            <div class="result-section">
+              <h4>Extracted Fields Preview</h4>
+              <table class="extraction-table">
+                <thead>
+                  <tr>
+                    <th>Field Name</th>
+                    <th>Extracted Value</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="(value, key) in parseResult.extracted_fields" :key="key">
+                    <td class="field-key">{{ key }}</td>
+                    <td class="field-value">{{ value }}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            <div class="modal-actions">
+              <button class="btn-primary">Save Pipeline Rule</button>
+            </div>
           </div>
         </div>
       </div>
@@ -194,6 +249,14 @@ const searchResults = ref<any[]>([])
 const fetching = ref(false)
 const searching = ref(false)
 
+// AI Parse State
+const showParseMenu = ref(false)
+const menuPosition = ref({ x: 0, y: 0 })
+const selectedText = ref('')
+const selectedLogEntry = ref('')
+const parseResult = ref<any>(null)
+const parsingLog = ref(false)
+
 const filteredLogs = computed(() => {
   return logs.value.filter(entry => {
     if (severityFilter.value && entry.severity !== severityFilter.value) return false
@@ -259,6 +322,49 @@ async function loadStats() {
 
 function getBarWidth(count: number, total: number) {
   return `${Math.max(5, (count / total) * 100)}%`
+}
+
+function handleTextSelection(e: MouseEvent) {
+  const selection = window.getSelection()
+  if (!selection || selection.isCollapsed) {
+    showParseMenu.value = false
+    return
+  }
+
+  const text = selection.toString().trim()
+  if (text.length === 0) return
+
+  let target = e.target as HTMLElement
+  const logRow = target.closest('.log-entry')
+  if (logRow) {
+    const rawMsgEl = logRow.querySelector('.log-message')
+    if (rawMsgEl) {
+      selectedLogEntry.value = rawMsgEl.textContent || ''
+      selectedText.value = text
+
+      menuPosition.value = {
+        x: e.pageX,
+        y: e.pageY + 10
+      }
+      showParseMenu.value = true
+    }
+  }
+}
+
+async function executeAIParse() {
+  showParseMenu.value = false
+  parsingLog.value = true
+  parseResult.value = null
+
+  try {
+    const res = await api.parseLog(selectedLogEntry.value, selectedText.value)
+    // res is the response body directly because our req() returns it
+    parseResult.value = res.data || res
+  } catch(e) {
+    console.error("AI Parse failed", e)
+  } finally {
+    parsingLog.value = false
+  }
 }
 </script>
 
@@ -534,5 +640,167 @@ function getBarWidth(count: number, total: number) {
   min-width: 40px;
   text-align: right;
   color: #888;
+}
+
+/* AI Parse Styles */
+.parse-menu {
+  position: absolute;
+  z-index: 100;
+  background: rgba(15, 20, 25, 0.95);
+  border: 1px solid var(--cyan);
+  border-radius: 6px;
+  padding: 5px;
+  box-shadow: 0 4px 15px rgba(0, 255, 204, 0.2);
+  transform: translateX(-50%);
+}
+
+.btn-ai-parse {
+  background: transparent;
+  border: none;
+  color: var(--cyan);
+  cursor: pointer;
+  padding: 8px 12px;
+  font-weight: bold;
+  font-family: 'Inter', sans-serif;
+  transition: all 0.2s;
+}
+
+.btn-ai-parse:hover {
+  background: rgba(0, 255, 204, 0.1);
+  border-radius: 4px;
+}
+
+.parse-modal-overlay {
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0, 0, 0, 0.7);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 1000;
+  backdrop-filter: blur(4px);
+}
+
+.parse-modal {
+  background: #1a1a2e;
+  border: 1px solid var(--cyan);
+  border-radius: 8px;
+  width: 600px;
+  max-width: 90vw;
+  box-shadow: 0 0 30px rgba(0, 255, 204, 0.15);
+  overflow: hidden;
+}
+
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 15px 20px;
+  background: rgba(0, 0, 0, 0.3);
+  border-bottom: 1px solid #333;
+}
+
+.modal-header h3 {
+  margin: 0;
+  color: var(--cyan);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.btn-close {
+  background: transparent;
+  border: none;
+  color: #888;
+  cursor: pointer;
+  font-size: 1.2rem;
+}
+
+.btn-close:hover {
+  color: #fff;
+}
+
+.parsing-loader {
+  padding: 40px;
+  text-align: center;
+  color: #00ff88;
+  font-weight: bold;
+  font-size: 1.1rem;
+}
+
+.spinner {
+  display: inline-block;
+  animation: spin 1s linear infinite;
+  margin-right: 10px;
+}
+
+@keyframes spin {
+  100% { transform: rotate(360deg); }
+}
+
+.parse-result-content {
+  padding: 20px;
+}
+
+.result-section {
+  margin-bottom: 20px;
+}
+
+.result-section h4 {
+  margin: 0 0 10px 0;
+  color: #aaa;
+  font-size: 0.9rem;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+.code-block {
+  background: #0d1117;
+  padding: 12px;
+  border-radius: 4px;
+  font-family: 'Fira Code', monospace;
+  color: #00ff88;
+  border: 1px solid #333;
+  word-break: break-all;
+}
+
+.extraction-table {
+  width: 100%;
+  border-collapse: collapse;
+  background: #0d1117;
+  border: 1px solid #333;
+  border-radius: 4px;
+}
+
+.extraction-table th, .extraction-table td {
+  padding: 10px 15px;
+  text-align: left;
+  border-bottom: 1px solid #222;
+}
+
+.extraction-table th {
+  background: rgba(255, 255, 255, 0.05);
+  color: #888;
+  font-weight: normal;
+  font-size: 0.85rem;
+}
+
+.field-key {
+  color: #00aaff;
+  font-weight: bold;
+  font-family: monospace;
+}
+
+.field-value {
+  color: #e0e0e0;
+  font-family: monospace;
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 20px;
+  padding-top: 15px;
+  border-top: 1px solid #333;
 }
 </style>

@@ -1,5 +1,6 @@
 <script setup>
 import { ref, onMounted } from 'vue';
+import { api } from '@/api/client';
 
 const activeTab = ref('overview');
 const stats = ref({});
@@ -21,15 +22,31 @@ const exfiltrating = ref(false);
 const exfilError = ref('');
 const exfilSuccess = ref('');
 
+// Explorer state
+const explorerTables = ref([]);
+const explorerError = ref('');
+
+const fetchTables = async () => {
+  try {
+    const { data } = await api.get('/v1/database/tables');
+    explorerTables.value = data.tables;
+  } catch (err) {
+    explorerError.value = err.message;
+  }
+};
+
+const viewTable = async (table) => {
+  rawQuery.value = `SELECT * FROM ${table} LIMIT 100`;
+  queryTarget.value = 'postgres';
+  activeTab.value = 'query';
+  await runQuery();
+};
+
+
 const fetchStats = async () => {
   try {
-    const token = localStorage.getItem('token');
-    const res = await fetch('/api/v1/database/stats', {
-      headers: { 'Authorization': `Bearer ${token}` }
-    });
-    if (res.ok) {
-      stats.value = await res.json();
-    }
+    const { data } = await api.get('/v1/database/stats');
+    stats.value = data;
   } catch (err) {
     console.error(err);
   }
@@ -42,20 +59,10 @@ const runQuery = async () => {
   queryResults.value = null;
 
   try {
-    const token = localStorage.getItem('token');
-    const res = await fetch('/api/v1/database/query', {
-      method: 'POST',
-      headers: { 
-        'Authorization': `Bearer ${token}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        target: queryTarget.value,
-        query: rawQuery.value
-      })
+    const { data } = await api.post('/v1/database/query', {
+      target: queryTarget.value,
+      query: rawQuery.value
     });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.detail || 'Query failed');
     queryResults.value = data;
   } catch (err) {
     queryError.value = err.message;
@@ -71,20 +78,11 @@ const saveLimits = async () => {
   savingLimits.value = true;
   limitMessage.value = '';
   try {
-    const token = localStorage.getItem('token');
-    const res = await fetch('/api/settings', {
-      method: 'POST',
-      headers: { 
-        'Authorization': `Bearer ${token}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        max_postgres_mb: stats.value.storage.postgres.limit_mb,
-        max_influxdb_mb: stats.value.storage.influxdb.limit_mb,
-        max_logs_mb: stats.value.storage.logs.limit_mb
-      })
+    await api.post('/settings', {
+      max_postgres_mb: stats.value.storage.postgres.limit_mb,
+      max_influxdb_mb: stats.value.storage.influxdb.limit_mb,
+      max_logs_mb: stats.value.storage.logs.limit_mb
     });
-    if (!res.ok) throw new Error('Failed to save limits');
     limitMessage.value = 'Limits updated';
     setTimeout(() => limitMessage.value = '', 3000);
   } catch (err) {
@@ -102,21 +100,11 @@ const runExfil = async () => {
   exfilSuccess.value = '';
 
   try {
-    const token = localStorage.getItem('token');
-    const res = await fetch('/api/v1/database/exfiltrate', {
-      method: 'POST',
-      headers: { 
-        'Authorization': `Bearer ${token}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        source_dsn: exfil.value.dsn,
-        source_table: exfil.value.source_table,
-        target_table: exfil.value.target_table
-      })
+    const { data } = await api.post('/v1/database/exfiltrate', {
+      source_dsn: exfil.value.dsn,
+      source_table: exfil.value.source_table,
+      target_table: exfil.value.target_table
     });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.detail || 'Exfiltration failed');
     exfilSuccess.value = data.message;
     
     // Refresh overview
@@ -141,6 +129,7 @@ onMounted(() => {
 
       <div class="tabs">
         <button :class="{ active: activeTab === 'overview' }" @click="activeTab = 'overview'">OVERVIEW</button>
+        <button :class="{ active: activeTab === 'explorer' }" @click="activeTab = 'explorer'; fetchTables()">TABLE EXPLORER</button>
         <button :class="{ active: activeTab === 'query' }" @click="activeTab = 'query'">QUERY BUILDER</button>
         <button :class="{ active: activeTab === 'exfil' }" @click="activeTab = 'exfil'">DATA EXFILTRATION</button>
       </div>
@@ -150,7 +139,7 @@ onMounted(() => {
     <div v-if="activeTab === 'overview'" class="tab-content overview-grid">
       <div class="cyber-panel">
         <div class="card-header">
-          <h3 class="panel-title">POSTGRESQL METADATA</h3>
+          <h3 class="panel-title">{{ stats.postgres?.engine === 'sqlite' ? 'SQLITE METADATA' : 'POSTGRESQL METADATA' }}</h3>
           <span class="status-badge" :class="stats.postgres?.status">{{ stats.postgres?.status?.toUpperCase() || 'UNKNOWN' }}</span>
         </div>
         <div class="card-body" v-if="stats.postgres">
@@ -231,6 +220,28 @@ onMounted(() => {
       </div>
     </div>
 
+    <!-- Table Explorer Tab -->
+    <div v-if="activeTab === 'explorer'" class="tab-content table-explorer">
+      <div class="cyber-panel">
+        <div class="card-header">
+          <h3 class="panel-title">DATABASE TABLES</h3>
+          <button class="btn-engage" @click="fetchTables" style="padding: 4px 10px; margin-top: 0; font-size: 10px;">REFRESH</button>
+        </div>
+        <div v-if="explorerError" class="scan-error">{{ explorerError }}</div>
+        <div class="card-body" v-else-if="explorerTables.length > 0">
+          <div class="table-grid">
+            <button v-for="table in explorerTables" :key="table" class="btn-table" @click="viewTable(table)">
+              <span class="table-icon">📄</span>
+              <span class="table-name">{{ table }}</span>
+            </button>
+          </div>
+        </div>
+        <div v-else class="empty-state">
+          No tables found in the database.
+        </div>
+      </div>
+    </div>
+
     <!-- Query Builder Tab -->
     <div v-if="activeTab === 'query'" class="tab-content query-builder">
       <div class="cyber-panel query-panel">
@@ -238,7 +249,7 @@ onMounted(() => {
         <div class="form-group">
           <label>Target Database</label>
           <select v-model="queryTarget" class="cyber-input">
-            <option value="postgres">PostgreSQL</option>
+            <option value="postgres">SQLite / PostgreSQL</option>
             <option value="influxdb">InfluxDB</option>
           </select>
         </div>
@@ -669,4 +680,48 @@ tbody tr:hover td {
   box-shadow: 0 0 10px rgba(255, 0, 85, 0.5);
 }
 
+.table-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 15px;
+}
+
+.btn-table {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 15px;
+  cursor: pointer;
+  transition: all 0.2s;
+  color: var(--textbr);
+}
+
+.btn-table:hover {
+  background: rgba(0, 229, 255, 0.1);
+  border-color: var(--cyan);
+  color: var(--cyan);
+  box-shadow: 0 0 10px rgba(0, 229, 255, 0.2);
+}
+
+.table-icon {
+  font-size: 18px;
+}
+
+.table-name {
+  font-family: var(--font-co);
+  font-size: 14px;
+  font-weight: bold;
+}
+
+.empty-state {
+  padding: 30px;
+  text-align: center;
+  color: var(--text);
+  font-family: var(--font-hd);
+  border: 1px dashed var(--border);
+  border-radius: 4px;
+}
 </style>

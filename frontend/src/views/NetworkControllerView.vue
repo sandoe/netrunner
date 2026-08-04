@@ -8,6 +8,8 @@
       <button role="tab" :aria-selected="activeTab === 'Wifi'" aria-controls="tab-wifi" @click="activeTab = 'Wifi'" :class="{active: activeTab === 'Wifi'}">Wifi</button>
       <button role="tab" :aria-selected="activeTab === 'Bluetooth'" aria-controls="tab-bluetooth" @click="activeTab = 'Bluetooth'" :class="{active: activeTab === 'Bluetooth'}">Bluetooth</button>
       <button role="tab" :aria-selected="activeTab === 'Bgp'" aria-controls="tab-bgp" @click="activeTab = 'Bgp'" :class="{active: activeTab === 'Bgp'}">BGP Routing</button>
+      <button role="tab" :aria-selected="activeTab === 'SDN'" aria-controls="tab-sdn" @click="activeTab = 'SDN'" :class="{active: activeTab === 'SDN'}">SDN (NAT/VLAN)</button>
+      <button role="tab" :aria-selected="activeTab === 'ProtocolTester'" aria-controls="tab-protocol-tester" @click="activeTab = 'ProtocolTester'" :class="{active: activeTab === 'ProtocolTester'}">Protocol Tester</button>
     </div>
     <div class="tabs-content">
       <div v-show="activeTab === 'Config'" id="tab-config" class="tab-pane" role="tabpanel">
@@ -86,78 +88,23 @@
       </div>
       <div v-show="activeTab === 'Wifi'" id="tab-wifi" class="tab-pane" role="tabpanel">
 <div class="wifi-container">
-    <div class="wifi-sidebar">
-      <h2>WIFI & CSI ANALYSIS</h2>
-      
-      <div class="node-status">
-        <h3>ACTIVE NODES</h3>
-        <div class="node-item" v-for="node in activeNodes" :key="node.id" :class="{'selected-node': selectedNodeId === node.id}" @click="selectedNodeId = node.id" tabindex="0" @keydown.enter="selectedNodeId = node.id" @keydown.space.prevent="selectedNodeId = node.id" role="button">
-          <div class="node-dot" :style="{ backgroundColor: isNodeActive(node.id) ? 'var(--cyan)' : 'var(--pink)' }"></div>
-          <div class="node-info">
-            <div class="node-name">{{ node.ip }}</div>
-            <div class="node-controls">
-              <button @click="startNode(node.id)" class="ctrl-btn start-btn" aria-label="Deploy / Start" title="Deploy / Start">▶</button>
-              <button @click="stopNode(node.id)" class="ctrl-btn stop-btn" aria-label="Kill Process" title="Kill Process">■</button>
-              <button @click="deleteNode(node.id)" class="ctrl-btn delete-btn" aria-label="Remove Config" title="Remove Config">✕</button>
-            </div>
-          </div>
-        </div>
-        <div v-if="activeNodes.length === 0" style="color:#555; font-size:11px; padding: 5px;">No beacons configured.</div>
-      </div>
-      
-      <div class="stats-panel">
-        <h3>RADIO TELEMETRY</h3>
-        <div class="stat-row">
-          <span>Data Source:</span>
-          <span :class="isRealData ? 'highlight' : 'highlight-alert'">
-            {{ isSimulation ? 'SIMULATION' : (csiSource === 'nexmon' ? 'REAL CSI' : 'SYNTHETIC') }}
-          </span>
-        </div>
-        <div class="stat-row" v-if="!isSimulation && dataStatus">
-          <span>Link Status:</span>
-          <span class="highlight" style="font-size:0.75rem;">{{ dataStatus }}</span>
-        </div>
-        <div class="stat-row" v-if="selectedTelemetry">
-          <span>WiFi Chip:</span>
-          <span class="highlight">{{ selectedTelemetry.capabilities?.wifi_chip || 'unknown' }}</span>
-        </div>
-        <div class="stat-row" v-if="selectedTelemetry">
-          <span>Nexmon CSI:</span>
-          <span :class="selectedTelemetry.capabilities?.nexmon ? 'highlight' : 'highlight-alert'">
-            {{ selectedTelemetry.capabilities?.nexmon ? 'SUPPORTED' : 'NO' }}
-          </span>
-        </div>
-        <div class="stat-row">
-          <span>Status:</span>
-          <span class="highlight">MONITOR MODE</span>
-        </div>
-        <div class="stat-row">
-          <span>Band:</span>
-          <span class="highlight">5 GHz (Ch 36)</span>
-        </div>
-        <div class="stat-row">
-          <span>Bandwidth:</span>
-          <span class="highlight">20 MHz</span>
-        </div>
-        <div class="stat-row">
-          <span>Subcarriers:</span>
-          <span class="highlight">64 (OFDM)</span>
-        </div>
-        <div class="stat-row">
-          <span>Motion Detect:</span>
-          <span :class="motionDetected ? 'highlight-alert' : 'highlight'" aria-live="polite">
-            {{ motionDetected ? 'ALERT' : 'CLEAR' }}
-          </span>
-        </div>
-        <div class="stat-row">
-          <span>Keylogger:</span>
-          <span :class="typingActive ? 'highlight-alert' : 'highlight'" aria-live="polite">
-            {{ typingActive ? 'INTERCEPTING' : 'IDLE' }}
-          </span>
-        </div>
-      </div>
-    </div>
-    
+    <WifiSidebar
+      :activeNodes="activeNodes"
+      :selectedNodeId="selectedNodeId"
+      @update:selectedNodeId="selectedNodeId = $event"
+      :isNodeActive="isNodeActive"
+      @startNode="startNode"
+      @stopNode="stopNode"
+      @deleteNode="deleteNode"
+      :isRealData="isRealData"
+      :isSimulation="isSimulation"
+      :csiSource="csiSource"
+      :dataStatus="dataStatus"
+      :selectedTelemetry="selectedTelemetry"
+      :motionDetected="motionDetected"
+      :typingActive="typingActive"
+    />
+
     <div class="wifi-main">
       <div class="mode-toggle">
         <button :class="{'active': activeMode === 'single'}" @click="activeMode = 'single'">[ SINGLE NODE DECODER ]</button>
@@ -165,14 +112,14 @@
         <button :class="{'active': activeMode === '3d-map'}" @click="activeMode = '3d-map'">[ 3D SIGNAL MAPPING ]</button>
         <button :class="{'active': activeMode === 'observatory'}" @click="activeMode = 'observatory'">[ DENSEPOSE OBSERVATORY ]</button>
       </div>
-      
+
       <!-- DYNAMIC NODE MANAGER -->
       <div class="node-manager">
         <div class="mode-switch">
           <button :class="{'active': isSimulation}" @click="setMode(true)">[ SIMULATION ]</button>
           <button :class="{'danger-active': !isSimulation}" @click="setMode(false)" class="danger-btn">[ REALTIME SENSORS ]</button>
         </div>
-        
+
         <div class="divider"></div>
 
         <!-- RECORD CONTROL -->
@@ -185,17 +132,17 @@
           </button>
           <a v-if="lastDownloadLink" :href="lastDownloadLink" target="_blank" class="download-link">[ GET .JSONL ]</a>
         </div>
-        
+
         <div class="divider"></div>
-        
+
         <div class="node-input-group" style="text-align: center;">
           <button @click="showDeployModal = true" class="deploy-btn">[ + DEPLOY NEW NODE ]</button>
         </div>
-        
+
         <div class="divider"></div>
-        
+
         <button :class="{'active': showAdvancedStream}" class="node-btn" @click="showAdvancedStream = !showAdvancedStream">[ ADVANCED RAW ]</button>
-        
+
         <div class="active-nodes-list">
           <span v-if="activeNodes.length === 0" class="no-nodes">No external nodes connected. Simulating 3 nodes.</span>
           <div v-for="(node, index) in activeNodes" :key="index" class="node-badge" :class="{'selected-badge': selectedNodeId === node.id}" :style="{ borderColor: isNodeActive(node.id) ? 'var(--cyan)' : 'var(--pink)' }" @click="selectedNodeId = node.id" tabindex="0" @keydown.enter="selectedNodeId = node.id" @keydown.space.prevent="selectedNodeId = node.id" role="button">
@@ -215,7 +162,7 @@
       <div class="chart-container">
         <canvas ref="chartCanvas"></canvas>
       </div>
-      
+
       <div class="decoders-grid">
         <!-- Panel 1: WiKey -->
         <div class="decoder-panel">
@@ -228,7 +175,7 @@
             <div class="terminal-text">{{ decodedText }}<span class="cursor" v-show="cursorVisible">_</span></div>
           </div>
         </div>
-        
+
         <!-- Panel 2: Vital Signs -->
         <div class="decoder-panel">
           <div class="decoder-header">
@@ -280,7 +227,7 @@
           <div class="glitch-title">MULTI-NODE SENSOR ARRAY (3D SPATIAL TRACKING)</div>
           <div class="live-badge"><span class="pulse"></span> LIVE TRIANGULATION</div>
         </div>
-        
+
         <div class="mesh-container">
           <!-- Mesh Map -->
           <div class="mesh-map-panel">
@@ -288,7 +235,7 @@
               <canvas ref="meshCanvas"></canvas>
             </div>
           </div>
-          
+
           <!-- Mesh Side Telemetry -->
           <div class="mesh-telemetry-panel">
             <div class="link-status" v-for="(link, id) in meshLinks" :key="id">
@@ -312,7 +259,7 @@
           <div class="glitch-title">3D SIGNAL STRENGTH VISUALIZATION (CSI SPATIAL MATRIX)</div>
           <div class="live-badge"><span class="pulse"></span> LIVE RENDER</div>
         </div>
-        
+
         <div class="map3d-grid">
           <div class="map3d-panel">
             <div ref="map3dSurface" class="plotly-container"></div>
@@ -333,13 +280,13 @@
       <div v-show="activeMode === 'observatory' && !isRebuildingObservatory" class="observatory-mode">
         <div class="obs-container" ref="obsContainer">
           <canvas ref="obsCanvas" class="obs-canvas"></canvas>
-          
+
           <!-- Top UI Overlay -->
           <div class="obs-top">
             <h2>π RuView</h2>
             <div class="obs-sub">WIFI DENSEPOSE SENSING OBSERVATORY</div>
           </div>
-          
+
           <!-- UI Overlay Left -->
           <div class="obs-ui obs-ui-left">
             <div class="obs-panel">
@@ -370,7 +317,7 @@
               </div>
             </div>
           </div>
-          
+
           <!-- UI Overlay Right -->
           <div class="obs-ui obs-ui-right">
             <div class="obs-panel">
@@ -386,7 +333,7 @@
           </div>
         </div>
       </div>
-      
+
       <!-- ADVANCED RAW STREAM PANEL -->
       <div v-if="showAdvancedStream" class="advanced-stream-panel">
         <div class="advanced-header">
@@ -407,13 +354,13 @@
             <h2>NODE CONFIGURATION PAYLOAD</h2>
             <button @click="showDeployModal = false" class="close-btn">×</button>
           </div>
-          
+
           <div class="modal-body">
             <div class="form-group">
               <label for="deploy-ip">TARGET IP (SSH)</label>
               <input id="deploy-ip" v-model="deployForm.ip" type="text" placeholder="e.g. 192.168.1.100" class="hack-input"/>
             </div>
-            
+
             <div class="form-row">
               <div class="form-group">
                 <label for="deploy-username">USERNAME</label>
@@ -424,7 +371,7 @@
                 <input id="deploy-password" v-model="deployForm.password" type="password" placeholder="***" class="hack-input"/>
               </div>
             </div>
-            
+
             <div class="form-group">
               <label for="deploy-csi">CSI EXTRACTION MODE</label>
               <select id="deploy-csi" v-model="deployForm.csi_mode" class="hack-select">
@@ -433,7 +380,7 @@
                 <option value="SYNTHETIC">SYNTHETIC (Simulation)</option>
               </select>
             </div>
-            
+
             <div class="form-row">
               <div class="form-group">
                 <label for="deploy-sample">SAMPLE RATE (Hz)</label>
@@ -444,13 +391,13 @@
                 <input id="deploy-udp" v-model="deployForm.udp_port" type="number" class="hack-input"/>
               </div>
             </div>
-            
+
             <div class="form-group">
               <label for="deploy-server">TARGET SERVER IP (This computer's IP, e.g. 192.168.1.X)</label>
               <input id="deploy-server" v-model="deployForm.target_server_ip" type="text" class="hack-input"/>
             </div>
           </div>
-          
+
           <div class="modal-footer">
             <button @click="saveAndDeployNode" class="hack-btn primary" :disabled="isDeploying">
               <span v-if="isDeploying" class="spinner"></span> [ INJECT BEACON ]
@@ -469,6 +416,12 @@
       <div class="header-title">
         <span class="icon">📡</span> BLUETOOTH CONTROL ROOM
         <span class="pulse" :class="{ active: connected }"></span>
+        <span v-if="selectedTelemetry?.capabilities?.bluetooth" class="badge" :style="{ marginLeft: '10px', background: selectedTelemetry.capabilities.bluetooth_state === 'UP' ? 'var(--green)' : 'var(--pink)', color: '#000', padding: '2px 8px', borderRadius: '4px', fontSize: '10px', fontWeight: 'bold' }">
+          {{ selectedTelemetry.capabilities.bluetooth_state === 'UP' ? 'HW: UP' : 'HW: DOWN' }}
+        </span>
+        <span v-else class="badge" style="margin-left: 10px; background: var(--text-muted); color: #000; padding: 2px 8px; border-radius: 4px; font-size: 10px; font-weight: bold;">
+          NO HW DETECTED
+        </span>
       </div>
       <div class="header-stats">
         <span>{{ sortedDevices.length }} DEVICES DETECTED</span>
@@ -484,7 +437,7 @@
 
       </div>
     </div>
-    
+
     <div class="bt-content">
       <div class="radar-container aliens-theme">
         <div class="radar-crt-overlay"></div>
@@ -496,15 +449,15 @@
           <div class="ring r4"></div>
           <div class="crosshair-v"></div>
           <div class="crosshair-h"></div>
-          
+
           <template v-if="!triangulationMode">
-            <div 
-              v-for="dev in sortedDevices" 
-              :key="dev.mac" 
+            <div
+              v-for="dev in sortedDevices"
+              :key="dev.mac"
               class="blip"
-              :class="{ 
+              :class="{
                 'true-aoa': dev.azimuth !== undefined,
-                'jamming-target': jammedTargets[dev.mac] 
+                'jamming-target': jammedTargets[dev.mac]
               }"
               :style="getBlipStyle(dev)"
               :title="dev.name + ' (' + dev.mac + ')'"
@@ -518,15 +471,15 @@
 
           <template v-else-if="selectedDevice && selectedDevice.nodes">
             <!-- Triangulation Mode: Render Nodes -->
-            <div 
-              v-for="(pos, nid) in triangulationData.nodes" 
-              :key="nid" 
+            <div
+              v-for="(pos, nid) in triangulationData.nodes"
+              :key="nid"
               class="blip node-blip"
               :style="{ left: pos.x + '%', top: pos.y + '%' }"
             >
               <div class="node-label" style="top: -30px">{{ nid }}<br>{{ selectedDevice.nodes[nid]?.rssi ? rssiToDistance(selectedDevice.nodes[nid].rssi) : '?' }}m</div>
             </div>
-            
+
             <!-- Triangulation Mode: Render Target (Weighted Center) -->
             <div class="blip target-blip" :style="{ left: triangulationData.target.x + '%', top: triangulationData.target.y + '%', background: '#ff3333', boxShadow: '0 0 15px #ff3333, 0 0 30px #ff0000', width: '16px', height: '16px' }">
               <div class="blip-ripple" style="border-color: #ff3333;"></div>
@@ -539,12 +492,12 @@
           <span class="range-val">{{ Math.abs(sortedDevices[0].rssi) }} <small>m</small></span>
         </div>
       </div>
-      
+
       <div class="device-list">
         <h3>DISCOVERED DEVICES</h3>
         <div v-if="devices.length === 0" class="empty-list">No devices found. Scanning...</div>
-        <div 
-          v-for="dev in sortedDevices" 
+        <div
+          v-for="dev in sortedDevices"
           :key="dev.mac"
           class="device-card"
           :class="{ selected: selectedDevice && selectedDevice.mac === dev.mac }"
@@ -564,7 +517,7 @@
           </div>
         </div>
       </div>
-      
+
       <div class="device-details" v-if="selectedDevice">
         <h3>DEVICE DETAILS</h3>
         <div class="detail-row">
@@ -603,8 +556,8 @@
             </div>
           </div>
         </div>
-        
-        
+
+
         <div class="detail-row" v-if="selectedDevice.nodes && Object.keys(selectedDevice.nodes).length > 0">
           <button class="btn btn-outline" style="width: 100%; border-color: var(--cyan); color: var(--cyan);" @click="triangulationMode = !triangulationMode">
             {{ triangulationMode ? 'DEACTIVATE TRIANGULATION' : 'ACTIVATE TRIANGULATION' }}
@@ -615,12 +568,12 @@
           <span class="lbl">SEEN BY:</span>
           <div class="val-box">
             <div v-for="(ndata, nid) in selectedDevice.nodes" :key="nid" :class="{ 'text-cyan': store.selectedId === nid }">
-              {{ nid }}: <span :class="getRssiClass(ndata.rssi)">{{ ndata.rssi }} dBm</span> 
+              {{ nid }}: <span :class="getRssiClass(ndata.rssi)">{{ ndata.rssi }} dBm</span>
               <span class="text-cyan">(Est. {{ rssiToDistance(ndata.rssi) }}m)</span>
             </div>
           </div>
         </div>
-        
+
         <!-- Active Enumeration Data -->
         <div class="detail-row" v-if="selectedDevice.enum_data">
           <span class="lbl text-pink">GATT PROFILE:</span>
@@ -633,11 +586,11 @@
             </div>
           </div>
         </div>
-        
+
         <div class="actions">
-          <button 
-            class="btn-action" 
-            @click="enumerateDevice(selectedDevice.mac)" 
+          <button
+            class="btn-action"
+            @click="enumerateDevice(selectedDevice.mac)"
             :disabled="selectedDevice.enumerating"
           >
             {{ selectedDevice.enumerating ? 'ENUMERATING...' : 'CONNECT / ENUMERATE' }}
@@ -645,16 +598,16 @@
           <button class="btn-action" @click="pairingModalVisible = true; pairingStatus = ''">
             PAIR DEVICE 🔗
           </button>
-          <button 
+          <button
             v-if="!jammedTargets[selectedDevice.mac]"
-            class="btn-action btn-danger" 
+            class="btn-action btn-danger"
             @click="toggleJam(selectedDevice.mac)"
           >
             ENGAGE JAMMER 💥
           </button>
-          <button 
+          <button
             v-else
-            class="btn-action btn-danger jamming-active" 
+            class="btn-action btn-danger jamming-active"
             @click="toggleJam(selectedDevice.mac)"
           >
             STOP JAMMING 🛑
@@ -720,6 +673,14 @@
           </div>
         </div>
       </div>
+
+      <div v-show="activeTab === 'SDN'" id="tab-sdn" class="tab-pane" role="tabpanel">
+        <SdnConfigPanel />
+      </div>
+
+      <div v-show="activeTab === 'ProtocolTester'" id="tab-protocol-tester" class="tab-pane" role="tabpanel">
+        <ProtocolTesterPanel />
+      </div>
     </div>
     <!-- Toast Notifications -->
     <div class="toast-container" v-if="toasts.length > 0">
@@ -737,6 +698,10 @@ import Chart from 'chart.js/auto'
 import Plotly from 'plotly.js-dist-min'
 import * as THREE from 'three'
 import { useNodesStore } from '@/stores/nodes'
+import SdnConfigPanel from '@/components/SdnConfigPanel.vue'
+import ProtocolTesterPanel from '@/components/ProtocolTesterPanel.vue'
+import WifiSidebar from '@/components/NetworkController/WifiSidebar.vue'
+
 const activeTab = ref('Config')
 
 const toasts = ref<{id: number, message: string, type: string}[]>([])
@@ -859,12 +824,12 @@ const fetchSavedNodes = async () => {
 // Persist state
 onMounted(() => {
   fetchSavedNodes()
-  
+
   const savedMode = localStorage.getItem('netrunner_sim_mode')
   if (savedMode !== null) {
     isSimulation.value = savedMode === 'true'
   }
-  
+
   // Sync with backend on load
   authFetch('/api/wifi/mode', {
     method: 'POST',
@@ -1212,7 +1177,7 @@ onMounted(() => {
 
   // Setup WebSocket
   wifiWs = new WebSocket(`${wsBase()}/wifiWs/csi${wsTokenParam()}`)
-  
+
   wifiWs.onmessage = (event) => {
     try {
       const data = JSON.parse(event.data)
@@ -1223,7 +1188,7 @@ onMounted(() => {
           resolvedNodeId = matchingNode.id;
         }
       }
-      
+
       if (resolvedNodeId) {
          nodeLastSeen.value[resolvedNodeId] = Date.now()
          // Also set with the raw node_ip just in case
@@ -1231,14 +1196,14 @@ onMounted(() => {
            nodeLastSeen.value[data.node_ip] = Date.now()
          }
       }
-  
-      
+
+
       if (data.type === 'mesh') {
         // Process mesh telemetry
         meshNodes.value = data.nodes
         meshTarget.value = data.target
         meshLinks.value = data.links
-        
+
         if (showAdvancedStream.value) {
           rawLogs.value.push(`[MESH] ${JSON.stringify(data.links)}`)
           if (rawLogs.value.length > 20) rawLogs.value.shift()
@@ -1246,7 +1211,7 @@ onMounted(() => {
             if (advancedContent.value) advancedContent.value.scrollTop = advancedContent.value.scrollHeight
           })
         }
-        
+
       } else {
         // Single Node CSI Amplitude Matrix logic
         if (selectedNodeId.value && resolvedNodeId !== selectedNodeId.value) { return; }
@@ -1274,10 +1239,10 @@ onMounted(() => {
 
       motionDetected.value = data.motion_detected || false
       typingActive.value = data.typing_active !== undefined ? data.typing_active : (data.keystroke ? true : false)
-      
+
       const parsedBpm = data.bpm || data.heart_rate;
       if (parsedBpm) bpm.value = Math.round(parsedBpm);
-      
+
       if (data.radar) {
         radarX.value = data.radar.x
         radarY.value = data.radar.y
@@ -1296,7 +1261,7 @@ onMounted(() => {
           decodedText.value = decodedText.value.substring(decodedText.value.length - 300)
         }
       }
-      
+
       if (chart) {
         if (data.amplitudes) {
            chart.data.datasets[0].data = data.amplitudes
@@ -1315,7 +1280,7 @@ onMounted(() => {
       }
     } catch (e) {}
   }
-  
+
   // Render loop for Mesh Canvas
   const renderMesh = () => {
     if (activeMode.value === 'mesh' && meshCanvas.value) {
@@ -1328,9 +1293,9 @@ onMounted(() => {
           canvas.width = parent.clientWidth
           canvas.height = parent.clientHeight
         }
-        
+
         ctx.clearRect(0, 0, canvas.width, canvas.height)
-        
+
         // Draw grid
         ctx.strokeStyle = 'rgba(0, 255, 157, 0.05)'
         ctx.lineWidth = 1
@@ -1346,12 +1311,12 @@ onMounted(() => {
         const h = canvas.height
 
         const getCoord = (p: {x:number, y:number}) => ({ x: (p.x/100)*w, y: (p.y/100)*h })
-        
+
         if (nodes.A && nodes.B && nodes.C) {
           const a = getCoord(nodes.A)
           const b = getCoord(nodes.B)
           const c = getCoord(nodes.C)
-          
+
           // Draw Links
           const drawLink = (p1: any, p2: any, dist: number) => {
             ctx.beginPath()
@@ -1363,7 +1328,7 @@ onMounted(() => {
             const b_c = dist > 0.5 ? 110 : 157
             ctx.strokeStyle = `rgba(${r}, ${g}, ${b_c}, ${0.3 + (dist * 0.7)})`
             ctx.stroke()
-            
+
             // Draw disturbance waves
             if (dist > 0.2) {
               const midX = (p1.x + p2.x) / 2
@@ -1375,11 +1340,11 @@ onMounted(() => {
               ctx.stroke()
             }
           }
-          
+
           drawLink(a, b, meshLinks.value.AB?.disturbance || 0)
           drawLink(b, c, meshLinks.value.BC?.disturbance || 0)
           drawLink(c, a, meshLinks.value.CA?.disturbance || 0)
-          
+
           // Draw Nodes
           const drawNode = (p: any, label: string) => {
             ctx.beginPath()
@@ -1408,7 +1373,7 @@ onMounted(() => {
         ctx.shadowColor = 'var(--pink)'
         ctx.stroke()
         ctx.shadowBlur = 0
-        
+
         // Target pulse
         ctx.beginPath()
         ctx.arc(t.x, t.y, 10 + (Math.random()*5), 0, Math.PI * 2)
@@ -1433,7 +1398,7 @@ const generateZ = (t: number) => {
       // Target 1
       const distTarget1 = Math.sqrt(Math.pow(x - 25 + Math.cos(t)*10, 2) + Math.pow(y - 25 + Math.sin(t)*10, 2))
       if (distTarget1 < 10) val += 40 * (1 - distTarget1/10)
-      
+
       // Target 2
       const distTarget2 = Math.sqrt(Math.pow(x - 10 + Math.sin(t*0.5)*5, 2) + Math.pow(y - 10 + Math.cos(t*0.5)*5, 2))
       if (distTarget2 < 6) val += 20 * (1 - distTarget2/6)
@@ -1441,7 +1406,7 @@ const generateZ = (t: number) => {
       // Walls / Interference shadow
       if (x > 30 && x < 40 && y > 10 && y < 20) val = -140
       if (x > 15 && x < 20 && y > 35 && y < 45) val = -135
-      
+
       row.push(val)
     }
     z.push(row)
@@ -1451,17 +1416,17 @@ const generateZ = (t: number) => {
 
 const render3DMap = () => {
   if (activeMode.value !== '3d-map') return
-  
+
   let t = 0
   const update = () => {
     if (activeMode.value !== '3d-map') return
     t += 0.2
     const zData = generateZ(t)
-    
+
     const paperBg = 'rgba(0,0,0,0)'
     const plotBg = 'rgba(0,0,0,0)'
     const fontColor = 'var(--cyan)'
-    
+
     // update Surface
     if (map3dSurface.value) {
       Plotly.react(map3dSurface.value, [{
@@ -1484,7 +1449,7 @@ const render3DMap = () => {
         }
       })
     }
-    
+
     const getFloorPlanShapes = () => {
       const shapes: any[] = [];
       const lines = [
@@ -1497,7 +1462,7 @@ const render3DMap = () => {
         [15, 30, 25, 30], [25, 30, 25, 15], [25, 15, 48, 15], // Middle sections
         [35, 30, 35, 15], [2, 15, 15, 15], [15, 15, 15, 2]
       ];
-      
+
       for (const [x0, y0, x1, y1] of lines) {
         shapes.push({
           type: 'line',
@@ -1527,7 +1492,7 @@ const render3DMap = () => {
         shapes: getFloorPlanShapes()
       })
     }
-    
+
     // X-Z Plane
     if (mapSideX.value) {
       Plotly.react(mapSideX.value, [{
@@ -1586,7 +1551,7 @@ watch(activeMode, async (newVal) => {
     } else {
       if (meshAnimFrame) cancelAnimationFrame(meshAnimFrame)
     }
-    
+
     if (newVal === '3d-map') {
       await nextTick()
       render3DMap()
@@ -1594,7 +1559,7 @@ watch(activeMode, async (newVal) => {
       if (mapAnimFrame) cancelAnimationFrame(mapAnimFrame)
       if (mapAnimTimer) clearTimeout(mapAnimTimer)
     }
-    
+
     if (newVal === 'observatory') {
       await nextTick()
       initObservatory()
@@ -1615,22 +1580,22 @@ const initObservatory = () => {
   if (!obsCanvas.value || !obsContainer.value) return;
   const canvas = obsCanvas.value;
   const container = obsContainer.value;
-  
+
   const width = container.clientWidth;
   const height = container.clientHeight;
-  
+
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(0x050505);
   scene.fog = new THREE.Fog(0x050505, 10, 50);
-  
+
   const camera = new THREE.PerspectiveCamera(45, width/height, 0.1, 100);
   camera.position.set(0, 10, 25);
   camera.lookAt(0, 0, 0);
-  
+
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
   renderer.setSize(width, height);
   renderer.setPixelRatio(window.devicePixelRatio);
-  
+
   // Floor Grid Points
   const pointsGeo = new THREE.BufferGeometry();
   const pointsPos = [];
@@ -1643,14 +1608,14 @@ const initObservatory = () => {
   const pointsMat = new THREE.PointsMaterial({ color: 0x00ff9d, size: 0.15, transparent: true, opacity: 0.4 });
   const gridPoints = new THREE.Points(pointsGeo, pointsMat);
   scene.add(gridPoints);
-  
+
   // Floor transparent plane
   const floorGeo = new THREE.PlaneGeometry(50, 50);
   const floorMat = new THREE.MeshBasicMaterial({ color: 0x00ff9d, transparent: true, opacity: 0.02 });
   const floorPlane = new THREE.Mesh(floorGeo, floorMat);
   floorPlane.rotation.x = -Math.PI / 2;
   scene.add(floorPlane);
-  
+
   // 3 Nodes (Raspberry Pi's) with Concentric spheres
   let nodesToRender = [];
   if (activeNodes.value.length === 0) {
@@ -1672,7 +1637,7 @@ const initObservatory = () => {
       });
     });
   }
-  
+
   nodesToRender.forEach((node, index) => {
     // Visual representation of the RPi Node
     const boxGeo = new THREE.BoxGeometry(0.8, 0.8, 0.8);
@@ -1680,7 +1645,7 @@ const initObservatory = () => {
     const box = new THREE.Mesh(boxGeo, boxMat);
     box.position.copy(node.position);
     scene.add(box);
-    
+
     // Creating spheres for the waves
     for(let i=0; i<3; i++) {
       const sGeo = new THREE.SphereGeometry(1, 32, 16);
@@ -1694,7 +1659,7 @@ const initObservatory = () => {
       node.spheres.push(sphere);
     }
   });
-  
+
   // DensePose targets
   const createSkeleton = () => {
     const group = new THREE.Group();
@@ -1704,7 +1669,7 @@ const initObservatory = () => {
     const capsule = new THREE.Mesh(cGeo, cMat);
     capsule.position.y = 1.7;
     group.add(capsule);
-    
+
     // Add skeleton lines inside
     const lineMat = new THREE.LineBasicMaterial({ color: 0xff0000 });
     const points = [];
@@ -1724,7 +1689,7 @@ const initObservatory = () => {
     const skeleton = new THREE.Line(lineGeo, lineMat);
     skeleton.position.y = 1.7;
     group.add(skeleton);
-    
+
     // Red joint dots
     const jointGeo = new THREE.SphereGeometry(0.1, 8, 8);
     const jointMat = new THREE.MeshBasicMaterial({ color: 0xff0000 });
@@ -1734,25 +1699,25 @@ const initObservatory = () => {
       j.position.y += 1.7;
       group.add(j);
     });
-    
+
     return group;
   }
-  
+
   const target1 = createSkeleton();
   target1.position.set(-3, 0, 0);
   scene.add(target1);
-  
+
   const target2 = createSkeleton();
   target2.position.set(4, 0, 2);
   scene.add(target2);
 
   let time = 0;
-  
+
   const renderLoop = () => {
     if (activeMode.value !== 'observatory') return;
-    
+
     time += 0.01;
-    
+
     // Animate spheres for all nodes
     nodesToRender.forEach(node => {
       node.spheres.forEach((s) => {
@@ -1763,23 +1728,23 @@ const initObservatory = () => {
         s.material.opacity = Math.max(0, 0.15 - (scale / 233));
       });
     });
-    
+
     // Animate targets
     target1.position.x = -3 + Math.sin(time) * 3;
     target1.position.z = Math.cos(time * 0.5) * 2;
-    
+
     target2.position.x = 4 + Math.cos(time * 0.8) * 4;
     target2.position.z = 2 + Math.sin(time * 1.2) * 3;
-    
+
     // Slowly rotate camera
     camera.position.x = Math.sin(time * 0.1) * 25;
     camera.position.z = Math.cos(time * 0.1) * 25;
     camera.lookAt(0, 2, 0);
-    
+
     renderer.render(scene, camera);
     obsReqFrame = requestAnimationFrame(renderLoop);
   }
-  
+
   renderLoop();
 }
 
@@ -1829,7 +1794,7 @@ async function injectRecon(nid: string) {
   reconModalVisible.value = true
   reconData.value = "Initiating Advanced Recon Agent deployment to " + nid + "..."
   try {
-    const res = await fetch(`/api/nodes/${nid}/recon/inject`, { 
+    const res = await fetch(`/api/nodes/${nid}/recon/inject`, {
       method: 'POST',
       headers: { 'Authorization': 'Bearer ' + localStorage.getItem('nr_token') }
     })
@@ -1844,7 +1809,7 @@ async function stopRecon(nid: string) {
   reconModalVisible.value = true
   reconData.value = "Sending kill signal to Recon Agent..."
   try {
-    const res = await fetch(`/api/nodes/${nid}/recon/stop`, { 
+    const res = await fetch(`/api/nodes/${nid}/recon/stop`, {
       method: 'POST',
       headers: { 'Authorization': 'Bearer ' + localStorage.getItem('nr_token') }
     })
@@ -1893,7 +1858,7 @@ async function toggleJam(mac: string) {
   const query = store.selectedId ? `?node_id=${store.selectedId}` : ''
   const isJamming = jammedTargets.value[mac]
   const endpoint = isJamming ? `/api/bluetooth/unjam/${mac}${query}` : `/api/bluetooth/jam/${mac}${query}`
-  
+
   try {
     const res = await fetch(endpoint, { method: 'POST' })
     const data = await res.json()
@@ -1924,10 +1889,10 @@ async function confirmPairing() {
 
 async function toggleNodeBluetooth(enable: boolean) {
   if (!store.selectedId) return
-  const cmds = enable ? 
-    ["sudo -n rfkill unblock bluetooth || rfkill unblock bluetooth", "sudo -n hciconfig hci0 up || hciconfig hci0 up", "echo 'Bluetooth enabled'"] :
-    ["sudo -n rfkill block bluetooth || rfkill block bluetooth", "sudo -n hciconfig hci0 down || hciconfig hci0 down", "echo 'Bluetooth disabled'"]
-  
+  const cmds = enable ?
+    ["bluetoothctl power on || sudo rfkill unblock bluetooth"] :
+    ["bluetoothctl power off || sudo rfkill block bluetooth"]
+
   try {
     const res = await fetch(`/api/nodes/${store.selectedId}/execute`, {
       method: 'POST',
@@ -1936,7 +1901,13 @@ async function toggleNodeBluetooth(enable: boolean) {
     })
     const data = await res.json()
     console.log("Toggle BT output:", data)
-    showToast(`Bluetooth on node ${store.selectedId} ${enable ? 'turned ON' : 'turned OFF'}`, 'success')
+
+    const outStr = JSON.stringify(data).toLowerCase()
+    if (outStr.includes("fail") || outStr.includes("not found")) {
+      showToast(`Command failed on node ${store.selectedId}`, 'error')
+    } else {
+      showToast(`Bluetooth command sent to node ${store.selectedId}`, 'success')
+    }
   } catch (err) {
     console.error(err)
     showToast("Failed to change Bluetooth state", 'error')
@@ -1946,12 +1917,12 @@ async function toggleNodeBluetooth(enable: boolean) {
 async function enumerateDevice(mac: string) {
   const idx = devices.value.findIndex(d => d.mac === mac)
   if (idx === -1) return
-  
+
   devices.value[idx].enumerating = true
   if (selectedDevice.value && selectedDevice.value.mac === mac) {
     selectedDevice.value.enumerating = true
   }
-  
+
   try {
     const res = await fetch(`/api/bluetooth/enumerate/${mac}`, { method: 'POST' })
     const data = await res.json()
@@ -1994,9 +1965,9 @@ function getBlipStyle(dev: BluetoothDevice) {
   // -40 is very close (radius ~ 10%), -100 is far (radius ~ 90%)
   let distance = (Math.abs(dev.rssi) - 30) / 70
   distance = Math.max(0.1, Math.min(0.95, distance))
-  
+
   let angle = 0;
-  
+
   if (dev.azimuth !== undefined) {
     // True hardware AoA angle
     angle = dev.azimuth
@@ -2008,12 +1979,12 @@ function getBlipStyle(dev: BluetoothDevice) {
     }
     angle = Math.abs(hash % 360)
   }
-  
+
   // subtract 90 so 0 is "North" (top)
   const rad = (angle - 90) * (Math.PI / 180)
   const cx = 50 + distance * 50 * Math.cos(rad)
   const cy = 50 + distance * 50 * Math.sin(rad)
-  
+
   return {
     left: `${cx}%`,
     top: `${cy}%`,
@@ -2026,12 +1997,12 @@ const triangulationData = computed(() => {
     nodes: {} as Record<string, { x: number, y: number }>,
     target: { x: 50, y: 50 }
   };
-  
+
   if (!selectedDevice.value || !selectedDevice.value.nodes) return result;
-  
+
   const nodeKeys = Object.keys(selectedDevice.value.nodes);
   if (nodeKeys.length === 0) return result;
-  
+
   // Faste positioner til noderne (i en ring på 40% afstand fra midten)
   nodeKeys.forEach((nid, index) => {
     if (nodeKeys.length === 1) {
@@ -2039,27 +2010,27 @@ const triangulationData = computed(() => {
     } else {
       const angle = (360 / nodeKeys.length) * index;
       const rad = (angle - 90) * (Math.PI / 180);
-      result.nodes[nid] = { 
-        x: 50 + 40 * Math.cos(rad), 
-        y: 50 + 40 * Math.sin(rad) 
+      result.nodes[nid] = {
+        x: 50 + 40 * Math.cos(rad),
+        y: 50 + 40 * Math.sin(rad)
       };
     }
   });
-  
+
   if (nodeKeys.length === 1) {
     // Falsk sonar-visning hvis der kun er 1 node (som før)
     const nid = nodeKeys[0];
     const ndata = selectedDevice.value.nodes[nid];
     let distance = (Math.abs(ndata.rssi) - 30) / 70;
     distance = Math.max(0.15, Math.min(0.95, distance));
-    
+
     let hash = 0;
     for (let i = 0; i < selectedDevice.value.mac.length; i++) {
       hash = selectedDevice.value.mac.charCodeAt(i) + ((hash << 5) - hash);
     }
     const angle = Math.abs(hash % 360);
     const rad = (angle - 90) * (Math.PI / 180);
-    
+
     result.target = {
       x: 50 + distance * 50 * Math.cos(rad),
       y: 50 + distance * 50 * Math.sin(rad)
@@ -2069,30 +2040,30 @@ const triangulationData = computed(() => {
     let totalWeight = 0;
     let sumX = 0;
     let sumY = 0;
-    
+
     nodeKeys.forEach(nid => {
       const ndata = selectedDevice.value!.nodes![nid];
       const dist = Math.pow(10, (-59 - ndata.rssi) / 20); // Simpel path loss model
       const weight = 1 / (dist + 0.1); // Undgå division by zero
-      
+
       sumX += result.nodes[nid].x * weight;
       sumY += result.nodes[nid].y * weight;
       totalWeight += weight;
     });
-    
+
     result.target = {
       x: sumX / totalWeight,
       y: sumY / totalWeight
     };
   }
-  
+
   return result;
 });
 
 onMounted(() => {
   const btWsUrl = `${wsBase()}/api/bluetooth/btWs${wsTokenParam()}`
   btWs = new WebSocket(btWsUrl)
-  
+
   btWs.onopen = () => {
     connected.value = true
   }
@@ -2122,7 +2093,7 @@ onMounted(() => {
       console.error("Failed to parse BT WS message", e)
     }
   }
-  
+
   btWs.onclose = () => {
     connected.value = false
   }

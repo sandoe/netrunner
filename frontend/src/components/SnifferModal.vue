@@ -6,6 +6,10 @@
         <button class="btn-close-modal" @click="$emit('close')">×</button>
       </div>
       <div class="cyber-modal-body">
+        <div class="cyber-guide" style="margin-bottom: 12px; font-size: 12px; border-left: 2px solid var(--cyan); padding-left: 8px;">
+          <strong style="color: var(--cyan);">🎓 Cyber Guide: Network Sniffing</strong><br/>
+          <span style="color: #ccc;">En "sniffer" lytter med på al netværkstrafik, ligesom når man smuglytter til en samtale. Ved ukrypteret trafik (som HTTP og DNS) kan hackere se præcis, hvilke hjemmesider du besøger, eller læse dine kodeord i klartekst.</span>
+        </div>
         <div class="packet-table-wrapper">
           <table class="packet-table">
             <thead>

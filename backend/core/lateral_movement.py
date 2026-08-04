@@ -8,6 +8,7 @@ Provides:
 - Pivot chain management
 - Credential relay
 """
+
 import asyncio
 import os
 import json
@@ -18,6 +19,7 @@ from backend.core.logger import log as logger
 
 try:
     import paramiko
+
     PARAMIKO_AVAILABLE = True
 except ImportError:
     PARAMIKO_AVAILABLE = False
@@ -52,18 +54,25 @@ async def create_socks_proxy(
     _ensure_tunnel_dir()
     tunnel_id = f"socks_{node_id}_{int(time.time())}"
 
-    logger.info(f"[LATERAL] Creating SOCKS proxy {tunnel_id}: localhost:{local_port} -> {host}:{remote_port}")
+    logger.info(
+        f"[LATERAL] Creating SOCKS proxy {tunnel_id}: localhost:{local_port} -> {host}:{remote_port}"
+    )
 
     try:
         # Start SSH with dynamic port forwarding
         proc = await asyncio.create_subprocess_exec(
             "ssh",
             "-N",  # No remote command
-            "-D", str(local_port),  # Dynamic SOCKS proxy
-            "-o", "StrictHostKeyChecking=no",
-            "-o", "UserKnownHostsFile=/dev/null",
-            "-o", f"ConnectTimeout=10",
-            "-p", str(remote_port),
+            "-D",
+            str(local_port),  # Dynamic SOCKS proxy
+            "-o",
+            "StrictHostKeyChecking=no",
+            "-o",
+            "UserKnownHostsFile=/dev/null",
+            "-o",
+            f"ConnectTimeout=10",
+            "-p",
+            str(remote_port),
             f"{username}@{host}",
             stdin=asyncio.subprocess.DEVNULL,
             stdout=asyncio.subprocess.DEVNULL,
@@ -95,7 +104,9 @@ async def create_socks_proxy(
         # Save tunnel info
         info_path = os.path.join(TUNNEL_DIR, f"{tunnel_id}.json")
         with open(info_path, "w") as f:
-            json.dump({k: v for k, v in tunnel_info.items() if k != "process"}, f, indent=2)
+            json.dump(
+                {k: v for k, v in tunnel_info.items() if k != "process"}, f, indent=2
+            )
 
         return {
             "success": True,
@@ -131,17 +142,24 @@ async def create_local_forward(
     _ensure_tunnel_dir()
     tunnel_id = f"local_{node_id}_{int(time.time())}"
 
-    logger.info(f"[LATERAL] Creating local forward {tunnel_id}: localhost:{local_port} -> {remote_host}:{remote_port}")
+    logger.info(
+        f"[LATERAL] Creating local forward {tunnel_id}: localhost:{local_port} -> {remote_host}:{remote_port}"
+    )
 
     try:
         proc = await asyncio.create_subprocess_exec(
             "ssh",
             "-N",
-            "-L", f"{local_port}:{remote_host}:{remote_port}",
-            "-o", "StrictHostKeyChecking=no",
-            "-o", "UserKnownHostsFile=/dev/null",
-            "-o", "ConnectTimeout=10",
-            "-p", str(ssh_port),
+            "-L",
+            f"{local_port}:{remote_host}:{remote_port}",
+            "-o",
+            "StrictHostKeyChecking=no",
+            "-o",
+            "UserKnownHostsFile=/dev/null",
+            "-o",
+            "ConnectTimeout=10",
+            "-p",
+            str(ssh_port),
             f"{username}@{host}",
             stdin=asyncio.subprocess.DEVNULL,
             stdout=asyncio.subprocess.DEVNULL,
@@ -173,7 +191,9 @@ async def create_local_forward(
 
         info_path = os.path.join(TUNNEL_DIR, f"{tunnel_id}.json")
         with open(info_path, "w") as f:
-            json.dump({k: v for k, v in tunnel_info.items() if k != "process"}, f, indent=2)
+            json.dump(
+                {k: v for k, v in tunnel_info.items() if k != "process"}, f, indent=2
+            )
 
         return {
             "success": True,
@@ -205,17 +225,24 @@ async def create_remote_forward(
     _ensure_tunnel_dir()
     tunnel_id = f"remote_{node_id}_{int(time.time())}"
 
-    logger.info(f"[LATERAL] Creating remote forward {tunnel_id}: {host}:{remote_port} -> {local_host}:{local_port}")
+    logger.info(
+        f"[LATERAL] Creating remote forward {tunnel_id}: {host}:{remote_port} -> {local_host}:{local_port}"
+    )
 
     try:
         proc = await asyncio.create_subprocess_exec(
             "ssh",
             "-N",
-            "-R", f"{remote_port}:{local_host}:{local_port}",
-            "-o", "StrictHostKeyChecking=no",
-            "-o", "UserKnownHostsFile=/dev/null",
-            "-o", "ConnectTimeout=10",
-            "-p", str(ssh_port),
+            "-R",
+            f"{remote_port}:{local_host}:{local_port}",
+            "-o",
+            "StrictHostKeyChecking=no",
+            "-o",
+            "UserKnownHostsFile=/dev/null",
+            "-o",
+            "ConnectTimeout=10",
+            "-p",
+            str(ssh_port),
             f"{username}@{host}",
             stdin=asyncio.subprocess.DEVNULL,
             stdout=asyncio.subprocess.DEVNULL,
@@ -247,7 +274,9 @@ async def create_remote_forward(
 
         info_path = os.path.join(TUNNEL_DIR, f"{tunnel_id}.json")
         with open(info_path, "w") as f:
-            json.dump({k: v for k, v in tunnel_info.items() if k != "process"}, f, indent=2)
+            json.dump(
+                {k: v for k, v in tunnel_info.items() if k != "process"}, f, indent=2
+            )
 
         return {
             "success": True,
@@ -279,10 +308,14 @@ async def create_pivot_chain(
     proxy_parts = []
     for i, hop in enumerate(hops):
         if i == 0:
-            proxy_parts.append(f"ssh -W %h:%p -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null {hop['username']}@{hop['host']}")
+            proxy_parts.append(
+                f"ssh -W %h:%p -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null {hop['username']}@{hop['host']}"
+            )
         else:
             prev = hops[i - 1]
-            proxy_parts.append(f"ssh -W %h:%p -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null {prev['username']}@{prev['host']}")
+            proxy_parts.append(
+                f"ssh -W %h:%p -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null {prev['username']}@{prev['host']}"
+            )
 
     # The final hop is where we connect to
     final_hop = hops[-1]
@@ -353,8 +386,7 @@ async def close_pivot_chain(chain_id: str) -> dict:
 def list_active_tunnels() -> list[dict]:
     """List all active tunnels."""
     return [
-        {k: v for k, v in t.items() if k != "process"}
-        for t in ActiveTunnels.values()
+        {k: v for k, v in t.items() if k != "process"} for t in ActiveTunnels.values()
     ]
 
 

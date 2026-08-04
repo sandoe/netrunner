@@ -21,24 +21,13 @@ logger.add(
     colorize=True,
 )
 
-# Add file handler with rotation
-LOG_DIR = Path("data/logs")
-LOG_DIR.mkdir(parents=True, exist_ok=True)
-
-logger.add(
-    LOG_DIR / "netrunner.log",
-    rotation="10 MB",
-    retention="10 days",
-    format=LOG_FORMAT,
-    level="DEBUG",
-    enqueue=True, # Thread-safe async logging
-)
 
 def get_logger(name: str):
     """
     Returns a configured logger instance bound to the module name.
     """
     return logger.bind(name=name)
+
 
 # Expose default logger
 log = logger

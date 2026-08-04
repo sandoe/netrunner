@@ -1,10 +1,16 @@
 """
 Netrunner Compliance Scanner Router — API endpoints for CIS/NIST scanning.
 """
+
 from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 from .auth import require_admin
-from ..core.compliance import run_compliance_scan, get_scan_history, get_scan_detail, get_frameworks
+from ..core.compliance import (
+    run_compliance_scan,
+    get_scan_history,
+    get_scan_detail,
+    get_frameworks,
+)
 from ..core.db import load_nodes_db
 
 router = APIRouter()
@@ -43,6 +49,7 @@ async def api_compliance_scan(req: ComplianceScanRequest):
     # Try vault credentials
     try:
         from ..core.vault import get_credential
+
         cred = await get_credential(req.node_id, "ssh")
         if cred:
             username = cred.get("username", username)
@@ -84,5 +91,6 @@ async def api_compliance_scan_detail(scan_id: str):
 async def api_compliance_checks(framework: str = "CIS"):
     """List all compliance checks for a framework."""
     from ..core.compliance import CIS_CHECKS
+
     checks = [c for c in CIS_CHECKS if framework in c.get("frameworks", [])]
     return {"checks": checks, "count": len(checks), "framework": framework}

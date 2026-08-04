@@ -8,7 +8,9 @@ from backend.core.vault import load_credentials
 @pytest.mark.asyncio
 async def test_beacons_require_auth(anon_client: AsyncClient):
     assert (await anon_client.get("/api/wifi/beacons")).status_code == 401
-    assert (await anon_client.post("/api/wifi/deploy", json={"node_id": "x"})).status_code == 401
+    assert (
+        await anon_client.post("/api/wifi/deploy", json={"node_id": "x"})
+    ).status_code == 401
 
 
 @pytest.mark.asyncio

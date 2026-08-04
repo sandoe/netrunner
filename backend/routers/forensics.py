@@ -1,13 +1,18 @@
 """
 Netrunner Forensics Router — API endpoints for memory and disk forensics.
 """
+
 from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 from typing import Optional
 from .auth import require_admin
 from ..core.forensics import (
-    acquire_memory_dump, run_volatility_plugin, analyze_disk_image,
-    generate_timeline, get_evidence_list, EvidenceDB,
+    acquire_memory_dump,
+    run_volatility_plugin,
+    analyze_disk_image,
+    generate_timeline,
+    get_evidence_list,
+    EvidenceDB,
 )
 from ..core.db import load_nodes_db
 
@@ -70,6 +75,7 @@ async def api_forensics_memory_dump(req: MemoryDumpRequest):
     # Try vault credentials
     try:
         from ..core.vault import get_credential
+
         cred = await get_credential(req.node_id, "ssh")
         if cred:
             username = cred.get("username", username)
@@ -91,6 +97,41 @@ async def api_forensics_memory_dump(req: MemoryDumpRequest):
     if not result["success"]:
         raise HTTPException(400, result.get("error", "Memory dump failed"))
     return result
+
+
+@router.post("/forensics/ebpf-trigger", dependencies=[Depends(require_admin)])
+async def api_forensics_ebpf_trigger(req: MemoryDumpRequest):
+    """
+    Automated XDR endpoint triggered by eBPF real-time sensors.
+    When eBPF detects in-memory execution or a rootkit, it calls this endpoint to:
+    1. Immediately acquire a physical memory dump.
+    2. Automatically run Volatility's 'malfind' plugin to extract the injected payload.
+    """
+    # 1. Acquire dump
+    dump_res = await api_forensics_memory_dump(req)
+
+    # 2. Run volatility
+    vol_req = VolatilityRequest(evidence_id=dump_res["evidence_id"], plugin="malfind")
+    vol_res = await api_forensics_volatility(vol_req)
+
+    # 3. Create an alert for the SOC
+    from ..core.db import insert_alert
+    import time
+
+    alert_id = f"alert_ebpf_{int(time.time())}"
+    await insert_alert(
+        {
+            "id": alert_id,
+            "title": f"[XDR AUTO-FORENSICS] Fileless Malware Detected on {req.node_id}",
+            "description": f"eBPF sensor triggered an automatic Volatility malfind capture. Payload extracted to evidence ID: {dump_res['evidence_id']}.",
+            "severity": "critical",
+            "status": "new",
+            "created_at": time.time(),
+            "updated_at": time.time(),
+        }
+    )
+
+    return {"success": True, "dump": dump_res, "volatility": vol_res}
 
 
 @router.post("/forensics/volatility", dependencies=[Depends(require_admin)])

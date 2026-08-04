@@ -1,14 +1,22 @@
 """
 Netrunner Incident Response Router — API endpoints for IR workflow.
 """
+
 from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 from typing import Optional
 from .auth import require_admin
 from ..core.incident_response import (
-    create_incident, update_incident_phase, add_evidence, add_action,
-    close_incident, get_incident, list_incidents, get_playbooks,
-    get_phases, get_ir_stats,
+    create_incident,
+    update_incident_phase,
+    add_evidence,
+    add_action,
+    close_incident,
+    get_incident,
+    list_incidents,
+    get_playbooks,
+    get_phases,
+    get_ir_stats,
 )
 
 router = APIRouter()
@@ -85,19 +93,27 @@ async def api_ir_update_phase(incident_id: str, req: UpdatePhaseRequest):
     return result
 
 
-@router.post("/ir/incidents/{incident_id}/evidence", dependencies=[Depends(require_admin)])
+@router.post(
+    "/ir/incidents/{incident_id}/evidence", dependencies=[Depends(require_admin)]
+)
 async def api_ir_add_evidence(incident_id: str, req: AddEvidenceRequest):
     """Add evidence to an incident."""
-    result = await add_evidence(incident_id, req.evidence_type, req.description, req.file_path)
+    result = await add_evidence(
+        incident_id, req.evidence_type, req.description, req.file_path
+    )
     if not result["success"]:
         raise HTTPException(400, result.get("error", "Failed"))
     return result
 
 
-@router.post("/ir/incidents/{incident_id}/action", dependencies=[Depends(require_admin)])
+@router.post(
+    "/ir/incidents/{incident_id}/action", dependencies=[Depends(require_admin)]
+)
 async def api_ir_add_action(incident_id: str, req: AddActionRequest):
     """Add an action to the incident."""
-    result = await add_action(incident_id, req.phase, req.action_type, req.description, req.result)
+    result = await add_action(
+        incident_id, req.phase, req.action_type, req.description, req.result
+    )
     if not result["success"]:
         raise HTTPException(400, result.get("error", "Failed"))
     return result

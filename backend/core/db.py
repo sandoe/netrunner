@@ -1,20 +1,34 @@
 """Database management using SQLAlchemy for multi-backend support."""
+
 from __future__ import annotations
 
 import json
 import os
+import time
 from pathlib import Path
 from typing import Any, Optional
 
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
-from sqlalchemy import String, Integer, Text, Boolean, ForeignKey, select, delete, text, Column, Float
+from sqlalchemy import (
+    String,
+    Integer,
+    Text,
+    Boolean,
+    ForeignKey,
+    select,
+    delete,
+    text,
+    Column,
+    Float,
+)
 from dotenv import load_dotenv
 from influxdb_client.client.influxdb_client_async import InfluxDBClientAsync
 from .logger import log as logger
 
 try:
     from cryptography.fernet import Fernet
+
     _HAS_CRYPTO = True
 except ImportError:
     _HAS_CRYPTO = False
@@ -44,7 +58,9 @@ def _get_or_create_vault_key() -> bytes:
 
 def _fernet() -> "Fernet":
     if not _HAS_CRYPTO:
-        raise RuntimeError("cryptography package not installed — run: pip install cryptography")
+        raise RuntimeError(
+            "cryptography package not installed — run: pip install cryptography"
+        )
     return Fernet(_get_or_create_vault_key())
 
 
@@ -66,6 +82,7 @@ def _decrypt_password(encrypted: str) -> str:
     except Exception:
         return encrypted  # Return as-is if decryption fails
 
+
 DATABASE_URL = os.environ.get("DATABASE_URL", "sqlite+aiosqlite:///data/netrunner.db")
 INFLUXDB_URL = os.environ.get("INFLUXDB_URL", "http://127.0.0.1:8086")
 INFLUXDB_TOKEN = os.environ.get("INFLUXDB_TOKEN", "")
@@ -74,10 +91,13 @@ INFLUXDB_BUCKET = os.environ.get("INFLUXDB_BUCKET", "traffic")
 
 _influx_client = None
 
+
 def get_influx_client():
     global _influx_client
     if _influx_client is None:
-        _influx_client = InfluxDBClientAsync(url=INFLUXDB_URL, token=INFLUXDB_TOKEN, org=INFLUXDB_ORG)
+        _influx_client = InfluxDBClientAsync(
+            url=INFLUXDB_URL, token=INFLUXDB_TOKEN, org=INFLUXDB_ORG
+        )
     return _influx_client
 
 
@@ -89,7 +109,7 @@ if DATABASE_URL.startswith("sqlite"):
     db_path = DATABASE_URL.split(":///")[1]
     Path(db_path).parent.mkdir(parents=True, exist_ok=True)
     engine = create_async_engine(DATABASE_URL, poolclass=NullPool)
-    
+
     @event.listens_for(engine.sync_engine, "connect")
     def set_sqlite_pragma(dbapi_connection, connection_record):
         cursor = dbapi_connection.cursor()
@@ -97,6 +117,7 @@ if DATABASE_URL.startswith("sqlite"):
         cursor.execute("PRAGMA synchronous=NORMAL")
         cursor.execute("PRAGMA busy_timeout=5000")
         cursor.close()
+
 else:
     engine = create_async_engine(DATABASE_URL)
 
@@ -121,6 +142,7 @@ class NodeModel(Base):
     metadata_json: Mapped[Optional[str]] = mapped_column("metadata", Text)  # JSON dict
     threat_monitoring: Mapped[Optional[bool]] = mapped_column(Boolean, default=False)
 
+
 class UserModel(Base):
     __tablename__ = "users"
     username: Mapped[str] = mapped_column(String(100), primary_key=True)
@@ -128,6 +150,7 @@ class UserModel(Base):
     salt: Mapped[str] = mapped_column(String(64))
     role: Mapped[str] = mapped_column(String(20), default="analyst")
     created: Mapped[Optional[str]] = mapped_column(String(50))
+
 
 class BeaconNodeModel(Base):
     __tablename__ = "beacon_nodes"
@@ -141,11 +164,16 @@ class BeaconNodeModel(Base):
     sample_rate: Mapped[int] = mapped_column(Integer, default=30)
     udp_port: Mapped[int] = mapped_column(Integer, default=8001)
 
+
 class LinkModel(Base):
     __tablename__ = "links"
     id: Mapped[str] = mapped_column(String(50), primary_key=True)
-    source: Mapped[str] = mapped_column(String(50), ForeignKey("nodes.id", ondelete="CASCADE"))
-    target: Mapped[str] = mapped_column(String(50), ForeignKey("nodes.id", ondelete="CASCADE"))
+    source: Mapped[str] = mapped_column(
+        String(50), ForeignKey("nodes.id", ondelete="CASCADE")
+    )
+    target: Mapped[str] = mapped_column(
+        String(50), ForeignKey("nodes.id", ondelete="CASCADE")
+    )
     auto_discovered: Mapped[bool] = mapped_column(Boolean, default=False)
     metadata_json: Mapped[Optional[str]] = mapped_column("metadata", Text)
 
@@ -158,7 +186,9 @@ class SettingModel(Base):
 
 class VaultModel(Base):
     __tablename__ = "vault"
-    node_id: Mapped[str] = mapped_column(String(50), ForeignKey("nodes.id", ondelete="CASCADE"), primary_key=True)
+    node_id: Mapped[str] = mapped_column(
+        String(50), ForeignKey("nodes.id", ondelete="CASCADE"), primary_key=True
+    )
     data: Mapped[str] = mapped_column(Text)
     encrypted: Mapped[bool] = mapped_column(Boolean, default=False)
 
@@ -173,25 +203,75 @@ class ThreatEventModel(Base):
     type: Mapped[str] = mapped_column(String(100))
     severity: Mapped[str] = mapped_column(String(20))
 
+
 class PlaybookModel(Base):
     __tablename__ = "playbooks"
     id: Mapped[str] = mapped_column(String(50), primary_key=True)
     name: Mapped[str] = mapped_column(String(100))
     description: Mapped[str] = mapped_column(String(255), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    execution_mode: Mapped[str] = mapped_column(String(20), default="autonomous")
     conditions: Mapped[str] = mapped_column(Text)
     actions: Mapped[str] = mapped_column(Text)
     created_at: Mapped[float] = mapped_column(Float)
     updated_at: Mapped[float] = mapped_column(Float)
 
+
+class PendingExecutionModel(Base):
+    __tablename__ = "pending_executions"
+    id: Mapped[str] = mapped_column(String(50), primary_key=True)
+    playbook_id: Mapped[str] = mapped_column(String(50))
+    alert_id: Mapped[str] = mapped_column(String(50))
+    actions: Mapped[str] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(
+        String(20), default="pending"
+    )  # pending, approved, rejected
+    created_at: Mapped[float] = mapped_column(Float)
+
+
 class IntegrationModel(Base):
     __tablename__ = "integrations"
     id: Mapped[str] = mapped_column(String(50), primary_key=True)
-    provider: Mapped[str] = mapped_column(String(50))  # e.g., "slack", "splunk", "teams"
+    provider: Mapped[str] = mapped_column(
+        String(50)
+    )  # e.g., "slack", "splunk", "teams"
     name: Mapped[str] = mapped_column(String(100))
     url: Mapped[str] = mapped_column(String(255))
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[float] = mapped_column(Float)
+
+
+class DeceptionLogModel(Base):
+    __tablename__ = "deception_logs"
+    id = Column(String, primary_key=True)
+    honeytoken_id = Column(String)
+    access_time = Column(Float)
+    src_ip = Column(String)
+    user_agent = Column(String)
+    action = Column(String)
+
+
+class NHITokenModel(Base):
+    __tablename__ = "nhi_tokens"
+    id = Column(String, primary_key=True)
+    owner = Column(String)
+    service = Column(String)
+    scopes = Column(String)
+    last_used_ip = Column(String)
+    status = Column(String)  # 'Active', 'Dormant', 'Revoked'
+    last_used_at = Column(Float)
+
+
+class BehaviorTelemetryModel(Base):
+    __tablename__ = "behavior_telemetry"
+    id = Column(String, primary_key=True)
+    user_id = Column(String)
+    avg_dwell_time_ms = Column(Float)
+    avg_flight_time_ms = Column(Float)
+    mouse_velocity_px_s = Column(Float)
+    anomaly_score = Column(Float)
+    timestamp = Column(Float)
+
 
 class AuditLogModel(Base):
     __tablename__ = "audit_logs"
@@ -201,6 +281,7 @@ class AuditLogModel(Base):
     resource: Mapped[str] = mapped_column(String(100))
     details: Mapped[str] = mapped_column(Text)
     timestamp: Mapped[float] = mapped_column(Float)
+
 
 class ThreatIntelModel(Base):
     __tablename__ = "threat_intel"
@@ -217,9 +298,15 @@ class AlertModel(Base):
     id: Mapped[str] = mapped_column(String(50), primary_key=True)
     title: Mapped[str] = mapped_column(String(200))
     description: Mapped[Optional[str]] = mapped_column(Text)
-    severity: Mapped[str] = mapped_column(String(20)) # "low", "medium", "high", "critical"
-    status: Mapped[str] = mapped_column(String(20), default="new") # "new", "open", "closed", "false_positive"
-    assignee_id: Mapped[Optional[str]] = mapped_column(String(100), ForeignKey("users.username", ondelete="SET NULL"), nullable=True)
+    severity: Mapped[str] = mapped_column(
+        String(20)
+    )  # "low", "medium", "high", "critical"
+    status: Mapped[str] = mapped_column(
+        String(20), default="new"
+    )  # "new", "open", "closed", "false_positive"
+    assignee_id: Mapped[Optional[str]] = mapped_column(
+        String(100), ForeignKey("users.username", ondelete="SET NULL"), nullable=True
+    )
     created_at: Mapped[float] = mapped_column()
     updated_at: Mapped[float] = mapped_column()
 
@@ -232,36 +319,66 @@ class ReportModel(Base):
     markdown_content: Mapped[str] = mapped_column(Text)
     created_at: Mapped[float] = mapped_column(Float)
 
+
 # --- SDN & Infrastructure Models ---
+
 
 class NetworkConfigModel(Base):
     __tablename__ = "network_configs"
     id: Mapped[str] = mapped_column(String(50), primary_key=True)
-    type: Mapped[str] = mapped_column(String(20)) # "vlan", "ssid", "port_profile"
+    type: Mapped[str] = mapped_column(String(20))  # "vlan", "ssid", "port_profile"
     name: Mapped[str] = mapped_column(String(100))
-    config_json: Mapped[str] = mapped_column(Text) # JSON config payload
-    node_id: Mapped[Optional[str]] = mapped_column(String(50), ForeignKey("nodes.id", ondelete="CASCADE"), nullable=True) # if null, global config
+    config_json: Mapped[str] = mapped_column(Text)  # JSON config payload
+    node_id: Mapped[Optional[str]] = mapped_column(
+        String(50), ForeignKey("nodes.id", ondelete="CASCADE"), nullable=True
+    )  # if null, global config
+
+
+class VlanConfigModel(Base):
+    __tablename__ = "vlan_configs"
+    id: Mapped[str] = mapped_column(String(50), primary_key=True)
+    tag: Mapped[int] = mapped_column(Integer)
+    name: Mapped[str] = mapped_column(String(100))
+    subnet: Mapped[str] = mapped_column(String(100))
+
+
+class NatRuleModel(Base):
+    __tablename__ = "nat_rules"
+    id: Mapped[str] = mapped_column(String(50), primary_key=True)
+    type: Mapped[str] = mapped_column(String(50))  # snat, dnat, 1:1, port-forward
+    src: Mapped[str] = mapped_column(String(100))
+    dst: Mapped[str] = mapped_column(String(100))
+    port: Mapped[Optional[int]] = mapped_column(Integer)
+
 
 class ClientModel(Base):
     __tablename__ = "clients"
     mac: Mapped[str] = mapped_column(String(50), primary_key=True)
     ip: Mapped[Optional[str]] = mapped_column(String(100))
     hostname: Mapped[Optional[str]] = mapped_column(String(100))
-    node_id: Mapped[str] = mapped_column(String(50), ForeignKey("nodes.id", ondelete="CASCADE"))
+    node_id: Mapped[str] = mapped_column(
+        String(50), ForeignKey("nodes.id", ondelete="CASCADE")
+    )
     rssi: Mapped[Optional[int]] = mapped_column(Integer)
     rx_bytes: Mapped[int] = mapped_column(Integer, default=0)
     tx_bytes: Mapped[int] = mapped_column(Integer, default=0)
     is_blocked: Mapped[bool] = mapped_column(Boolean, default=False)
     last_seen: Mapped[float] = mapped_column()
 
+
 class TrafficStatModel(Base):
     __tablename__ = "traffic_stats"
     id: Mapped[str] = mapped_column(String(50), primary_key=True)
     timestamp: Mapped[float] = mapped_column()
-    node_id: Mapped[str] = mapped_column(String(50), ForeignKey("nodes.id", ondelete="CASCADE"))
-    category: Mapped[str] = mapped_column(String(50)) # "streaming", "p2p", "web", "social"
+    node_id: Mapped[str] = mapped_column(
+        String(50), ForeignKey("nodes.id", ondelete="CASCADE")
+    )
+    category: Mapped[str] = mapped_column(
+        String(50)
+    )  # "streaming", "p2p", "web", "social"
     rx_bytes: Mapped[int] = mapped_column(Integer, default=0)
     tx_bytes: Mapped[int] = mapped_column(Integer, default=0)
+
 
 class VoucherModel(Base):
     __tablename__ = "vouchers"
@@ -271,28 +388,33 @@ class VoucherModel(Base):
     is_used: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[float] = mapped_column()
 
+
 class GuestSessionModel(Base):
     __tablename__ = "guest_sessions"
     id: Mapped[str] = mapped_column(String(50), primary_key=True)
     mac: Mapped[str] = mapped_column(String(50))
-    node_id: Mapped[str] = mapped_column(String(50), ForeignKey("nodes.id", ondelete="CASCADE"))
+    node_id: Mapped[str] = mapped_column(
+        String(50), ForeignKey("nodes.id", ondelete="CASCADE")
+    )
     voucher_code: Mapped[Optional[str]] = mapped_column(String(20))
     authorized_at: Mapped[float] = mapped_column()
     expires_at: Mapped[float] = mapped_column()
     rx_bytes: Mapped[int] = mapped_column(Integer, default=0)
     tx_bytes: Mapped[int] = mapped_column(Integer, default=0)
 
+
 class FirmwareModel(Base):
     __tablename__ = "firmwares"
     id: Mapped[str] = mapped_column(String(50), primary_key=True)
     version: Mapped[str] = mapped_column(String(50))
-    arch: Mapped[str] = mapped_column(String(20)) # "amd64", "arm64"
+    arch: Mapped[str] = mapped_column(String(20))  # "amd64", "arm64"
     url: Mapped[str] = mapped_column(String(255))
     uploaded_at: Mapped[float] = mapped_column()
 
 
 async def init_db():
     # Base.metadata.create_all is handled by alembic migrations now
+    asyncio.create_task(_flush_threat_events())
     pass
 
 
@@ -303,7 +425,17 @@ async def get_db():
 
 # --- Helper methods (legacy interface compatible) ---
 
+_NODES_CACHE = None
+_NODES_CACHE_TIME = 0.0
+_NODES_CACHE_TTL = 1.0
+
+
 async def load_nodes_db() -> dict:
+    global _NODES_CACHE, _NODES_CACHE_TIME
+    now = time.time()
+    if _NODES_CACHE is not None and (now - _NODES_CACHE_TIME) < _NODES_CACHE_TTL:
+        return _NODES_CACHE
+
     async with AsyncSessionLocal() as session:
         result = await session.execute(select(NodeModel))
         nodes = {}
@@ -319,13 +451,18 @@ async def load_nodes_db() -> dict:
                 "created": row.created,
                 "tags": json.loads(row.tags) if row.tags else [],
                 "metadata": json.loads(row.metadata_json) if row.metadata_json else {},
-                "threat_monitoring": bool(row.threat_monitoring)
+                "threat_monitoring": bool(row.threat_monitoring),
             }
             nodes[row.id] = n
+
+        _NODES_CACHE = nodes
+        _NODES_CACHE_TIME = now
         return nodes
 
 
 async def save_node_db(node: dict):
+    global _NODES_CACHE
+    _NODES_CACHE = None
     async with AsyncSessionLocal() as session:
         n = NodeModel(
             id=node["id"],
@@ -338,13 +475,15 @@ async def save_node_db(node: dict):
             created=node.get("created"),
             tags=json.dumps(node.get("tags", [])),
             metadata_json=json.dumps(node.get("metadata", {})),
-            threat_monitoring=node.get("threat_monitoring", False)
+            threat_monitoring=node.get("threat_monitoring", False),
         )
         await session.merge(n)
         await session.commit()
 
 
 async def delete_node_db(node_id: str):
+    global _NODES_CACHE
+    _NODES_CACHE = None
     async with AsyncSessionLocal() as session:
         await session.execute(delete(NodeModel).where(NodeModel.id == node_id))
         await session.commit()
@@ -360,7 +499,7 @@ async def load_links_db() -> dict:
                 "source": row.source,
                 "target": row.target,
                 "auto_discovered": row.auto_discovered,
-                "metadata": json.loads(row.metadata_json) if row.metadata_json else {}
+                "metadata": json.loads(row.metadata_json) if row.metadata_json else {},
             }
             links[row.id] = l
         return links
@@ -373,7 +512,7 @@ async def save_link_db(link: dict):
             source=link["source"],
             target=link["target"],
             auto_discovered=link.get("auto_discovered", False),
-            metadata_json=json.dumps(link.get("metadata", {}))
+            metadata_json=json.dumps(link.get("metadata", {})),
         )
         await session.merge(l)
         await session.commit()
@@ -400,7 +539,9 @@ async def save_setting_db(key: str, value: str):
 
 async def load_vault_entry_db(node_id: str) -> Optional[dict]:
     async with AsyncSessionLocal() as session:
-        result = await session.execute(select(VaultModel).where(VaultModel.node_id == node_id))
+        result = await session.execute(
+            select(VaultModel).where(VaultModel.node_id == node_id)
+        )
         row = result.scalar_one_or_none()
         if row:
             return {"data": row.data, "encrypted": row.encrypted}
@@ -420,37 +561,106 @@ async def delete_vault_entry_db(node_id: str):
         await session.commit()
 
 
+import asyncio
+from influxdb_client import Point
+
+_threat_event_queue = asyncio.Queue()
+
+
+async def _flush_threat_events():
+    """Background task to flush threat events to InfluxDB and SQLite in batches."""
+    while True:
+        events = []
+        try:
+            while True:
+                # Get all available events up to 500, waiting at most 1 second for the first one
+                if not events:
+                    event = await asyncio.wait_for(
+                        _threat_event_queue.get(), timeout=1.0
+                    )
+                else:
+                    event = _threat_event_queue.get_nowait()
+                events.append(event)
+                if len(events) >= 500:
+                    break
+        except (asyncio.TimeoutError, asyncio.QueueEmpty):
+            pass
+
+        if not events:
+            continue
+
+        try:
+            # 1. Write to InfluxDB (High Throughput Time-Series)
+            client = get_influx_client()
+            write_api = client.write_api()
+
+            points = []
+            for ev in events:
+                p = (
+                    Point("threat_event")
+                    .tag("node_id", ev.get("node_id", "unknown"))
+                    .tag("type", ev["type"])
+                    .tag("severity", ev["severity"])
+                    .field("source_ip", ev["source_ip"])
+                    .field("target_ip", ev["target_ip"])
+                    .time(int(ev["timestamp"] * 1e9))
+                )
+                points.append(p)
+
+            await write_api.write(
+                bucket=INFLUXDB_BUCKET, org=INFLUXDB_ORG, record=points
+            )
+
+            # 2. Write to SQLite in a single batch
+            async with AsyncSessionLocal() as session:
+                for ev in events:
+                    e = ThreatEventModel(
+                        id=ev["id"],
+                        timestamp=ev["timestamp"],
+                        node_id=ev.get("node_id", "unknown"),
+                        source_ip=ev["source_ip"],
+                        target_ip=ev["target_ip"],
+                        type=ev["type"],
+                        severity=ev["severity"],
+                    )
+                    session.add(e)
+                await session.commit()
+
+        except Exception as e:
+            logger.error(f"Failed to batch insert threat events: {e}")
+
+
+# Start the background flusher when this module is loaded
+# (Moved to init_db)
+
+
 async def save_threat_event_db(event: dict):
-    async with AsyncSessionLocal() as session:
-        e = ThreatEventModel(
-            id=event["id"],
-            timestamp=event["timestamp"],
-            node_id=event.get("node_id", "unknown"),
-            source_ip=event["source_ip"],
-            target_ip=event["target_ip"],
-            type=event["type"],
-            severity=event["severity"]
-        )
-        session.add(e)
-        await session.commit()
+    # Instead of committing immediately and locking the DB, queue it for batching
+    await _threat_event_queue.put(event)
+
 
 async def load_threat_events_db(limit: int = 100) -> list[dict]:
     async with AsyncSessionLocal() as session:
         result = await session.execute(
-            select(ThreatEventModel).order_by(ThreatEventModel.timestamp.desc()).limit(limit)
+            select(ThreatEventModel)
+            .order_by(ThreatEventModel.timestamp.desc())
+            .limit(limit)
         )
         events = []
         for row in result.scalars():
-            events.append({
-                "id": row.id,
-                "timestamp": row.timestamp,
-                "node_id": row.node_id,
-                "source_ip": row.source_ip,
-                "target_ip": row.target_ip,
-                "type": row.type,
-                "severity": row.severity
-            })
+            events.append(
+                {
+                    "id": row.id,
+                    "timestamp": row.timestamp,
+                    "node_id": row.node_id,
+                    "source_ip": row.source_ip,
+                    "target_ip": row.target_ip,
+                    "type": row.type,
+                    "severity": row.severity,
+                }
+            )
         return events
+
 
 async def load_beacon_nodes_db() -> list[dict]:
     async with AsyncSessionLocal() as session:
@@ -461,17 +671,20 @@ async def load_beacon_nodes_db() -> list[dict]:
             # Decrypt if encrypted
             if row.encrypted:
                 password = _decrypt_password(password)
-            nodes.append({
-                "id": row.id,
-                "ip": row.ip,
-                "username": row.username,
-                "password": password,
-                "target_server_ip": row.target_server_ip,
-                "csi_mode": row.csi_mode,
-                "sample_rate": row.sample_rate,
-                "udp_port": row.udp_port
-            })
+            nodes.append(
+                {
+                    "id": row.id,
+                    "ip": row.ip,
+                    "username": row.username,
+                    "password": password,
+                    "target_server_ip": row.target_server_ip,
+                    "csi_mode": row.csi_mode,
+                    "sample_rate": row.sample_rate,
+                    "udp_port": row.udp_port,
+                }
+            )
         return nodes
+
 
 async def save_beacon_node_db(node: dict):
     async with AsyncSessionLocal() as session:
@@ -489,14 +702,17 @@ async def save_beacon_node_db(node: dict):
             target_server_ip=node.get("target_server_ip", ""),
             csi_mode=node.get("csi_mode", "AUTO"),
             sample_rate=node.get("sample_rate", 30),
-            udp_port=node.get("udp_port", 8001)
+            udp_port=node.get("udp_port", 8001),
         )
         await session.merge(b)
         await session.commit()
 
+
 async def delete_beacon_node_db(node_id: str):
     async with AsyncSessionLocal() as session:
-        await session.execute(delete(BeaconNodeModel).where(BeaconNodeModel.id == node_id))
+        await session.execute(
+            delete(BeaconNodeModel).where(BeaconNodeModel.id == node_id)
+        )
         await session.commit()
 
 
@@ -510,31 +726,38 @@ def _user_to_dict(row: "UserModel") -> dict:
         "created": row.created,
     }
 
+
 async def load_users_db() -> list[dict]:
     async with AsyncSessionLocal() as session:
         result = await session.execute(select(UserModel))
         return [_user_to_dict(r) for r in result.scalars()]
+
 
 async def get_user_db(username: str) -> Optional[dict]:
     async with AsyncSessionLocal() as session:
         row = await session.get(UserModel, username)
         return _user_to_dict(row) if row else None
 
+
 async def save_user_db(user: dict):
     async with AsyncSessionLocal() as session:
-        await session.merge(UserModel(
-            username=user["username"],
-            password_hash=user["password_hash"],
-            salt=user["salt"],
-            role=user.get("role", "analyst"),
-            created=user.get("created"),
-        ))
+        await session.merge(
+            UserModel(
+                username=user["username"],
+                password_hash=user["password_hash"],
+                salt=user["salt"],
+                role=user.get("role", "analyst"),
+                created=user.get("created"),
+            )
+        )
         await session.commit()
+
 
 async def delete_user_db(username: str):
     async with AsyncSessionLocal() as session:
         await session.execute(delete(UserModel).where(UserModel.username == username))
         await session.commit()
+
 
 async def wipe_all_data_db():
     """Wipes all active operational data (Ghost Protocol cleanup)."""
@@ -564,6 +787,7 @@ def _alert_to_dict(row: "AlertModel") -> dict:
         "updated_at": row.updated_at,
     }
 
+
 async def load_alerts_db(status: Optional[str] = None) -> list[dict]:
     async with AsyncSessionLocal() as session:
         query = select(AlertModel).order_by(AlertModel.created_at.desc())
@@ -572,41 +796,50 @@ async def load_alerts_db(status: Optional[str] = None) -> list[dict]:
         result = await session.execute(query)
         return [_alert_to_dict(r) for r in result.scalars()]
 
+
 async def get_alert_db(alert_id: str) -> Optional[dict]:
     async with AsyncSessionLocal() as session:
         row = await session.get(AlertModel, alert_id)
         return _alert_to_dict(row) if row else None
 
+
 async def save_alert_db(alert: dict):
     async with AsyncSessionLocal() as session:
-        await session.merge(AlertModel(
-            id=alert["id"],
-            title=alert["title"],
-            description=alert.get("description"),
-            severity=alert["severity"],
-            status=alert.get("status", "new"),
-            assignee_id=alert.get("assignee_id"),
-            created_at=alert["created_at"],
-            updated_at=alert.get("updated_at", alert["created_at"])
-        ))
+        await session.merge(
+            AlertModel(
+                id=alert["id"],
+                title=alert["title"],
+                description=alert.get("description"),
+                severity=alert["severity"],
+                status=alert.get("status", "new"),
+                assignee_id=alert.get("assignee_id"),
+                created_at=alert["created_at"],
+                updated_at=alert.get("updated_at", alert["created_at"]),
+            )
+        )
         await session.commit()
+
 
 async def delete_alert_db(alert_id: str):
     async with AsyncSessionLocal() as session:
         await session.execute(delete(AlertModel).where(AlertModel.id == alert_id))
         await session.commit()
 
+
 async def insert_alert(alert: dict):
     await save_alert_db(alert)
 
+
 async def update_alert_status(alert_id: str, status: str):
     import time
+
     async with AsyncSessionLocal() as session:
         row = await session.get(AlertModel, alert_id)
         if row:
             row.status = status
             row.updated_at = time.time()
             await session.commit()
+
 
 # --- reports --------------------------------------------------------------- #
 def _report_to_dict(row: "ReportModel") -> dict:
@@ -618,26 +851,42 @@ def _report_to_dict(row: "ReportModel") -> dict:
         "created_at": row.created_at,
     }
 
+
 async def load_reports_db() -> list[dict]:
     async with AsyncSessionLocal() as session:
-        result = await session.execute(select(ReportModel).order_by(ReportModel.created_at.desc()))
+        result = await session.execute(
+            select(ReportModel).order_by(ReportModel.created_at.desc())
+        )
         return [_report_to_dict(r) for r in result.scalars()]
+
 
 async def get_report_db(report_id: str) -> Optional[dict]:
     async with AsyncSessionLocal() as session:
         row = await session.get(ReportModel, report_id)
         return _report_to_dict(row) if row else None
 
+
 async def save_report_db(report: dict):
     async with AsyncSessionLocal() as session:
-        await session.merge(ReportModel(
-            id=report["id"],
-            timerange_hours=report["timerange_hours"],
-            summary_json=json.dumps(report["summary_json"]),
-            markdown_content=report["markdown_content"],
-            created_at=report["created_at"]
-        ))
+        await session.merge(
+            ReportModel(
+                id=report["id"],
+                timerange_hours=report["timerange_hours"],
+                summary_json=json.dumps(report["summary_json"]),
+                markdown_content=report["markdown_content"],
+                created_at=report["created_at"],
+            )
+        )
         await session.commit()
+
+
+async def delete_report_db(report_id: str):
+    async with AsyncSessionLocal() as session:
+        row = await session.get(ReportModel, report_id)
+        if row:
+            await session.delete(row)
+            await session.commit()
+
 
 async def load_playbooks_db():
     async with AsyncSessionLocal() as session:
@@ -648,18 +897,22 @@ async def load_playbooks_db():
                 "name": r.name,
                 "description": r.description,
                 "is_active": r.is_active,
+                "execution_mode": r.execution_mode,
                 "conditions": r.conditions,
                 "actions": r.actions,
                 "created_at": r.created_at,
-                "updated_at": r.updated_at
-            } for r in result.scalars().all()
+                "updated_at": r.updated_at,
+            }
+            for r in result.scalars().all()
         ]
+
 
 async def save_playbook_db(playbook: dict):
     async with AsyncSessionLocal() as session:
         obj = PlaybookModel(**playbook)
         session.add(obj)
         await session.commit()
+
 
 async def update_playbook_db(playbook_id: str, data: dict):
     async with AsyncSessionLocal() as session:
@@ -669,13 +922,69 @@ async def update_playbook_db(playbook_id: str, data: dict):
                 if hasattr(row, k):
                     setattr(row, k, v)
             import time
+
             row.updated_at = time.time()
             await session.commit()
 
+
 async def delete_playbook_db(playbook_id: str):
     async with AsyncSessionLocal() as session:
-        await session.execute(delete(PlaybookModel).where(PlaybookModel.id == playbook_id))
+        result = await session.execute(
+            select(PlaybookModel).where(PlaybookModel.id == playbook_id)
+        )
+        obj = result.scalar_one_or_none()
+        if obj:
+            await session.delete(obj)
+            await session.commit()
+
+
+async def load_pending_executions_db():
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(
+            select(PendingExecutionModel).where(
+                PendingExecutionModel.status == "pending"
+            )
+        )
+        return [
+            {
+                "id": r.id,
+                "playbook_id": r.playbook_id,
+                "alert_id": r.alert_id,
+                "actions": r.actions,
+                "status": r.status,
+                "created_at": r.created_at,
+            }
+            for r in result.scalars().all()
+        ]
+
+
+async def save_pending_execution_db(execution: dict):
+    async with AsyncSessionLocal() as session:
+        obj = PendingExecutionModel(**execution)
+        session.add(obj)
         await session.commit()
+
+
+async def update_pending_execution_db(execution_id: str, status: str):
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(
+            select(PendingExecutionModel).where(
+                PendingExecutionModel.id == execution_id
+            )
+        )
+        obj = result.scalar_one_or_none()
+        if obj:
+            obj.status = status
+            await session.commit()
+            return {
+                "id": obj.id,
+                "playbook_id": obj.playbook_id,
+                "alert_id": obj.alert_id,
+                "actions": obj.actions,
+                "status": obj.status,
+            }
+        return None
+
 
 async def load_integrations_db() -> list[dict]:
     async with AsyncSessionLocal() as session:
@@ -687,15 +996,18 @@ async def load_integrations_db() -> list[dict]:
                 "name": r.name,
                 "url": r.url,
                 "is_active": r.is_active,
-                "created_at": r.created_at
-            } for r in result.scalars().all()
+                "created_at": r.created_at,
+            }
+            for r in result.scalars().all()
         ]
+
 
 async def save_integration_db(integration: dict):
     async with AsyncSessionLocal() as session:
         obj = IntegrationModel(**integration)
         await session.merge(obj)
         await session.commit()
+
 
 async def update_integration_db(integration_id: str, data: dict):
     async with AsyncSessionLocal() as session:
@@ -706,10 +1018,14 @@ async def update_integration_db(integration_id: str, data: dict):
                     setattr(row, k, v)
             await session.commit()
 
+
 async def delete_integration_db(integration_id: str):
     async with AsyncSessionLocal() as session:
-        await session.execute(delete(IntegrationModel).where(IntegrationModel.id == integration_id))
+        await session.execute(
+            delete(IntegrationModel).where(IntegrationModel.id == integration_id)
+        )
         await session.commit()
+
 
 async def insert_audit_log(log_entry: dict):
     async with AsyncSessionLocal() as session:
@@ -717,9 +1033,12 @@ async def insert_audit_log(log_entry: dict):
         session.add(obj)
         await session.commit()
 
+
 async def load_audit_logs_db(limit: int = 100) -> list[dict]:
     async with AsyncSessionLocal() as session:
-        result = await session.execute(select(AuditLogModel).order_by(AuditLogModel.timestamp.desc()).limit(limit))
+        result = await session.execute(
+            select(AuditLogModel).order_by(AuditLogModel.timestamp.desc()).limit(limit)
+        )
         return [
             {
                 "id": r.id,
@@ -727,14 +1046,18 @@ async def load_audit_logs_db(limit: int = 100) -> list[dict]:
                 "action": r.action,
                 "resource": r.resource,
                 "details": r.details,
-                "timestamp": r.timestamp
-            } for r in result.scalars().all()
+                "timestamp": r.timestamp,
+            }
+            for r in result.scalars().all()
         ]
+
 
 async def insert_threat_intel(intel_entry: dict):
     async with AsyncSessionLocal() as session:
         # Check if already exists
-        result = await session.execute(select(ThreatIntelModel).where(ThreatIntelModel.ip == intel_entry["ip"]))
+        result = await session.execute(
+            select(ThreatIntelModel).where(ThreatIntelModel.ip == intel_entry["ip"])
+        )
         existing = result.scalars().first()
         if existing:
             return
@@ -742,16 +1065,18 @@ async def insert_threat_intel(intel_entry: dict):
         session.add(obj)
         await session.commit()
 
+
 async def check_ip_threat_intel(ip: str) -> dict | None:
     async with AsyncSessionLocal() as session:
-        result = await session.execute(select(ThreatIntelModel).where(ThreatIntelModel.ip == ip))
+        result = await session.execute(
+            select(ThreatIntelModel).where(ThreatIntelModel.ip == ip)
+        )
         r = result.scalars().first()
         if r:
             return {
                 "ip": r.ip,
                 "source": r.source,
                 "threat_type": r.threat_type,
-                "severity": r.severity
+                "severity": r.severity,
             }
         return None
-

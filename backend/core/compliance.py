@@ -7,6 +7,7 @@ Provides:
 - Automated security posture assessment
 - Remediation recommendations
 """
+
 import asyncio
 import json
 import os
@@ -16,6 +17,7 @@ from backend.core.logger import log as logger
 
 try:
     import paramiko
+
     PARAMIKO_AVAILABLE = True
 except ImportError:
     PARAMIKO_AVAILABLE = False
@@ -347,7 +349,9 @@ CIS_CHECKS = [
 ]
 
 
-async def _ssh_exec(host: str, username: str, password: str, command: str, port: int = 22) -> tuple[int, str, str]:
+async def _ssh_exec(
+    host: str, username: str, password: str, command: str, port: int = 22
+) -> tuple[int, str, str]:
     """Execute a command over SSH."""
     if not PARAMIKO_AVAILABLE:
         return -1, "", "paramiko not installed"
@@ -357,10 +361,17 @@ async def _ssh_exec(host: str, username: str, password: str, command: str, port:
     try:
         await asyncio.to_thread(
             client.connect,
-            hostname=host, port=port, username=username, password=password,
-            timeout=10, look_for_keys=False, allow_agent=False,
+            hostname=host,
+            port=port,
+            username=username,
+            password=password,
+            timeout=10,
+            look_for_keys=False,
+            allow_agent=False,
         )
-        _, stdout, stderr = await asyncio.to_thread(client.exec_command, command, timeout=30)
+        _, stdout, stderr = await asyncio.to_thread(
+            client.exec_command, command, timeout=30
+        )
         exit_code = await asyncio.to_thread(stdout.channel.recv_exit_status)
         out = await asyncio.to_thread(stdout.read().decode, errors="replace")
         err = await asyncio.to_thread(stderr.read().decode, errors="replace")
@@ -371,7 +382,9 @@ async def _ssh_exec(host: str, username: str, password: str, command: str, port:
         client.close()
 
 
-async def run_compliance_scan(node_id: str, host: str, username: str, password: str, framework: str = "CIS") -> dict:
+async def run_compliance_scan(
+    node_id: str, host: str, username: str, password: str, framework: str = "CIS"
+) -> dict:
     """
     Run compliance scan against a node.
 
@@ -399,7 +412,9 @@ async def run_compliance_scan(node_id: str, host: str, username: str, password: 
     applicable_checks = [c for c in CIS_CHECKS if framework in c.get("frameworks", [])]
 
     for check in applicable_checks:
-        exit_code, out, err = await _ssh_exec(host, username, password, check["command"])
+        exit_code, out, err = await _ssh_exec(
+            host, username, password, check["command"]
+        )
 
         status = "pass"
         output = out.strip()
@@ -412,16 +427,18 @@ async def run_compliance_scan(node_id: str, host: str, username: str, password: 
         else:
             passed += 1
 
-        results.append({
-            "id": check["id"],
-            "title": check["title"],
-            "severity": check["severity"],
-            "category": check["category"],
-            "status": status,
-            "output": output,
-            "remediation": check.get("remediation", ""),
-            "frameworks": check.get("frameworks", []),
-        })
+        results.append(
+            {
+                "id": check["id"],
+                "title": check["title"],
+                "severity": check["severity"],
+                "category": check["category"],
+                "status": status,
+                "output": output,
+                "remediation": check.get("remediation", ""),
+                "frameworks": check.get("frameworks", []),
+            }
+        )
 
     # Calculate score
     total = len(results)
@@ -448,7 +465,9 @@ async def run_compliance_scan(node_id: str, host: str, username: str, password: 
     with open(scan_path, "w") as f:
         json.dump(scan_result, f, indent=2)
 
-    logger.info(f"[COMPLIANCE] Scan {scan_id} complete: {score}% ({passed}/{total} passed)")
+    logger.info(
+        f"[COMPLIANCE] Scan {scan_id} complete: {score}% ({passed}/{total} passed)"
+    )
 
     return scan_result
 
@@ -462,14 +481,16 @@ def get_scan_history() -> list[dict]:
             try:
                 with open(os.path.join(COMPLIANCE_DIR, f)) as fh:
                     data = json.load(fh)
-                    scans.append({
-                        "scan_id": data["scan_id"],
-                        "node_id": data["node_id"],
-                        "host": data["host"],
-                        "framework": data["framework"],
-                        "timestamp": data["timestamp"],
-                        "summary": data["summary"],
-                    })
+                    scans.append(
+                        {
+                            "scan_id": data["scan_id"],
+                            "node_id": data["node_id"],
+                            "host": data["host"],
+                            "framework": data["framework"],
+                            "timestamp": data["timestamp"],
+                            "summary": data["summary"],
+                        }
+                    )
             except Exception:
                 pass
     return scans

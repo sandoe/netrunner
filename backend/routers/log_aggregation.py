@@ -1,13 +1,18 @@
 """
 Netrunner Log Aggregation Router — API endpoints for centralized logging.
 """
+
 from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 from typing import Optional
 from .auth import require_admin
 from ..core.log_aggregation import (
-    fetch_logs, search_logs, get_log_stats, get_recent_logs,
-    aggregate_all_nodes, LogStore,
+    fetch_logs,
+    search_logs,
+    get_log_stats,
+    get_recent_logs,
+    aggregate_all_nodes,
+    LogStore,
 )
 from ..core.db import load_nodes_db
 
@@ -63,6 +68,7 @@ async def api_log_fetch(req: LogFetchRequest):
 
     try:
         from ..core.vault import get_credential
+
         cred = await get_credential(req.node_id, "ssh")
         if cred:
             username = cred.get("username", username)
@@ -117,6 +123,7 @@ async def api_log_node(node_id: str, log_type: str = "journalctl", lines: int = 
 
     try:
         from ..core.vault import get_credential
+
         cred = await get_credential(node_id, "ssh")
         if cred:
             username = cred.get("username", username)
@@ -153,7 +160,11 @@ async def api_log_aggregate_all():
 async def api_log_types():
     """List available log types."""
     types = [
-        {"id": "journalctl", "name": "Systemd Journal", "description": "Systemd journal logs"},
+        {
+            "id": "journalctl",
+            "name": "Systemd Journal",
+            "description": "Systemd journal logs",
+        },
         {"id": "syslog", "name": "Syslog", "description": "/var/log/syslog"},
         {"id": "auth", "name": "Auth Log", "description": "/var/log/auth.log"},
         {"id": "kern", "name": "Kernel Log", "description": "/var/log/kern.log"},

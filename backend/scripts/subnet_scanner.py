@@ -7,10 +7,11 @@ import re
 
 LOG_FILE = "/tmp/netrunner-scanner.json"
 
+
 def get_arp_table():
     arp_devices = {}
     try:
-        with open('/proc/net/arp', 'r') as f:
+        with open("/proc/net/arp", "r") as f:
             lines = f.readlines()[1:]
             for line in lines:
                 parts = line.split()
@@ -23,17 +24,23 @@ def get_arp_table():
         pass
     return arp_devices
 
+
 def get_all_cidrs():
     cidrs = []
     try:
         output = subprocess.check_output("ip -o -f inet addr show", shell=True).decode()
-        for line in output.split('\n'):
-            if not line: continue
+        for line in output.split("\n"):
+            if not line:
+                continue
             parts = line.split()
             if len(parts) >= 4:
                 iface = parts[1]
                 ip_cidr = parts[3]
-                if iface != "lo" and not iface.startswith("docker") and not iface.startswith("br-"):
+                if (
+                    iface != "lo"
+                    and not iface.startswith("docker")
+                    and not iface.startswith("br-")
+                ):
                     cidrs.append(ip_cidr)
     except Exception:
         pass
@@ -41,10 +48,13 @@ def get_all_cidrs():
         cidrs.append("192.168.1.0/24")
     return list(set(cidrs))
 
+
 def get_tailscale_devices():
     ts_devices = {}
     try:
-        output = subprocess.check_output("tailscale status --json", shell=True, stderr=subprocess.DEVNULL).decode()
+        output = subprocess.check_output(
+            "tailscale status --json", shell=True, stderr=subprocess.DEVNULL
+        ).decode()
         data = json.loads(output)
         if "Peer" in data:
             for peer_key, peer_info in data["Peer"].items():
@@ -56,20 +66,30 @@ def get_tailscale_devices():
         pass
     return ts_devices
 
+
 def main():
     print(f"Starting Netrunner Subnet Scanner... Logging to {LOG_FILE}")
     while True:
         cidrs = get_all_cidrs()
-        
+
         found_ips = set()
-        
+
         # 1. Nmap fast ping sweep on all CIDRs
         try:
-            if subprocess.run("which nmap", shell=True, stdout=subprocess.DEVNULL).returncode == 0:
+            if (
+                subprocess.run(
+                    "which nmap", shell=True, stdout=subprocess.DEVNULL
+                ).returncode
+                == 0
+            ):
                 for cidr in cidrs:
                     try:
-                        output = subprocess.check_output(f"nmap -sn -oG - {cidr}", shell=True, stderr=subprocess.DEVNULL).decode()
-                        for line in output.split('\n'):
+                        output = subprocess.check_output(
+                            f"nmap -sn -oG - {cidr}",
+                            shell=True,
+                            stderr=subprocess.DEVNULL,
+                        ).decode()
+                        for line in output.split("\n"):
                             if "Status: Up" in line:
                                 m = re.search(r"Host: ([\d\.]+)", line)
                                 if m:
@@ -80,9 +100,9 @@ def main():
                 # Fallback to pure bash ping
                 for cidr in cidrs:
                     if "/24" in cidr:
-                        base_ip = ".".join(cidr.split('/')[0].split(".")[:3]) + "."
+                        base_ip = ".".join(cidr.split("/")[0].split(".")[:3]) + "."
                         cmd = f"for i in {{1..254}}; do (ping -c 1 -W 1 {base_ip}$i >/dev/null 2>&1 &) ; done; sleep 1"
-                        subprocess.run(cmd, shell=True, executable='/bin/bash')
+                        subprocess.run(cmd, shell=True, executable="/bin/bash")
         except Exception:
             pass
 
@@ -90,7 +110,7 @@ def main():
         arp_devices = get_arp_table()
         for ip in arp_devices.keys():
             found_ips.add(ip)
-            
+
         # 3. Get Tailscale devices explicitly
         ts_devices = get_tailscale_devices()
         for ip in ts_devices.keys():
@@ -105,14 +125,29 @@ def main():
             devices.append({"ip": ip, "mac": mac})
 
         # Save to file
+        payload = {"timestamp": time.time(), "networks": cidrs, "devices": devices}
+        SERVER_URL = os.environ.get("ORCHESTRATOR_URL")
+        if SERVER_URL:
+            try:
+                import urllib.request
+
+                req = urllib.request.Request(
+                    f"{SERVER_URL.rstrip('/')}/api/telemetry",
+                    data=json.dumps(payload).encode("utf-8"),
+                    headers={"Content-Type": "application/json"},
+                )
+                urllib.request.urlopen(req, timeout=3)
+            except Exception as e:
+                print(f"Failed to send telemetry: {e}")
         try:
             with open(LOG_FILE, "w") as f:
-                json.dump({"timestamp": time.time(), "networks": cidrs, "devices": devices}, f)
+                json.dump(payload, f)
         except Exception as e:
             print(f"Failed to write log: {e}")
-        
+
         sys.stdout.flush()
-        time.sleep(60) # Scan every 60 seconds
+        time.sleep(60)  # Scan every 60 seconds
+
 
 if __name__ == "__main__":
     main()

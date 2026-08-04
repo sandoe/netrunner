@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import secrets
 import shutil
 import subprocess
 import sys
@@ -140,6 +141,23 @@ def main() -> None:
     parser.add_argument("--skip-frontend", action="store_true", help="Do not install/build the frontend.")
     args, netrunner_args = parser.parse_known_args()
 
+    # This legacy local launcher is a student distribution unless an instructor
+    # explicitly configures server mode and all corresponding secrets.
+    os.environ.setdefault("NETRUNNER_DEPLOYMENT_MODE", "student")
+    if not os.environ.get("NETRUNNER_STUDENT_PASSWORD"):
+        password_file = ROOT / "data" / ".student_password"
+        password_file.parent.mkdir(parents=True, exist_ok=True)
+        if password_file.exists():
+            student_password = password_file.read_text(encoding="utf-8").strip()
+        else:
+            student_password = secrets.token_urlsafe(16)
+            password_file.write_text(student_password, encoding="utf-8")
+            try:
+                password_file.chmod(0o600)
+            except OSError:
+                pass
+        os.environ["NETRUNNER_STUDENT_PASSWORD"] = student_password
+
     py = ensure_venv()
     ensure_databases()
     ensure_backend(py)
@@ -150,8 +168,8 @@ def main() -> None:
     print("", flush=True)
     print("Netrunner is starting.", flush=True)
     print(f"Open: {url}", flush=True)
-    print("First-run: Check console output for auto-generated admin/analyst passwords.", flush=True)
-    print("         Or set NETRUNNER_ADMIN_PASSWORD / NETRUNNER_ANALYST_PASSWORD before first run.", flush=True)
+    print("Mode: student (privileged accounts disabled).", flush=True)
+    print("Student password is stored locally in data/.student_password.", flush=True)
     print("", flush=True)
 
     cmd = [str(py), "netrunner.py", "--host", args.host, "--port", str(args.port)]

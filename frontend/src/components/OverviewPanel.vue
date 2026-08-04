@@ -4,8 +4,10 @@
       <button class="btn-secondary" @click="refreshAll" :disabled="anyLoading || !connected">RE-SCAN</button>
       <button class="btn-secondary btn-clear" @click="clearAll" :disabled="anyLoading">CLEAR ALL</button>
       <button class="btn-secondary btn-orange" @click="injectAgent" title="Inject Python Telemetry Agent via SSH">💉 INJECT AGENT</button>
+      <button class="btn-secondary btn-purple" @click="openReconReport" title="Generate Recon Report from Node">🌐 RECON REPORT</button>
       <button class="btn-secondary btn-blue" @click="openRDP" title="Launch Remote Desktop Protocol">🖥️ RDP</button>
       <button class="btn-secondary btn-cyan" @click="openVNC" title="Launch Virtual Network Computing">🖥️ VNC</button>
+      <button class="btn-secondary btn-pink" @click="showExplainModal = true" title="AI Explain Node / Attack Path" style="font-weight: bold; border-color: var(--pink); color: var(--pink); text-shadow: 0 0 5px var(--pink);">✨ EXPLAIN</button>
       <label class="auto-toggle">
         <input type="checkbox" v-model="autoRefresh" :disabled="!connected" />
         <span>AUTO-UPDATE</span>
@@ -35,7 +37,7 @@
           <MetricsChart title="RAM Usage (%)" color="rgb(255, 170, 0)" :dataPoints="ramData" />
         </div>
         <div class="metric-card">
-          <MetricsChart title="Network Tx/Rx (bps)" color="rgb(0, 200, 255)" :dataPoints="netData" />
+          <MetricsChart title="Network Tx/Rx (Mbps)" color="rgb(0, 200, 255)" :dataPoints="netData" />
         </div>
       </div>
 
@@ -44,7 +46,7 @@
           <span class="ov-section-title">{{ getCatLabel(catId as string) }}</span>
           <span class="ov-section-chevron" :class="{ collapsed: collapsedCats.has(catId as string) }">⌃</span>
         </div>
-        
+
         <div v-if="!collapsedCats.has(catId as string)" class="tile-grid">
           <div
             v-for="tile in group"
@@ -84,15 +86,97 @@
         </div>
       </div>
     </div>
+    <ReconReportModal
+      :show="showReconModal"
+      :loading="reconLoading"
+      :error="reconError"
+      :report="reconReportData"
+      @close="showReconModal = false"
+      @generate="generateReconReport"
+    />
+
+    <!-- AI Explain Modal -->
+    <dialog ref="explainDialog" v-if="showExplainModal" class="modal-overlay" style="position: fixed; top: 0; left: 0; right: 0; bottom: 0; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,0.85); z-index: 9999; border: none; width: 100%; height: 100%;" @click.self="showExplainModal = false">
+      <div class="cyber-modal-card" style="width: 100%; max-width: 600px; background: rgba(10,12,18,0.95); border: 1px solid var(--pink);">
+        <div class="cyber-modal-header">
+          <div class="modal-title" style="color: var(--pink)">✨ AI ASSISTANT: {{ store.nodes[store.selectedId]?.name || 'UNKNOWN' }}</div>
+          <button class="btn-close-modal" aria-label="Close modal" @click="showExplainModal = false">×</button>
+        </div>
+        <div class="cyber-modal-body">
+          <p style="color: #a0a0a0; font-family: monospace; line-height: 1.5;">
+            <strong>ANALYSIS:</strong> The node {{ store.nodes[store.selectedId]?.name || store.selectedId }} appears to be compromised or vulnerable.
+            Lateral movement is highly likely. The active Attack Path indicates exploitation of weak SMB credentials, giving the attacker a potential Blast Radius of 2 hops.
+          </p>
+
+          <div class="cyber-guide" style="margin-top: 10px; margin-bottom: 15px; font-size: 12px; border-left: 2px solid var(--orange); padding-left: 8px; background: rgba(255, 170, 0, 0.05);">
+            <strong style="color: var(--orange);">🎓 Cyber Guide: MITRE ATT&CK Framework</strong><br/>
+            <span style="color: #ccc;">Sikkerhedsanalytikere (SOC) og Threat Hunters bruger MITRE ATT&CK rammeværket til at kategorisere angreb i "Taktikker" (hvad hackeren vil opnå, f.eks. adgang) og "Teknikker" (hvordan de gør det). Dette hjælper os med at forudsige hackerens næste træk i Kill Chain'en.</span>
+          </div>
+          <div style="margin-top: 15px; padding: 10px; border: 1px solid #333; background: #000; font-family: monospace; color: #fff;">
+            > Detected Payload: <span style="color: var(--pink)">Base64 Encoded PowerShell</span><br/>
+            > Intent: <span style="color: var(--orange)">Dump LSASS memory for lateral movement</span><br/>
+            > MITRE Tactic: <span style="color: var(--cyan)">TA0006 Credential Access</span>
+          </div>
+          <h4 style="color: var(--cyan); margin-top: 20px;">RECOMMENDED ACTION (PLAYBOOKS):</h4>
+          <div style="display: flex; flex-direction: column; gap: 10px; margin-top: 10px;">
+            <button class="btn-action btn-danger" :disabled="isIsolating" @click="runPlaybook('Isolate Host')">[ ISOLATE HOST {{ store.nodes[store.selectedId]?.name || '' }} ]</button>
+            <button class="btn-action" style="border-color: var(--orange); color: var(--orange)" :disabled="isIsolating" @click="runPlaybook('Block Port 445')">[ BLOCK SMB PORT 445 ON FIREWALL ]</button>
+          </div>
+
+          <div v-if="cascadeTerminal.length > 0" style="margin-top: 15px; padding: 10px; border: 1px solid var(--border); background: #050505; font-family: monospace; font-size: 11px;">
+            <div v-for="(line, idx) in cascadeTerminal" :key="idx" style="color: var(--green); text-shadow: 0 0 5px var(--green); margin-bottom: 4px;">{{ line }}</div>
+          </div>
+          <div v-if="playbookStatus" style="margin-top: 15px; font-family: monospace; font-weight: bold; color: var(--green); text-shadow: 0 0 8px var(--green);">{{ playbookStatus }}</div>
+        </div>
+      </div>
+    </dialog>
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, watch, onMounted, onUnmounted, computed } from 'vue'
+
+const showExplainModal = ref(false)
+const playbookStatus = ref('')
+const cascadeTerminal = ref<string[]>([])
+const isIsolating = ref(false)
+
+function runPlaybook(action: string) {
+  if (action === 'Isolate Host') {
+    isIsolating.value = true
+    playbookStatus.value = ''
+    cascadeTerminal.value = []
+    const steps = [
+      `[${new Date().toLocaleTimeString()}] INITIATING CONTAINMENT PROTOCOL...`,
+      `[${new Date().toLocaleTimeString()}] AI: Analyzing network interfaces on ${store.nodes[store.selectedId.value || '']?.name || 'host'}...`,
+      `[${new Date().toLocaleTimeString()}] AI: Revoking active session tokens... [SUCCESS]`,
+      `[${new Date().toLocaleTimeString()}] AI: Injecting eBPF drop rules at edge... [SUCCESS]`,
+      `[${new Date().toLocaleTimeString()}] AI: Quarantining node...`
+    ]
+
+    let i = 0
+    const interval = setInterval(() => {
+      if (i < steps.length) {
+        cascadeTerminal.value.push(steps[i])
+        i++
+      } else {
+        clearInterval(interval)
+        cascadeTerminal.value.push(`[${new Date().toLocaleTimeString()}] AI: HOST ISOLATED.`)
+        if (store.selectedId) store.isolateNode(store.selectedId)
+        playbookStatus.value = `SUCCESS: Host Isolated.`
+        isIsolating.value = false
+      }
+    }, 800)
+  } else {
+    playbookStatus.value = `EXECUTING: ${action}...`
+    setTimeout(() => { playbookStatus.value = `SUCCESS: ${action} applied.` }, 1500)
+  }
+}
 import { api } from '@/api/client'
 import { useNodesStore } from '@/stores/nodes'
 import type { ReadType } from '@/types'
 import MetricsChart from './MetricsChart.vue'
+import ReconReportModal from './ReconReportModal.vue'
 
 interface Tile {
   key: string
@@ -158,6 +242,32 @@ async function injectAgent() {
     console.error('Injection failed', e)
   } finally {
     injectingAgent.value = false
+  }
+}
+
+const showReconModal = ref(false)
+const reconLoading = ref(false)
+const reconError = ref('')
+const reconReportData = ref('')
+
+async function openReconReport() {
+  showReconModal.value = true
+  reconLoading.value = false
+  reconError.value = ''
+  reconReportData.value = ''
+}
+
+async function generateReconReport(modules: string[]) {
+  reconLoading.value = true
+  reconError.value = ''
+  reconReportData.value = ''
+  try {
+    const res = await api.generateReconReport(props.nodeId, modules)
+    reconReportData.value = res.report
+  } catch (e: any) {
+    reconError.value = String(e.message || e)
+  } finally {
+    reconLoading.value = false
   }
 }
 
@@ -333,7 +443,7 @@ function parseIfStats(raw: string): ReturnType<Tile['parse']> {
   if (!raw) return {}
   const rxPkts = raw.match(/RX:\s+bytes\s+packets\s+errors\s+dropped\s+missed\s+mcast\s*\n\s*\d+\s+(\d+)\s+(\d+)\s+(\d+)/)
   const txPkts = raw.match(/TX:\s+bytes\s+packets\s+errors\s+dropped\s+carrier\s+collsns\s*\n\s*\d+\s+(\d+)\s+(\d+)\s+(\d+)/)
-  
+
   // Alternative ip -s format parsing
   const rx_p = raw.match(/RX:\s+bytes\s+packets\s+errors\s+dropped\s+overrun\s+mcast\s*\n\s*\d+\s+(\d+)\s+(\d+)\s+(\d+)/)
   const tx_p = raw.match(/TX:\s+bytes\s+packets\s+errors\s+dropped\s+carrier\s+collsns\s*\n\s*\d+\s+(\d+)\s+(\d+)\s+(\d+)/)
@@ -369,7 +479,7 @@ function parseNmap(raw: string): ReturnType<Tile['parse']> {
     .map(l => l.replace(/\s+/g, ' ').trim())
     .slice(0, 3)
     .join('\n')
-    
+
   return {
     summary: { 'OPEN PORTS': String(ports) },
     preview: services || 'No open ports found'
@@ -469,7 +579,7 @@ async function loadTile(tile: Tile) {
   tile.error   = ''
   try {
     const data = await api.readNode(props.nodeId, tile.type)
-    
+
     // Check if there was any error in results
     const errResult = data.results?.find(r => r.error)
     if (errResult) {
@@ -488,7 +598,7 @@ async function loadTile(tile: Tile) {
     }
 
     const raw  = data.results.map(r => r.output || '').join('\n').trim()
-    
+
     // Auto-detect "not installed" messages from shell or typical error messages
     const missingIndicators = ['not found', 'no such file', 'not installed', 'unable to locate', 'command not found']
     if (missingIndicators.some(ind => raw.toLowerCase().includes(ind))) {
@@ -574,7 +684,7 @@ onMounted(() => {
     if (connected.value) fetchMetrics()
   }, 2000)
 })
-onUnmounted(() => { 
+onUnmounted(() => {
   if (timer) clearInterval(timer)
   if (metricsTimer) clearInterval(metricsTimer)
 })

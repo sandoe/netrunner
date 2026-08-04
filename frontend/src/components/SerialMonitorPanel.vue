@@ -27,10 +27,10 @@ const connect = async (doReset = false) => {
   if (ws) ws.close();
   if (term) term.clear();
   
-  const token = localStorage.getItem('nr_token');
+  const token = localStorage.getItem('nr_token') || '';
   
   const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-  const url = `${wsProtocol}//${window.location.host}/api/v1/usb/monitor/${activeNodeId.value}?port=${encodeURIComponent(activePort.value)}&baud=${baudrate.value}&token=${token}&reset=${doReset}`;
+  const url = `${wsProtocol}//${window.location.host}/api/v1/usb/monitor/${encodeURIComponent(activeNodeId.value)}?port=${encodeURIComponent(activePort.value)}&baud=${baudrate.value}&token=${encodeURIComponent(token)}&reset=${doReset}`;
   
   ws = new WebSocket(url);
   
