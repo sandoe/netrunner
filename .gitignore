@@ -68,3 +68,14 @@ data/
 /frontend/e2e/debug.spec.ts
 /frontend/e2e/screenshot.spec.ts
 /frontend/e2e/terminal_focus.spec.ts
+
+# Sensitive and unnecessary files/folders
+/.antigravitycli/
+/.claude/
+/.certs/
+/scratch/
+/test-switch/
+/AI_Council_Discussion.md
+/NETRUNNER_MEMORY.md
+/plan.md
+/netrunner-agent-test
